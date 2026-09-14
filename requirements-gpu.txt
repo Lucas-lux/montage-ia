@@ -1,0 +1,9 @@
+# Bibliothèques CUDA 12 pour faster-whisper / CTranslate2 sur GPU NVIDIA
+# (Windows et Linux). Sans elles, l'application marche mais transcrit sur le
+# processeur. Demande un pilote NVIDIA récent.
+-r requirements.txt
+
+nvidia-cublas-cu12; sys_platform != "darwin"
+nvidia-cudnn-cu12; sys_platform != "darwin"
+nvidia-cuda-runtime-cu12; sys_platform != "darwin"
+nvidia-cuda-nvrtc-cu12; sys_platform != "darwin"

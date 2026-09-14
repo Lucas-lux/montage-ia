@@ -1,0 +1,5 @@
+# Fabrication de l'application Windows (build/build.py).
+# L'installeur demande aussi Inno Setup :  winget install JRSoftware.InnoSetup
+-r requirements-gpu.txt
+
+pyinstaller>=6

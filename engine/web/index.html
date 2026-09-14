@@ -1,0 +1,2261 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Montage IA</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23F23A52%22/%3E%3Cpath d=%22M11 9v14l11-7z%22 fill=%22%23fff%22/%3E%3C/svg%3E" />
+<style>
+  :root {
+    --bg: #ECECEE;
+    --card: #FFFFFF;
+    --soft: #F4F4F5;
+    --soft-2: #EBEBEE;
+    --line: #E4E4E8;
+    --line-2: #D5D5DA;
+    --ink: #17181C;
+    --ink-2: #6B6F76;
+    --ink-3: #9DA1A9;
+    --accent: #F23A52;
+    --accent-d: #D82C43;
+    --stage: #121317;
+    --r-card: 12px;
+    --r-ctl: 8px;
+    --r-chip: 6px;
+    --shadow: 0 1px 2px rgba(23,24,28,.05), 0 6px 18px rgba(23,24,28,.05);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased; overflow: hidden;
+    user-select: none;   /* l'app se manipule au glisser : pas de texte surligné */
+  }
+  input, textarea, [contenteditable], .path, .kv, .meta.err { user-select: text; }
+  button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+  svg { display: block; flex: 0 0 auto; }
+  .hidden { display: none !important; }
+  .row { display: flex; align-items: center; gap: 8px; }
+  .grow { flex: 1; min-width: 0; }
+  .ell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ------------------------------------------------------------- typographie */
+  .label {
+    font-size: 10.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .meta { font-size: 12px; color: var(--ink-2); }
+  .num { font-variant-numeric: tabular-nums; }
+  h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+  h2 { font-size: 15px; font-weight: 620; margin: 0; }
+
+  /* ---------------------------------------------------------------- contrôles */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; justify-content: center;
+    height: 34px; padding: 0 14px; border-radius: var(--r-ctl);
+    background: var(--card); border: 1px solid var(--line-2); color: var(--ink);
+    font-size: 13px; font-weight: 550; transition: background .12s, border-color .12s;
+    text-decoration: none;
+  }
+  .btn:hover { background: var(--soft); border-color: var(--ink-3); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn:disabled:hover { background: var(--card); border-color: var(--line-2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-d); border-color: var(--accent-d); }
+  .btn.dark { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .btn.dark:hover { background: #000; }
+  .btn.quiet { background: transparent; border-color: transparent; color: var(--ink-2); }
+  .btn.quiet:hover { background: var(--soft-2); color: var(--ink); }
+  .btn.icon { width: 34px; padding: 0; }
+  .btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
+  .btn.sm.icon { width: 28px; padding: 0; }
+
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; height: 32px; background: var(--soft); border: 1px solid transparent;
+    color: var(--ink); border-radius: var(--r-ctl); padding: 0 10px; font: inherit;
+    font-size: 13px;
+  }
+  textarea { height: auto; padding: 8px 10px; resize: vertical; line-height: 1.4; }
+  select { appearance: none; padding-right: 26px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236B6F76' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--ink); background: var(--card);
+  }
+  input[type=color] {
+    width: 100%; height: 30px; padding: 2px; background: var(--soft);
+    border: 1px solid var(--line); border-radius: var(--r-ctl); cursor: pointer;
+  }
+  input[type=range] {
+    width: 100%; height: 18px; appearance: none; background: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 3px; background: var(--soft-2); border-radius: 2px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    appearance: none; width: 13px; height: 13px; border-radius: 50%; background: var(--ink);
+    margin-top: -5px; border: 2px solid var(--card); box-shadow: 0 0 0 1px var(--line-2);
+  }
+  .check { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; }
+  input[type=checkbox] {
+    appearance: none; width: 15px; height: 15px; border-radius: 4px; background: var(--card);
+    border: 1px solid var(--line-2); position: relative; cursor: pointer; flex: 0 0 auto;
+  }
+  input[type=checkbox]:checked { background: var(--ink); border-color: var(--ink); }
+  input[type=checkbox]:checked::after {
+    content: ""; position: absolute; left: 4px; top: 1px; width: 4px; height: 8px;
+    border: solid #fff; border-width: 0 1.6px 1.6px 0; transform: rotate(42deg);
+  }
+
+  .field { margin-bottom: 12px; }
+  .field .head {
+    display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px;
+  }
+  .field .head b { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    height: 28px; padding: 0 11px; border-radius: var(--r-chip); background: var(--soft);
+    border: 1px solid transparent; font-size: 12.5px; font-weight: 550; color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .chip:hover { border-color: var(--line-2); color: var(--ink); }
+  .chip.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .stat {
+    height: 28px; padding: 0 10px; border-radius: var(--r-chip); background: var(--soft);
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2);
+    white-space: nowrap;
+  }
+  .stat b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .card { background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow); }
+  .card > .ch {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 13px 14px 11px;
+  }
+  .card > .cb { padding: 0 14px 14px; }
+  .sep { height: 1px; background: var(--line); margin: 12px 0; }
+
+  /* ---------------------------------------------------------------- structure */
+  .app { display: flex; height: 100%; padding: 10px; gap: 10px; }
+  .rail {
+    width: 54px; flex: 0 0 auto; background: var(--card); border-radius: var(--r-card);
+    box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center;
+    padding: 10px 0; gap: 6px;
+  }
+  .mark {
+    width: 30px; height: 30px; border-radius: 7px; background: var(--accent); color: #fff;
+    display: grid; place-items: center; margin-bottom: 8px;
+  }
+  .rbtn {
+    width: 36px; height: 36px; border-radius: var(--r-ctl); display: grid; place-items: center;
+    color: var(--ink-3);
+  }
+  .rbtn:hover { background: var(--soft); color: var(--ink); }
+  .rbtn.on { background: var(--soft-2); color: var(--ink); }
+  .rbtn:disabled { opacity: .3; cursor: not-allowed; background: none; }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .view { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; }
+  .scroll { overflow: auto; }
+
+  /* ------------------------------------------------------------- vue projets */
+  .page-head { display: flex; align-items: center; gap: 12px; padding: 4px 4px 0; }
+  .pgrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: 10px; padding: 2px 4px 20px;
+  }
+  .pcard {
+    background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow);
+    overflow: hidden; cursor: pointer; border: 1px solid transparent;
+    transition: border-color .12s;
+  }
+  .pcard:hover { border-color: var(--ink-3); }
+  .pthumb {
+    position: relative; aspect-ratio: 16 / 10; background: var(--soft-2);
+    display: grid; place-items: center; color: var(--ink-3); overflow: hidden;
+  }
+  .pthumb img { width: 100%; height: 100%; object-fit: cover; }
+  .ptag {
+    position: absolute; top: 8px; left: 8px; height: 22px; padding: 0 8px; border-radius: 5px;
+    background: var(--accent); color: #fff; font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .pdel {
+    position: absolute; top: 8px; right: 8px; width: 26px; height: 26px; border-radius: 6px;
+    background: rgba(255,255,255,.92); color: var(--ink-2); display: grid; place-items: center;
+    opacity: 0; transition: opacity .12s;
+  }
+  .pcard:hover .pdel { opacity: 1; }
+  .pdel:hover { background: #fff; color: var(--accent); }
+  .pbody { padding: 10px 12px 12px; }
+  .pbody .nm { font-size: 13.5px; font-weight: 600; margin-bottom: 3px; }
+  .pnew {
+    background: var(--card); border-radius: var(--r-card); border: 1px dashed var(--line-2);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 8px; color: var(--ink-2); cursor: pointer; min-height: 180px; font-weight: 550;
+    font-size: 13px;
+  }
+  .pnew:hover { border-color: var(--ink-3); color: var(--ink); }
+  .empty { padding: 50px 20px; text-align: center; color: var(--ink-2); }
+
+  /* -------------------------------------------------------------- vue import */
+  .narrow { width: 100%; max-width: 620px; margin: 0 auto; padding-bottom: 24px; }
+  .drop {
+    border: 1px dashed var(--line-2); border-radius: var(--r-ctl); padding: 26px;
+    text-align: center; cursor: pointer; color: var(--ink-2); background: var(--soft);
+  }
+  .drop:hover, .drop.over { border-color: var(--ink); color: var(--ink); background: var(--soft-2); }
+  .drop b { display: block; color: var(--ink); font-weight: 600; margin-bottom: 2px; }
+  .or { display: flex; align-items: center; gap: 10px; color: var(--ink-3); font-size: 12px;
+        margin: 12px 0; }
+  .or::before, .or::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+  .styleopt {
+    display: flex; align-items: center; gap: 10px; padding: 9px 11px; border-radius: var(--r-ctl);
+    border: 1px solid var(--line); cursor: pointer; background: var(--card);
+  }
+  .styleopt:hover { border-color: var(--line-2); }
+  .styleopt.on { border-color: var(--ink); }
+  .swatch { width: 26px; height: 26px; border-radius: 5px; display: grid; place-items: center;
+            font-size: 13px; font-weight: 800; flex: 0 0 auto; }
+
+  /* ----------------------------------------------------------- vue occupation */
+  .busywrap { flex: 1; display: grid; place-items: center; }
+  .busy { width: 100%; max-width: 380px; text-align: center; }
+  .track-bar { height: 4px; background: var(--soft-2); border-radius: 2px; overflow: hidden;
+               margin: 14px 0 8px; }
+  .track-bar > i { display: block; height: 100%; width: 0; background: var(--ink);
+                   transition: width .3s; }
+  .err { color: var(--accent); }
+
+  /* -------------------------------------------------------------- vue éditeur */
+  .topbar {
+    display: flex; align-items: center; gap: 10px; background: var(--card);
+    border-radius: var(--r-card); box-shadow: var(--shadow); padding: 8px 10px; flex: 0 0 auto;
+  }
+  .titlein {
+    height: 30px; background: transparent; border: 1px solid transparent; font-weight: 620;
+    font-size: 14px; padding: 0 8px; width: 220px; flex: 0 0 auto; border-radius: 6px;
+  }
+  .titlein:hover { background: var(--soft); }
+  .titlein:focus { background: var(--card); border-color: var(--ink); }
+
+  .work { flex: 1; min-height: 0; display: grid; grid-template-columns: 244px 1fr 300px;
+          gap: 10px; }
+  .pane { background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow);
+          display: flex; flex-direction: column; min-height: 0; }
+  .pane > .ph {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 12px 12px 10px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+  }
+  .pane > .pb { overflow: auto; padding: 10px 12px 14px; flex: 1; min-height: 0; }
+
+  /* liste des sous-titres */
+  .crow {
+    display: flex; gap: 8px; align-items: flex-start; padding: 7px 8px; border-radius: 7px;
+    cursor: pointer; border: 1px solid transparent; margin-bottom: 2px;
+  }
+  .crow:hover { background: var(--soft); }
+  .crow.sel { background: var(--soft-2); border-color: var(--ink); }
+  .crow.now { border-color: var(--accent); }
+  .crow .tm { font-size: 11px; color: var(--ink-3); min-width: 32px; padding-top: 1px; }
+  .crow .tx { flex: 1; font-size: 13px; word-break: break-word; }
+  .crow.off .tx { text-decoration: line-through; color: var(--ink-3); }
+
+  /* scène */
+  .stagepane { display: flex; flex-direction: column; min-height: 0; gap: 10px; }
+  .stagecard { flex: 1; min-height: 0; background: var(--card); border-radius: var(--r-card);
+               box-shadow: var(--shadow); padding: 10px; display: flex; }
+  /* Flex et non grid : une hauteur en % ne se résout que contre un conteneur
+     de hauteur définie, ce qu'une piste de grille auto n'est pas — la scène
+     prenait alors la taille native de la vidéo et débordait de sa carte. */
+  .stagebox { flex: 1; min-height: 0; background: var(--stage); border-radius: 8px;
+              display: flex; align-items: center; justify-content: center;
+              overflow: hidden; }
+  .stage { position: relative; height: 100%; max-height: 100%; max-width: 100%;
+           touch-action: none; }
+  .stage video { display: block; width: 100%; height: 100%; object-fit: contain;
+                 background: var(--stage); }
+  /* Les deux couches se superposent en plein cadre : sans `pointer-events:
+     none` celle du dessus avalerait les clics destinés aux sous-titres de
+     l'autre (et au clic dans le vide qui désélectionne). */
+  .layer { position: absolute; inset: 0; pointer-events: none; }
+
+  .cap {
+    position: absolute; transform: translate(-50%, -50%); cursor: grab;
+    /* comme libass : le texte se replie à la largeur du CADRE, pas au-delà.
+       `width: max-content` est indispensable — sans lui, un élément posé en
+       `left: x%` ne dispose que de la largeur restante et se replie trop tôt. */
+    white-space: pre-wrap; width: max-content; max-width: 100%;
+    text-align: center; line-height: 1.15; font-weight: 700; touch-action: none;
+    pointer-events: auto;
+  }
+  .cap.dragging { cursor: grabbing; }
+  .cap.ghost { opacity: .5; }
+  .cap .txt { display: inline-block; }
+  .cap w { display: inline-block; transition: color .06s, transform .06s; }
+  .cap.sel::after {
+    content: ""; position: absolute; inset: -6px; border: 1px solid var(--accent);
+    border-radius: 3px; pointer-events: none;
+  }
+  .cap .hd {
+    position: absolute; right: -11px; bottom: -11px; width: 11px; height: 11px;
+    background: var(--card); border: 1.5px solid var(--accent); border-radius: 2px;
+    cursor: nwse-resize; display: none;
+  }
+  .cap.sel.solo .hd { display: block; }
+  .cap .emoji { position: absolute; left: 50%; transform: translate(-50%, -50%);
+                cursor: grab; line-height: 1; }
+  .cap .editbox {
+    background: rgba(18,19,23,.82); outline: 1px solid var(--accent); border-radius: 3px;
+    padding: 0 6px; white-space: pre-wrap; cursor: text;
+  }
+  .guide { position: absolute; background: var(--accent); opacity: .9; pointer-events: none; }
+  .guide.v { top: 0; bottom: 0; width: 1px; }
+  .guide.h { left: 0; right: 0; height: 1px; }
+  .flash {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: #fff; font-size: 11.5px; font-weight: 600;
+    padding: 4px 10px; border-radius: 5px; pointer-events: none; opacity: 0;
+    transition: opacity .16s; display: flex; align-items: center; gap: 5px;
+  }
+  .flash.on { opacity: 1; }
+
+  /* transport */
+  .transport { flex: 0 0 auto; background: var(--card); border-radius: var(--r-card);
+               box-shadow: var(--shadow); padding: 10px 12px 11px; }
+  .playbtn {
+    width: 34px; height: 34px; border-radius: 50%; background: var(--ink); color: #fff;
+    display: grid; place-items: center; flex: 0 0 auto;
+  }
+  .playbtn:hover { background: #000; }
+  .tl {
+    position: relative; height: 42px; background: var(--soft); border-radius: 7px;
+    overflow: hidden; flex: 1; min-width: 0; cursor: pointer;
+  }
+  .tl .cb { position: absolute; top: 9px; height: 12px; background: #C6C9CF; border-radius: 2px; }
+  .tl .cb:hover { background: #AEB2BA; }
+  .tl .cb.sel { background: var(--ink); }
+  .tl .cb.off { background: #E0E1E5; }
+  .tl .st { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent);
+            opacity: .85; cursor: pointer; }
+  /* zone de clic plus large que le trait d'1 px */
+  .tl .st::before { content: ""; position: absolute; top: 0; bottom: 0; left: -5px; width: 11px; }
+  .tl .st:hover, .tl .st.on { width: 2px; opacity: 1; }
+  .tl .st::after {
+    content: ""; position: absolute; top: 0; left: -2.5px; border-left: 3px solid transparent;
+    border-right: 3px solid transparent; border-top: 5px solid var(--accent);
+  }
+  .tl .hd { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--ink);
+            pointer-events: none; }
+  .tl .hd::after { content: ""; position: absolute; top: 0; left: -3.5px; width: 8px;
+                   height: 5px; background: var(--ink); border-radius: 1px; }
+  .tl .band { position: absolute; top: 0; bottom: 0; background: rgba(242,58,82,.14);
+              border-left: 1px solid var(--accent); border-right: 1px solid var(--accent);
+              pointer-events: none; }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--ink-3); margin-top: 7px;
+            flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+              margin-right: 5px; vertical-align: -1px; }
+
+  /* panneau blancs */
+  .big { font-size: 22px; font-weight: 660; letter-spacing: -.02em;
+         font-variant-numeric: tabular-nums; }
+  .srcbar { position: relative; height: 18px; border-radius: 5px; overflow: hidden;
+            background: var(--accent); margin: 8px 0 6px; }
+  .srcbar .k { position: absolute; top: 0; bottom: 0; background: #C6C9CF; }
+  .srcbar .f { position: absolute; top: 0; bottom: 0; background: var(--ink); opacity: .55; }
+  .srcbar .r { position: absolute; bottom: 0; height: 4px; background: var(--ink); }
+  .kept { margin-top: 10px; }
+  .kept .kr { display: flex; align-items: center; gap: 8px; padding: 2px 0; font-size: 12px;
+              font-variant-numeric: tabular-nums; }
+  .kept .kr span { flex: 1; color: var(--ink-2); }
+
+  /* menu d'un repère de coupe */
+  .cutpop { position: fixed; z-index: 60; width: 250px; background: var(--card);
+            border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow);
+            padding: 12px; }
+  .cutpop .ttl { display: flex; align-items: center; gap: 6px; font-size: 13px;
+                 font-weight: 600; color: var(--accent); }
+  .cutpop .said { margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--soft);
+                  font-size: 12px; color: var(--ink); }
+  .cutpop .btn { width: 100%; margin-top: 10px; }
+
+  .emopick { display: flex; flex-wrap: wrap; gap: 4px; }
+  .emopick button {
+    width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line);
+    background: var(--card); font-size: 14px; display: grid; place-items: center;
+  }
+  .emopick button:hover { border-color: var(--ink-3); }
+  .emopick button.on { border-color: var(--ink); background: var(--soft-2); }
+
+  /* ---------------------------------------------------------------- surcouche */
+  .overlay { position: fixed; inset: 0; background: rgba(23,24,28,.42); display: grid;
+             place-items: center; z-index: 60; padding: 20px; }
+  .modal { width: 100%; max-width: 400px; background: var(--card); border-radius: var(--r-card);
+           box-shadow: 0 20px 60px rgba(0,0,0,.2); max-height: 88vh; overflow: auto; }
+  .modal .mh { display: flex; align-items: center; justify-content: space-between;
+               padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+  .modal .mb { padding: 14px 16px 16px; }
+  /* Un short est en 9:16 : sans plafond de hauteur, l'aperçu pousse les
+     informations et les boutons hors de la fenêtre. */
+  .modal video { width: 100%; max-height: 40vh; object-fit: contain;
+                 border-radius: 8px; background: #000; display: block; }
+  .notice {
+    display: flex; gap: 8px; padding: 9px 11px; border-radius: var(--r-ctl);
+    background: #FDF0F2; color: var(--accent-d); font-size: 12.5px; margin-bottom: 12px;
+    align-items: flex-start;
+  }
+  .kv { display: flex; justify-content: space-between; font-size: 12.5px; padding: 5px 0; }
+  .kv span { color: var(--ink-2); }
+  .kv b { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .path { font-size: 11px; color: var(--ink-3); word-break: break-all; margin-top: 8px;
+          background: var(--soft); padding: 7px 9px; border-radius: 6px; }
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%) translateY(6px);
+    background: var(--ink); color: #fff; padding: 9px 14px; border-radius: var(--r-ctl);
+    font-size: 13px; z-index: 80; opacity: 0; transition: opacity .18s, transform .18s;
+    pointer-events: none;
+  }
+  .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  @media (max-width: 1180px) {
+    body { overflow: auto; }
+    .app { height: auto; min-height: 100%; }
+    .work { grid-template-columns: 1fr; }
+    .stagecard { min-height: 420px; }
+    .titlein { width: 140px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <nav class="rail">
+    <div class="mark" title="Montage IA">
+      <svg viewBox="0 0 20 20" width="15" height="15" fill="currentColor"><path d="M6 4v12l10-6z"/></svg>
+    </div>
+    <button class="rbtn" id="navProjects" title="Projets"></button>
+    <button class="rbtn" id="navEditor" title="Éditeur" disabled></button>
+  </nav>
+
+  <div class="main">
+
+    <!-- ===================================================== 1. PROJETS ==== -->
+    <div class="view" id="v-projects">
+      <div class="page-head">
+        <h1 class="grow">Projets</h1>
+        <button class="btn primary" id="newProject"></button>
+      </div>
+      <div class="scroll grow">
+        <div class="pgrid" id="pgrid"></div>
+        <div class="empty hidden" id="pempty">
+          Aucun projet pour l'instant. Importe un rush pour commencer.
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================== 2. IMPORT ==== -->
+    <div class="view hidden" id="v-import">
+      <div class="scroll grow">
+        <div class="narrow">
+          <div class="page-head" style="padding:4px 0 14px">
+            <button class="btn icon quiet" id="importBack"></button>
+            <h1 class="grow">Nouveau projet</h1>
+          </div>
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Source</h2></div>
+            <div class="cb">
+              <div class="drop" id="drop">
+                <b>Dépose ta vidéo ici</b>
+                <span class="meta">ou clique pour la choisir</span>
+                <input type="file" id="file" accept="video/*" class="hidden" />
+              </div>
+              <div class="meta hidden" id="fname" style="margin-top:8px"></div>
+              <div class="or">ou</div>
+              <input type="text" id="path" placeholder="C:\Users\...\rush.mp4" />
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Style de départ</h2>
+              <span class="meta">modifiable ensuite</span></div>
+            <div class="cb" id="styleList" style="display:grid;gap:6px"></div>
+          </div>
+
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Montage</h2></div>
+            <div class="cb">
+              <div class="field">
+                <div class="head"><span class="label">Seuil des blancs</span><b id="gapVal">0,5 s</b></div>
+                <input type="range" id="maxGap" min="0.2" max="1.5" step="0.1" value="0.5" />
+              </div>
+              <div class="field">
+                <div class="head"><span class="label">Caractères max / ligne</span><b id="charVal">18</b></div>
+                <input type="range" id="maxChars" min="10" max="30" step="1" value="18" />
+              </div>
+              <div class="g2">
+                <div class="field">
+                  <div class="head"><span class="label">Recadrage</span></div>
+                  <select id="vertical">
+                    <option value="true" selected>Vertical 9:16</option>
+                    <option value="false">Format d'origine</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <div class="head"><span class="label">Calcul</span></div>
+                  <select id="device">
+                    <option value="auto" selected>Auto (GPU si dispo)</option>
+                    <option value="cuda">GPU NVIDIA</option>
+                    <option value="cpu">Processeur</option>
+                  </select>
+                </div>
+              </div>
+              <div class="sep"></div>
+              <label class="check" style="margin-bottom:9px"><input type="checkbox" id="cutSilence" checked /> Couper les blancs</label>
+              <label class="check" style="margin-bottom:9px"><input type="checkbox" id="cutFillers" /> Couper les tics de langage <span class="meta">(euh, du coup…)</span></label>
+              <label class="check"><input type="checkbox" id="useEmojis" checked /> Émojis sur les mots importants</label>
+            </div>
+          </div>
+
+          <button class="btn primary" id="go" style="width:100%;height:38px">Analyser la vidéo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================== 3. PROGRESSION ==== -->
+    <div class="view hidden" id="v-busy">
+      <div class="busywrap">
+        <div class="busy">
+          <div class="label" id="busyPhase">Analyse</div>
+          <div style="font-weight:600;margin-top:6px" id="busyTitle">Analyse de la vidéo…</div>
+          <div class="track-bar"><i id="busyBar"></i></div>
+          <div class="meta" id="busyMsg">Démarrage…</div>
+          <button class="btn sm hidden" id="busyBack" style="margin-top:16px">Retour aux projets</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================================================== 4. ÉDITEUR ==== -->
+    <div class="view hidden" id="v-edit">
+      <div class="topbar">
+        <button class="btn icon quiet" id="edBack" title="Projets"></button>
+        <input class="titlein" id="edName" spellcheck="false" />
+        <div class="row grow" style="gap:6px">
+          <span class="stat" id="stDur"></span>
+          <span class="stat" id="stCaps"></span>
+          <span class="stat" id="stCut"></span>
+        </div>
+        <button class="btn icon" id="undo" title="Annuler (Ctrl+Z)"></button>
+        <button class="btn icon" id="redo" title="Rétablir (Ctrl+Y)"></button>
+        <button class="btn primary" id="export"></button>
+      </div>
+
+      <div class="work">
+        <!-- liste -->
+        <div class="pane">
+          <div class="ph">
+            <span class="label">Sous-titres</span>
+            <div class="row" style="gap:4px">
+              <span class="meta num" id="capCount"></span>
+              <button class="btn sm icon quiet" id="selAll" title="Tout sélectionner (Ctrl+A)"></button>
+            </div>
+          </div>
+          <div class="pb" id="capList"></div>
+        </div>
+
+        <!-- scène -->
+        <div class="stagepane">
+          <div class="stagecard">
+            <div class="stagebox">
+              <div class="stage" id="stage">
+                <video id="video" playsinline></video>
+                <div class="layer" id="ghosts"></div>
+                <div class="layer" id="layer"></div>
+                <div class="guide v hidden" id="guideV"></div>
+                <div class="guide h hidden" id="guideH"></div>
+                <div class="flash" id="flash"></div>
+              </div>
+            </div>
+          </div>
+          <div class="transport">
+            <div class="row" style="gap:10px">
+              <button class="playbtn" id="play"></button>
+              <span class="meta num" id="clock" style="min-width:88px">0:00 / 0:00</span>
+              <div class="tl" id="tl"><div class="hd" id="head" style="left:0"></div></div>
+            </div>
+            <div class="legend">
+              <span><i style="background:#C6C9CF"></i>sous-titre</span>
+              <span><i style="background:var(--ink)"></i>sélectionné</span>
+              <span><i style="background:var(--accent)"></i>passage coupé (clic : le garder)</span>
+              <span>Maj + glisser sur la timeline : sélectionner une plage</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- réglages -->
+        <div class="pane">
+          <div class="ph">
+            <span class="label">Réglages</span>
+            <div class="chips">
+              <button class="chip on" id="scopeAll">Toutes</button>
+              <button class="chip" id="scopeSel">Sélection</button>
+            </div>
+          </div>
+          <div class="pb">
+            <div class="meta hidden" id="scopeHint" style="margin-bottom:10px"></div>
+
+            <div class="field">
+              <div class="head"><span class="label">Style</span><span class="meta">toute la vidéo</span></div>
+              <div class="chips" id="edStyles"></div>
+            </div>
+
+            <div class="field">
+              <div class="head"><span class="label">Langue</span><span class="meta" id="trHint"></span></div>
+              <div class="g2">
+                <button class="btn sm" id="trEn">Traduire en anglais</button>
+                <button class="btn sm" id="trOrig">Texte original</button>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="head"><span class="label">Taille</span><b id="vSize">86</b></div>
+              <input type="range" id="fSize" min="24" max="220" step="2" />
+            </div>
+            <div class="g2">
+              <div class="field">
+                <div class="head"><span class="label">Police</span></div>
+                <select id="fFont">
+                  <option>Arial</option><option>Arial Black</option><option>Impact</option>
+                  <option>Verdana</option><option>Tahoma</option><option>Trebuchet MS</option>
+                  <option>Georgia</option><option>Segoe UI</option>
+                </select>
+              </div>
+              <div class="field">
+                <div class="head"><span class="label">Surlignage</span></div>
+                <select id="fMode">
+                  <option value="word">Mot par mot</option>
+                  <option value="sweep">Balayage</option>
+                  <option value="none">Aucun</option>
+                </select>
+              </div>
+            </div>
+            <div class="g3">
+              <div class="field">
+                <div class="head"><span class="label">Texte</span></div>
+                <input type="color" id="fColor" />
+              </div>
+              <div class="field">
+                <div class="head"><span class="label">Actif</span></div>
+                <input type="color" id="fHl" />
+              </div>
+              <div class="field">
+                <div class="head"><span class="label">Contour</span></div>
+                <input type="color" id="fOutlineCol" />
+              </div>
+            </div>
+            <div class="field">
+              <div class="head"><span class="label">Épaisseur du contour</span><b id="vOutline">5</b></div>
+              <input type="range" id="fOutline" min="0" max="20" step="1" />
+            </div>
+            <label class="check" style="margin-bottom:10px"><input type="checkbox" id="fBox" /> Fond derrière le texte</label>
+            <div class="field hidden" id="boxAlphaField">
+              <div class="head"><span class="label">Opacité du fond</span><b id="vBoxAlpha">75 %</b></div>
+              <input type="range" id="fBoxAlpha" min="0" max="100" step="5" />
+            </div>
+            <div class="g2">
+              <label class="check"><input type="checkbox" id="fUpper" /> Majuscules</label>
+              <label class="check"><input type="checkbox" id="fPop" /> Zoom mot actif</label>
+            </div>
+
+            <!-- bloc sélection -->
+            <div class="hidden" id="selBlock">
+              <div class="sep"></div>
+              <div class="head" style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+                <span class="label">Sélection</span><b class="meta" id="selCount"></b>
+              </div>
+              <div class="g2">
+                <div class="field">
+                  <div class="head"><span class="label">Position X</span><b id="vX">50 %</b></div>
+                  <input type="range" id="fX" min="2" max="98" step="1" />
+                </div>
+                <div class="field">
+                  <div class="head"><span class="label">Position Y</span><b id="vY">82 %</b></div>
+                  <input type="range" id="fY" min="2" max="98" step="1" />
+                </div>
+              </div>
+              <div class="hidden" id="oneOnly">
+                <div class="field">
+                  <div class="head"><span class="label">Texte</span><span class="meta">ou double-clic</span></div>
+                  <textarea id="fText" rows="2"></textarea>
+                </div>
+                <div class="field">
+                  <div class="head"><span class="label">Émoji</span></div>
+                  <div class="emopick" id="emoPick"></div>
+                </div>
+              </div>
+              <div class="g2">
+                <button class="btn sm" id="mergeNext">Fusionner</button>
+                <button class="btn sm" id="toggleHide">Masquer</button>
+              </div>
+              <button class="btn sm" id="applyAll" style="width:100%;margin-top:6px">
+                Appliquer ce look partout
+              </button>
+            </div>
+
+            <!-- bloc silences -->
+            <div class="sep"></div>
+            <div class="field">
+              <div class="head"><span class="label">Passages supprimés</span></div>
+              <div class="row" style="gap:8px;align-items:baseline">
+                <span class="big" style="color:var(--accent)" id="cutTotal">0 s</span>
+                <span class="meta" id="cutCount"></span>
+              </div>
+              <div class="srcbar" id="srcbar" title="Timeline de la source"></div>
+              <div class="meta" id="cutRatio"></div>
+              <div class="kept hidden" id="keptBox">
+                <div class="label" style="margin-bottom:4px">Gardés malgré les coupes</div>
+                <div id="keptList"></div>
+              </div>
+            </div>
+            <div class="field">
+              <div class="head"><span class="label">Seuil de silence</span><b id="vGap">0,5 s</b></div>
+              <input type="range" id="fGap" min="0.2" max="1.5" step="0.1" />
+            </div>
+            <label class="check" style="margin-bottom:9px"><input type="checkbox" id="fCutSilence" /> Couper les blancs</label>
+            <label class="check" style="margin-bottom:10px"><input type="checkbox" id="fCutFillers" /> Couper les tics de langage</label>
+            <button class="btn sm" id="recut" style="width:100%">Recalculer les coupes</button>
+            <div class="meta" style="margin-top:6px">Sans retranscrire — quelques secondes.<br />
+              Un passage coupé à tort ? Clique son repère rouge sur la timeline.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ============================================================== EXPORT ==== -->
+<div class="overlay hidden" id="expOverlay">
+  <div class="modal">
+    <div class="mh">
+      <h2 id="expTitle">Export</h2>
+      <button class="btn sm icon quiet" id="expClose"></button>
+    </div>
+    <div class="mb">
+      <div id="expRunning" class="hidden">
+        <div class="meta" id="expMsg">Démarrage…</div>
+        <div class="track-bar"><i id="expBar"></i></div>
+        <div class="meta num" id="expPct">0 %</div>
+      </div>
+      <div id="expResult" class="hidden">
+        <div class="notice hidden" id="expStale"></div>
+        <video id="expVideo" controls></video>
+        <div style="margin-top:12px">
+          <div class="kv"><span>Durée</span><b id="kvDur"></b></div>
+          <div class="kv"><span>Supprimé</span><b id="kvCut"></b></div>
+          <div class="kv"><span>Sous-titres</span><b id="kvCaps"></b></div>
+          <div class="kv"><span>Exporté</span><b id="kvAt"></b></div>
+        </div>
+        <div class="path" id="expPath"></div>
+        <div class="g2" style="margin-top:12px">
+          <a class="btn" id="expDl" download></a>
+          <button class="btn dark" id="expAgain"></button>
+        </div>
+      </div>
+      <div id="expError" class="hidden">
+        <div class="notice" id="expErrMsg"></div>
+        <button class="btn" id="expRetry" style="width:100%">Réessayer</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+/* ---------------------------------------------------------------- icônes.
+   SVG en ligne plutôt qu'émojis : une interface d'outil, pas des pictos. */
+const P = {
+  grid: "M3 3h6v6H3zM11 3h6v6h-6zM3 11h6v6H3zM11 11h6v6h-6z",
+  film: "M3 4h14v12H3zM7 4v12M13 4v12M3 10h14",
+  back: "M12 4 6 10l6 6",
+  plus: "M10 4v12M4 10h12",
+  pause: "M7.5 4.5v11M12.5 4.5v11",
+  undo: "M7.5 5 4 8.5 7.5 12M4 8.5h8a4 4 0 0 1 0 8H9",
+  redo: "M12.5 5 16 8.5 12.5 12M16 8.5H8a4 4 0 0 0 0 8h3",
+  down: "M10 3.5v9M6.5 9.5 10 13l3.5-3.5M4 16.5h12",
+  close: "M5.5 5.5l9 9M14.5 5.5l-9 9",
+  trash: "M4 6h12M8 6V4h4v2M6 6l.8 10h6.4L14 6",
+  cut: "M4 4l8.5 10M16 4L7.5 14M4.5 16a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zM15.5 16a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z",
+  layers: "M10 3l7 3.6-7 3.6-7-3.6zM3 11l7 3.6 7-3.6",
+  again: "M16 10a6 6 0 1 1-1.9-4.4M16 3v3.5h-3.5",
+  warn: "M10 4l6.5 12h-13zM10 8.5v3M10 13.8v.1",
+};
+function svg(d, size) {
+  return `<svg viewBox="0 0 20 20" width="${size || 16}" height="${size || 16}" fill="none"
+    stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="${d}"/></svg>`;
+}
+const playSvg = '<svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor"><path d="M6.5 4.5v11l9-5.5z"/></svg>';
+
+/* ------------------------------------------------------------------ état.
+   `caps` est la source de vérité de l'édition : le serveur le renvoie à
+   l'analyse, le navigateur le modifie librement, l'export le renvoie tel quel
+   et la sauvegarde automatique le repose sur le disque. */
+const S = {
+  id: null, proj: null, caps: [], sel: new Set(), anchor: null,
+  presets: [], style: "hype", scope: "all",
+  k: 1, hist: [], redo: [], lastT: 0, key: "", ghostKey: "", raf: 0,
+  saveTimer: 0, exporting: false,
+};
+
+const EMOJIS = ["", "🔥", "💡", "💰", "🎯", "🚀", "🧠", "❤️", "😂", "😱", "✅", "❌",
+                "⚡", "🤯", "👀", "🙌", "📈", "⏰", "🤔", "💪"];
+
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmt = (t) => {
+  t = Math.max(0, t || 0);
+  return Math.floor(t / 60) + ":" + String(Math.floor(t % 60)).padStart(2, "0");
+};
+const sec = (v) => (Math.round((v || 0) * 10) / 10).toFixed(1).replace(".", ",") + " s";
+const mo = (b) => (b / 1048576).toFixed(1).replace(".", ",") + " Mo";
+function ago(ts) {
+  const d = (Date.now() / 1000) - (ts || 0);
+  if (d < 90) return "à l'instant";
+  if (d < 3600) return "il y a " + Math.round(d / 60) + " min";
+  if (d < 86400) return "il y a " + Math.round(d / 3600) + " h";
+  return "le " + new Date(ts * 1000).toLocaleDateString("fr-FR");
+}
+function when(ts) {
+  return new Date((ts || 0) * 1000).toLocaleString("fr-FR",
+    { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function toast(msg) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.add("on");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("on"), 2400);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    let detail = "Erreur " + r.status;
+    try { detail = (await r.json()).detail || detail; } catch (e) { /* pas du JSON */ }
+    throw new Error(detail);
+  }
+  return r.json();
+}
+const post = (url, body) => api(url, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body || {}),
+});
+
+/* =============================================================== VUES ==== */
+
+function showView(name) {
+  ["projects", "import", "busy", "edit"].forEach((v) =>
+    $("v-" + v).classList.toggle("hidden", v !== name));
+  $("navProjects").classList.toggle("on", name === "projects" || name === "import");
+  $("navEditor").classList.toggle("on", name === "edit");
+  $("navEditor").disabled = !S.proj;
+  if (name !== "edit") { video.pause(); cancelAnimationFrame(S.raf); }
+}
+
+/* ============================================================ PROJETS ==== */
+
+async function loadProjects() {
+  showView("projects");
+  const grid = $("pgrid");
+  let projects = [];
+  try { projects = (await api("/api/projects")).projects; }
+  catch (e) { toast("Liste indisponible : " + e.message); }
+
+  grid.innerHTML = "";
+  $("pempty").classList.toggle("hidden", projects.length > 0);
+
+  const add = document.createElement("div");
+  add.className = "pnew";
+  add.innerHTML = svg(P.plus, 20) + "<span>Nouveau projet</span>";
+  add.onclick = openImport;
+  grid.appendChild(add);
+
+  projects.forEach((p) => {
+    const el = document.createElement("div");
+    el.className = "pcard";
+    el.innerHTML = `
+      <div class="pthumb">
+        <img src="/api/thumb/${p.id}?v=${p.updated}" alt="" onerror="this.remove()" />
+        ${p.exported_at ? `<span class="ptag">${svg(P.down, 11)}Exporté</span>` : ""}
+        <button class="pdel" title="Supprimer">${svg(P.trash, 14)}</button>
+      </div>
+      <div class="pbody">
+        <div class="nm ell"></div>
+        <div class="meta ell">${sec(p.duration)} · ${p.captions} sous-titres · −${sec(p.removed)}</div>
+        <div class="meta ell" style="color:var(--ink-3);margin-top:2px">${ago(p.updated)}</div>
+      </div>`;
+    el.querySelector(".nm").textContent = p.name;
+    el.onclick = () => openProject(p.id);
+    el.querySelector(".pdel").onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`Supprimer « ${p.name} » ?\nLe montage et son aperçu seront effacés.`)) return;
+      try {
+        await api("/api/projects/" + p.id, { method: "DELETE" });
+        if (S.id === p.id) { S.id = null; S.proj = null; location.hash = ""; }
+        loadProjects();
+        toast("Projet supprimé.");
+      } catch (err) { toast(err.message); }
+    };
+    grid.appendChild(el);
+  });
+}
+
+function openImport() {
+  showView("import");
+  fileInput.value = "";
+  $("fname").classList.add("hidden");
+  $("path").value = "";
+}
+
+async function openProject(id) {
+  S.id = id;
+  location.hash = "p=" + id;
+  try {
+    let proj = await api("/api/project/" + id);
+    if (!proj.preview_ready) {
+      // Projet rouvert dont le proxy a disparu : on le refabrique (sans Whisper).
+      busy("Aperçu", "Reconstruction de l'aperçu…");
+      await post("/api/project/" + id + "/preview");
+      await watch();
+      proj = await api("/api/project/" + id);
+    }
+    S.proj = proj;
+    S.caps = proj.captions || [];
+    S.style = proj.style;
+    S.sel.clear();
+    S.anchor = null;
+    S.scope = "all";
+    S.hist.length = 0;
+    S.redo.length = 0;
+    updateUndo();
+    openEditor();
+  } catch (e) {
+    S.id = null;
+    S.proj = null;
+    location.hash = "";
+    toast("Ouverture impossible : " + e.message);
+    loadProjects();
+  }
+}
+
+/* ============================================================= IMPORT ==== */
+
+let importStyle = "hype";
+
+async function loadStyles() {
+  const { styles } = await api("/api/styles");
+  S.presets = styles;
+  const box = $("styleList");
+  box.innerHTML = "";
+  styles.forEach((p) => {
+    const el = document.createElement("div");
+    el.className = "styleopt" + (p.name === importStyle ? " on" : "");
+    el.innerHTML = `
+      <span class="swatch" style="background:${p.box ? "#17181C" : "var(--soft-2)"};
+        color:${p.hl}">Aa</span>
+      <span class="grow"><b style="font-weight:600">${p.label}</b>
+        <span class="meta"> — ${p.hint}</span></span>`;
+    el.onclick = () => {
+      importStyle = p.name;
+      [...box.children].forEach((c) => c.classList.remove("on"));
+      el.classList.add("on");
+    };
+    box.appendChild(el);
+  });
+}
+
+const drop = $("drop"), fileInput = $("file");
+drop.onclick = () => fileInput.click();
+fileInput.onchange = () => showFile(fileInput.files[0]);
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => {
+  e.preventDefault();
+  drop.classList.remove("over");
+  if (e.dataTransfer.files.length) {
+    fileInput.files = e.dataTransfer.files;
+    showFile(e.dataTransfer.files[0]);
+  }
+};
+function showFile(f) {
+  if (!f) return;
+  $("fname").textContent = f.name;
+  $("fname").classList.remove("hidden");
+  $("path").value = "";
+}
+
+$("maxGap").oninput = (e) =>
+  $("gapVal").textContent = (+e.target.value).toFixed(1).replace(".", ",") + " s";
+$("maxChars").oninput = (e) => $("charVal").textContent = e.target.value;
+
+$("go").onclick = async () => {
+  const fd = new FormData();
+  const file = fileInput.files[0];
+  const path = $("path").value.trim();
+  if (file) fd.append("file", file);
+  else if (path) fd.append("path", path);
+  else return toast("Choisis une vidéo ou colle un chemin.");
+
+  fd.append("style", importStyle);
+  fd.append("max_gap", $("maxGap").value);
+  fd.append("max_chars", $("maxChars").value);
+  fd.append("vertical", $("vertical").value);
+  fd.append("device", $("device").value);
+  fd.append("emojis", $("useEmojis").checked);
+  fd.append("cut_silence", $("cutSilence").checked);
+  fd.append("cut_fillers", $("cutFillers").checked);
+  fd.append("encoder", $("device").value === "cpu" ? "libx264" : "auto");
+
+  busy("Analyse", "Envoi de la vidéo…");
+  try {
+    const { job_id } = await api("/api/analyze", { method: "POST", body: fd });
+    S.id = job_id;
+    location.hash = "p=" + job_id;
+    await watch();
+    openProject(job_id);
+  } catch (e) { busyFail(e.message); }
+};
+
+/* ======================================================== PROGRESSION ==== */
+
+function busy(phase, title) {
+  showView("busy");
+  $("busyPhase").textContent = phase;
+  $("busyTitle").textContent = title;
+  $("busyMsg").className = "meta";
+  $("busyMsg").textContent = "…";
+  $("busyBar").style.width = "0%";
+  $("busyBack").classList.add("hidden");
+}
+function busyFail(msg) {
+  $("busyMsg").className = "meta err";
+  $("busyMsg").textContent = msg;
+  $("busyBack").classList.remove("hidden");
+}
+$("busyBack").onclick = loadProjects;
+
+/** Suit la tâche serveur en cours jusqu'à son terme. */
+function watch(onProgress) {
+  return new Promise((resolve, reject) => {
+    const tick = async () => {
+      try {
+        const s = await api("/api/jobs/" + S.id);
+        (onProgress || defaultProgress)(s);
+        if (s.status === "error") return reject(new Error(s.message));
+        if (s.status === "done") return resolve(s);
+        setTimeout(tick, 700);
+      } catch (e) { reject(e); }
+    };
+    tick();
+  });
+}
+function defaultProgress(s) {
+  $("busyBar").style.width = (s.pct || 0) + "%";
+  $("busyMsg").textContent = s.message || "";
+}
+
+/* ============================================================ ÉDITEUR ==== */
+
+const video = $("video"), stage = $("stage"), layer = $("layer"), ghosts = $("ghosts");
+
+function openEditor() {
+  const p = S.proj;
+  showView("edit");
+  $("edName").value = p.name;
+  stage.style.aspectRatio = p.width + " / " + p.height;
+  video.src = p.preview;
+  video.load();
+
+  $("fGap").value = p.settings.max_gap;
+  $("fCutSilence").checked = p.settings.cut_silence;
+  $("fCutFillers").checked = p.settings.cut_fillers;
+  $("vGap").textContent = (+p.settings.max_gap).toFixed(1).replace(".", ",") + " s";
+
+  buildStyleChips();
+  buildEmojiPicker();
+  refreshAll();
+  requestAnimationFrame(measure);
+}
+
+/** Échelle écran <-> frame de sortie : tout le WYSIWYG en dépend. */
+function measure() {
+  const h = stage.clientHeight;
+  if (!h || !S.proj) return;
+  S.k = h / S.proj.height;
+  renderStage(true);
+}
+window.addEventListener("resize", measure);
+
+function refreshAll() {
+  renderList();
+  renderTimeline();
+  renderCuts();
+  renderInspector();
+  renderStage(true);
+  renderTopStats();
+}
+
+function renderTopStats() {
+  const p = S.proj;
+  $("stDur").innerHTML = `Durée <b>${sec(p.duration)}</b>`;
+  $("stCaps").innerHTML = `Sous-titres <b>${S.caps.filter((c) => !c.hidden).length}</b>`;
+  $("stCut").innerHTML = `Coupé <b>−${sec(p.removed)}</b>`;
+}
+
+/* ------------------------------------------------------- sauvegarde auto */
+function touch() {
+  clearTimeout(S.saveTimer);
+  S.saveTimer = setTimeout(saveNow, 800);
+}
+async function saveNow() {
+  if (!S.id || !S.proj) return;
+  clearTimeout(S.saveTimer);
+  S.saveTimer = 0;
+  try {
+    await post(`/api/project/${S.id}/save`,
+      { captions: S.caps, style: S.style, name: $("edName").value });
+  } catch (e) { /* la sauvegarde retentera au prochain changement */ }
+}
+$("edName").onchange = touch;
+
+/* ------------------------------------------------------------ historique */
+function snapshot() {
+  S.hist.push(JSON.stringify(S.caps));
+  if (S.hist.length > 80) S.hist.shift();
+  S.redo.length = 0;
+  updateUndo();
+  touch();
+}
+function updateUndo() {
+  $("undo").disabled = !S.hist.length;
+  $("redo").disabled = !S.redo.length;
+}
+$("undo").onclick = () => {
+  if (!S.hist.length) return;
+  S.redo.push(JSON.stringify(S.caps));
+  S.caps = JSON.parse(S.hist.pop());
+  pruneSel(); updateUndo(); refreshAll(); touch();
+};
+$("redo").onclick = () => {
+  if (!S.redo.length) return;
+  S.hist.push(JSON.stringify(S.caps));
+  S.caps = JSON.parse(S.redo.pop());
+  pruneSel(); updateUndo(); refreshAll(); touch();
+};
+
+/* ----------------------------------------------------- sélection multiple */
+function pruneSel() {
+  const ids = new Set(S.caps.map((c) => c.id));
+  [...S.sel].forEach((id) => { if (!ids.has(id)) S.sel.delete(id); });
+  if (!S.sel.size) S.scope = "all";
+}
+function selCaps() { return S.caps.filter((c) => S.sel.has(c.id)); }
+function isSel(c) { return S.sel.has(c.id); }
+
+/** Clic = remplace la sélection, Ctrl/Cmd = ajoute ou retire, Maj = étend
+ *  depuis la dernière ligne cliquée. Comme dans un logiciel de montage. */
+function pick(id, ev) {
+  const i = S.caps.findIndex((c) => c.id === id);
+  if (i < 0) return;
+  const add = !!(ev && (ev.ctrlKey || ev.metaKey));
+  const range = !!(ev && ev.shiftKey && S.anchor != null);
+
+  if (range) {
+    const a = S.caps.findIndex((c) => c.id === S.anchor);
+    if (a >= 0) {
+      if (!add) S.sel.clear();
+      const [lo, hi] = a < i ? [a, i] : [i, a];
+      for (let k = lo; k <= hi; k++) S.sel.add(S.caps[k].id);
+    }
+  } else if (add) {
+    S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id);
+    S.anchor = id;
+  } else {
+    S.sel.clear();
+    S.sel.add(id);
+    S.anchor = id;
+  }
+  S.scope = S.sel.size ? "sel" : "all";
+  afterSelect();
+}
+function selectNone() { S.sel.clear(); S.anchor = null; S.scope = "all"; afterSelect(); }
+function selectAll() {
+  S.caps.forEach((c) => S.sel.add(c.id));
+  S.anchor = S.caps.length ? S.caps[0].id : null;
+  S.scope = "sel";
+  afterSelect();
+}
+function afterSelect() {
+  renderList(); renderTimeline(); renderInspector(); renderStage(true);
+}
+$("selAll").onclick = () => (S.sel.size === S.caps.length ? selectNone() : selectAll());
+
+/* -------------------------------------------------- liste des sous-titres */
+function capText(c) { return (c.words || []).map((w) => w.text).join(" "); }
+
+function renderList() {
+  const box = $("capList");
+  box.innerHTML = "";
+  $("capCount").textContent = S.sel.size
+    ? S.sel.size + " / " + S.caps.length
+    : S.caps.length + " lignes";
+  S.caps.forEach((c) => {
+    const row = document.createElement("div");
+    row.className = "crow" + (isSel(c) ? " sel" : "") + (c.hidden ? " off" : "");
+    row.dataset.id = c.id;
+    row.innerHTML = `<span class="tm num">${fmt(c.start)}</span><span class="tx"></span>` +
+                    (c.lang ? `<span class="meta">${c.lang.toUpperCase()}</span>` : "") +
+                    (c.emoji ? `<span>${c.emoji}</span>` : "");
+    row.querySelector(".tx").textContent = capText(c);
+    row.onclick = (e) => { pick(c.id, e); if (!e.shiftKey && !e.ctrlKey && !e.metaKey) seek(c.start + 0.02); };
+    box.appendChild(row);
+  });
+}
+
+/* ------------------------------------------------------ rendu de la scène */
+function activeCap(t) {
+  return S.caps.find((c) => !c.hidden && t >= c.start && t < c.end) || null;
+}
+function activeWord(c, t) {
+  if (!c) return -1;
+  for (let i = c.words.length - 1; i >= 0; i--) if (t >= c.words[i].start) return i;
+  return 0;
+}
+
+/** Deux couches : les sous-titres sélectionnés (fantômes, reconstruits quand
+ *  la sélection change) et celui joué à l'instant courant (reconstruit à
+ *  chaque mot). Sans cette séparation, une grosse sélection ferait ramer la
+ *  lecture — et sans les fantômes, on déplacerait un groupe à l'aveugle. */
+function renderStage(force) {
+  if (!S.proj) return;
+  const t = video.currentTime || 0;
+  const act = activeCap(t);
+  const wi = activeWord(act, t);
+
+  const gk = [...S.sel].join(",") + "|" + S.caps.length + "|" + (act ? act.id : "-") + "|" + S.k;
+  if (force || gk !== S.ghostKey) {
+    S.ghostKey = gk;
+    ghosts.innerHTML = "";
+    selCaps().forEach((c) => {
+      if (act && c.id === act.id) return;      // rendu dans la couche active
+      ghosts.appendChild(buildCap(c, -1, true));
+    });
+  }
+
+  const key = (act ? act.id : "-") + ":" + wi + ":" + S.sel.size + ":" + S.k;
+  if (!force && key === S.key) return;
+  S.key = key;
+  layer.innerHTML = "";
+  if (act) layer.appendChild(buildCap(act, wi, false));
+}
+
+function buildCap(c, wordIdx, ghost) {
+  const k = S.k;
+  const el = document.createElement("div");
+  el.className = "cap" + (isSel(c) ? " sel" : "") + (ghost ? " ghost" : "") +
+                 (S.sel.size === 1 && isSel(c) ? " solo" : "");
+  el.dataset.id = c.id;
+  el.style.left = (c.x * 100) + "%";
+  el.style.top = (c.y * 100) + "%";
+  el.style.fontFamily = `"${c.font}", Arial, sans-serif`;
+  el.style.fontSize = (c.size * k) + "px";
+  el.style.fontWeight = c.bold ? 700 : 400;   // \b1 / \b0 en ASS
+
+  const inner = document.createElement("span");
+  inner.className = "txt";
+  if (c.box) {
+    inner.style.background = hexA(c.outline_col, 1 - (c.box_alpha || 0));
+    inner.style.padding = (c.outline * k * 0.55) + "px " + (c.outline * k * 1.1) + "px";
+    inner.style.borderRadius = (c.outline * k * 0.5) + "px";
+  } else if (c.outline > 0) {
+    // `Outline` en ASS = épaisseur VERS L'EXTÉRIEUR ; -webkit-text-stroke est
+    // centré sur le contour du glyphe, d'où le facteur 2 (moitié cachée par
+    // le remplissage grâce à paint-order).
+    inner.style.webkitTextStroke = (c.outline * k * 2) + "px " + c.outline_col;
+    inner.style.paintOrder = "stroke fill";
+  }
+  if (c.shadow > 0) {
+    inner.style.textShadow = `${c.shadow * k}px ${c.shadow * k}px ${c.shadow * k}px rgba(0,0,0,.75)`;
+  }
+
+  // Surlignage : mot par mot, ou balayage (approximé mot à mot dans l'aperçu).
+  // L'espace est un noeud texte à part : dans un inline-block il serait avalé.
+  c.words.forEach((w, i) => {
+    const s = document.createElement("w");
+    s.textContent = c.upper ? w.text.toUpperCase() : w.text;
+    const on = c.mode === "word" ? i === wordIdx
+             : c.mode === "sweep" ? (wordIdx >= 0 && i <= wordIdx) : false;
+    s.style.color = on ? c.hl : c.color;
+    if (on && c.pop && c.mode === "word") s.style.transform = "scale(1.12)";
+    inner.appendChild(s);
+    if (i < c.words.length - 1) inner.appendChild(document.createTextNode(" "));
+  });
+  el.appendChild(inner);
+
+  if (c.emoji) {
+    const em = document.createElement("span");
+    em.className = "emoji";
+    em.textContent = c.emoji;
+    em.style.fontSize = (c.emoji_size * k) + "px";
+    em.style.left = `calc(50% + ${c.emoji_dx * k}px)`;
+    em.style.top = (c.emoji_dy * k) + "px";
+    em.onpointerdown = (e) => startDrag(e, c, "emoji");
+    el.appendChild(em);
+  }
+
+  const h = document.createElement("div");
+  h.className = "hd";
+  h.onpointerdown = (e) => startDrag(e, c, "resize");
+  el.appendChild(h);
+
+  el.onpointerdown = (e) => {
+    if (e.target !== el && e.target !== inner && e.target.tagName !== "W") return;
+    startDrag(e, c, "move");
+  };
+  el.ondblclick = (e) => { e.preventDefault(); editInline(el, inner, c); };
+  return el;
+}
+
+function hexA(hex, alpha) {
+  const h = (hex || "#000000").replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((x) => x + x).join("") : h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${clamp(alpha, 0, 1)})`;
+}
+
+/* ------------------------------ glisser : déplacer / retailler un GROUPE */
+function startDrag(e, c, mode) {
+  e.preventDefault();
+  e.stopPropagation();
+  // Glisser une ligne hors sélection la sélectionne seule ; glisser une ligne
+  // DÉJÀ sélectionnée emmène tout le groupe.
+  if (!isSel(c)) pick(c.id, e);
+
+  const group = mode === "move" ? selCaps() : [c];
+  const rect = stage.getBoundingClientRect();
+  const cx = rect.left + c.x * rect.width, cy = rect.top + c.y * rect.height;
+  const st = {
+    x: e.clientX, y: e.clientY, moved: false,
+    d0: Math.max(12, Math.hypot(e.clientX - cx, e.clientY - cy)),
+    items: group.map((g) => ({ c: g, x: g.x, y: g.y, size: g.size,
+                               dx: g.emoji_dx, dy: g.emoji_dy })),
+  };
+  if (!st.items.length) return;
+
+  // Marge disponible : le bloc le plus large du groupe fixe la limite, pour
+  // qu'aucune ligne ne sorte du cadre pendant le déplacement.
+  const boxes = group.map((g) => nodeFor(g.id)).filter(Boolean)
+                     .map((n) => n.getBoundingClientRect());
+  const halfW = Math.min(0.5, Math.max(0.02, ...boxes.map((b) => b.width / 2 / rect.width)));
+  const halfH = Math.min(0.5, Math.max(0.02, ...boxes.map((b) => b.height / 2 / rect.height)));
+  const xs = st.items.map((i) => i.x), ys = st.items.map((i) => i.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+
+  const move = (ev) => {
+    const ddx = ev.clientX - st.x, ddy = ev.clientY - st.y;
+    if (!st.moved && Math.abs(ddx) + Math.abs(ddy) < 3) return;
+    if (!st.moved) { snapshot(); st.moved = true; }
+
+    if (mode === "move") {
+      let dx = clamp(ddx / rect.width, halfW - minX, 1 - halfW - maxX);
+      let dy = clamp(ddy / rect.height, halfH - minY, 1 - halfH - maxY);
+      // Aimantation au centre, uniquement quand une seule ligne bouge.
+      let sx = false, sy = false;
+      if (st.items.length === 1) {
+        if (Math.abs(st.items[0].x + dx - 0.5) < 0.015) { dx = 0.5 - st.items[0].x; sx = true; }
+        if (Math.abs(st.items[0].y + dy - 0.5) < 0.015) { dy = 0.5 - st.items[0].y; sy = true; }
+      }
+      $("guideV").classList.toggle("hidden", !sx);
+      $("guideV").style.left = "50%";
+      $("guideH").classList.toggle("hidden", !sy);
+      $("guideH").style.top = "50%";
+
+      st.items.forEach((it) => {
+        it.c.x = it.x + dx;
+        it.c.y = it.y + dy;
+        it.c.moved = true;
+        const n = nodeFor(it.c.id);
+        if (n) { n.style.left = (it.c.x * 100) + "%"; n.style.top = (it.c.y * 100) + "%"; }
+      });
+    } else if (mode === "resize") {
+      const d = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+      const it = st.items[0];
+      it.c.size = Math.round(clamp(it.size * d / st.d0, 20, 320));
+      const g = emojiGeometry(it.c.size);
+      it.c.emoji_size = g[0];
+      if (!it.c.emoji_moved) it.c.emoji_dy = g[1];
+      applySize(it.c);
+    } else {
+      const it = st.items[0];
+      it.c.emoji_dx = it.dx + ddx / S.k;
+      it.c.emoji_dy = it.dy + ddy / S.k;
+      it.c.emoji_moved = true;
+      const n = nodeFor(it.c.id);
+      const em = n && n.querySelector(".emoji");
+      if (em) {
+        em.style.left = `calc(50% + ${it.c.emoji_dx * S.k}px)`;
+        em.style.top = (it.c.emoji_dy * S.k) + "px";
+      }
+    }
+    syncValues();
+  };
+  const up = () => {
+    $("guideV").classList.add("hidden");
+    $("guideH").classList.add("hidden");
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    if (st.moved) { renderInspector(); touch(); }
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
+}
+
+function nodeFor(id) {
+  return layer.querySelector(`.cap[data-id="${id}"]`) ||
+         ghosts.querySelector(`.cap[data-id="${id}"]`);
+}
+function applySize(c) {
+  const n = nodeFor(c.id);
+  if (!n) return;
+  n.style.fontSize = (c.size * S.k) + "px";
+  const em = n.querySelector(".emoji");
+  if (em) {
+    em.style.fontSize = (c.emoji_size * S.k) + "px";
+    em.style.top = (c.emoji_dy * S.k) + "px";
+  }
+}
+
+/** Même formule que le moteur (`ass_edit.emoji_geometry`). */
+function emojiGeometry(size) {
+  const esz = Math.round(size * 1.55);
+  return [esz, -(size * 0.75 + esz * 0.5 + 14)];
+}
+
+/* --------------------------------------------- correction du texte in situ */
+function editInline(el, inner, c) {
+  pick(c.id, null);
+  video.pause();
+  const box = document.createElement("span");
+  box.className = "editbox";
+  box.contentEditable = "true";
+  box.spellcheck = true;
+  box.textContent = capText(c);
+  box.style.color = c.color;
+  inner.replaceWith(box);
+  box.focus();
+  document.getSelection().selectAllChildren(box);
+
+  const commit = (ok) => {
+    box.removeEventListener("blur", onBlur);
+    if (ok) setText(c, box.textContent);
+    renderStage(true); renderList(); renderInspector(); renderTopStats();
+  };
+  const onBlur = () => commit(true);
+  box.addEventListener("blur", onBlur);
+  box.addEventListener("keydown", (ev) => {
+    ev.stopPropagation();
+    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); commit(true); }
+    if (ev.key === "Escape") { ev.preventDefault(); commit(false); }
+  });
+}
+
+/** Remplace le texte d'une ligne en gardant le calage sur la voix.
+ *  Même nombre de mots -> les timings d'origine sont conservés au mot près.
+ *  Sinon on répartit la durée de la ligne au prorata de la longueur des mots. */
+function setText(c, text) {
+  const toks = String(text).trim().split(/\s+/).filter(Boolean);
+  snapshot();
+  if (!toks.length) { c.hidden = true; return; }
+  c.hidden = false;
+  if (toks.length === c.words.length) {
+    toks.forEach((t, i) => c.words[i].text = t);
+    return;
+  }
+  const total = toks.reduce((a, t) => a + t.length, 0) || 1;
+  const span = Math.max(0.2, c.end - c.start);
+  let t0 = c.start;
+  c.words = toks.map((tok) => {
+    const d = span * tok.length / total;
+    const w = { text: tok, start: +t0.toFixed(3), end: +(t0 + d).toFixed(3) };
+    t0 += d;
+    return w;
+  });
+}
+
+/* ------------------------------------------------- traduction (sur le PC) */
+/** Traduit les lignes visées (toutes ou la sélection) avec le modèle local.
+ *  Le serveur traduit phrase par phrase et rend les mêmes lignes, texte anglais
+ *  recalé sur leurs horaires ; le texte transcrit reste dans `src_words`. */
+async function translateCaps(list, { quiet } = {}) {
+  const todo = list.filter((c) => !c.hidden || c.tr_hidden);
+  if (!todo.length) return toast("Aucune ligne visible à traduire.");
+  const btn = $("trEn");
+  btn.disabled = true;
+  btn.textContent = "Traduction…";
+  try {
+    const res = await post(`/api/project/${S.id}/translate`, { target: "en", captions: todo });
+    const byId = new Map(res.captions.map((c) => [c.id, c]));
+    if (!quiet) snapshot();
+    S.caps = S.caps.map((c) => byId.get(c.id) || c);
+    refreshAll();
+    touch();
+    if (!quiet) toast(byId.size + (byId.size > 1 ? " lignes traduites" : " ligne traduite") + " en anglais");
+  } catch (e) {
+    toast("Traduction impossible : " + e.message);
+  } finally {
+    btn.textContent = "Traduire en anglais";
+    renderLang();
+  }
+}
+
+/** Remet le texte transcrit à la place de la traduction. */
+function restoreOriginal(list) {
+  const done = list.filter((c) => c.src_words);
+  if (!done.length) return;
+  snapshot();
+  done.forEach((c) => {
+    c.words = c.src_words;
+    delete c.src_words;
+    delete c.lang;
+    if (c.tr_hidden) { c.hidden = false; delete c.tr_hidden; }
+  });
+  refreshAll();
+  toast("Texte original rétabli");
+}
+
+function renderLang() {
+  const p = S.proj;
+  if (!p) return;
+  const lang = p.language || "fr";
+  const ready = !!(p.translate && p.translate.available);
+  $("trEn").disabled = !ready || lang === "en";
+  $("trOrig").disabled = !targets().some((c) => c.src_words);
+  $("trHint").textContent = lang === "en" ? "déjà en anglais"
+    : !ready ? (lang === "fr" ? "modèle de traduction absent" : "depuis le français uniquement")
+    : "sur ton PC, sans internet";
+}
+$("trEn").onclick = () => translateCaps(targets());
+$("trOrig").onclick = () => restoreOriginal(targets());
+
+/* --------------------------------------------------------------- transport */
+$("play").onclick = () => video.paused ? video.play() : video.pause();
+video.onplay = () => { $("play").innerHTML = svg(P.pause, 14); loop(); };
+video.onpause = () => { $("play").innerHTML = playSvg; cancelAnimationFrame(S.raf); renderStage(true); };
+video.onloadedmetadata = () => { measure(); renderTimeline(); clockUp(); };
+video.ontimeupdate = () => { if (video.paused) frame(); };
+
+function loop() { frame(); S.raf = requestAnimationFrame(loop); }
+function frame() {
+  const t = video.currentTime || 0;
+  const d = video.duration || S.proj.duration || 1;
+  $("head").style.left = (100 * t / d) + "%";
+  clockUp();
+  renderStage(false);
+  flashCut(t);
+  markPlaying();
+  S.lastT = t;
+}
+function clockUp() {
+  $("clock").textContent = fmt(video.currentTime) + " / " + fmt(video.duration || S.proj.duration);
+}
+function markPlaying() {
+  const act = activeCap(video.currentTime || 0);
+  [...$("capList").children].forEach((r) =>
+    r.classList.toggle("now", !!act && r.dataset.id === act.id));
+}
+
+/** Indication à la lecture : on signale le passage qu'on vient de sauter. */
+function flashCut(t) {
+  if (t < S.lastT || t - S.lastT > 1.5) return;   // saut manuel : pas de flash
+  const st = (S.proj.stitches || []).find((s) => s.t > S.lastT && s.t <= t);
+  if (!st) return;
+  const el = $("flash");
+  el.innerHTML = svg(P.cut, 12) +
+    `<span>${sec(st.removed)} ${st.kind === "filler" ? "de tic" : "de blanc"}</span>`;
+  el.classList.add("on");
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove("on"), 900);
+}
+
+function seek(t) {
+  video.currentTime = clamp(t, 0, (video.duration || S.proj.duration) - 0.01);
+  frame();
+}
+
+/* --------------------------------------------------------------- timeline */
+const tl = $("tl");
+tl.onpointerdown = (e) => {
+  const r = tl.getBoundingClientRect();
+  const d = video.duration || S.proj.duration;
+  const at = (ev) => clamp((ev.clientX - r.left) / r.width, 0, 1) * d;
+
+  if (e.shiftKey) return marquee(e, d, at);   // sélection d'une plage
+  const jump = (ev) => seek(at(ev));
+  jump(e);
+  const up = () => {
+    window.removeEventListener("pointermove", jump);
+    window.removeEventListener("pointerup", up);
+  };
+  window.addEventListener("pointermove", jump);
+  window.addEventListener("pointerup", up);
+};
+
+/** Maj + glisser : sélectionne tous les sous-titres de la plage balayée. */
+function marquee(e, d, at) {
+  const t0 = at(e);
+  const band = document.createElement("div");
+  band.className = "band";
+  const draw = (ev) => {
+    const t1 = at(ev);
+    const a = Math.min(t0, t1), b = Math.max(t0, t1);
+    S.sel.clear();
+    S.caps.forEach((c) => { if (c.end > a && c.start < b) S.sel.add(c.id); });
+    S.anchor = selCaps().length ? selCaps()[0].id : null;
+    S.scope = S.sel.size ? "sel" : "all";
+    afterSelect();
+    band.style.left = (100 * a / d) + "%";
+    band.style.width = (100 * (b - a) / d) + "%";
+    tl.appendChild(band);          // renderTimeline vide la piste : on la remet
+  };
+  draw(e);
+  const up = () => {
+    band.remove();
+    window.removeEventListener("pointermove", draw);
+    window.removeEventListener("pointerup", up);
+    if (S.sel.size) toast(S.sel.size + " sous-titres sélectionnés.");
+  };
+  window.addEventListener("pointermove", draw);
+  window.addEventListener("pointerup", up);
+}
+
+/** Timeline de SORTIE : blocs de sous-titres + marqueurs des passages coupés. */
+function renderTimeline() {
+  const d = S.proj.duration || 1;
+  [...tl.querySelectorAll(".cb,.st")].forEach((n) => n.remove());
+
+  S.caps.forEach((c) => {
+    const b = document.createElement("div");
+    b.className = "cb" + (isSel(c) ? " sel" : "") + (c.hidden ? " off" : "");
+    b.style.left = (100 * c.start / d) + "%";
+    b.style.width = Math.max(0.4, 100 * (c.end - c.start) / d) + "%";
+    b.title = capText(c);
+    b.onpointerdown = (e) => {
+      if (e.shiftKey) return;      // laisse la sélection de plage opérer
+      e.stopPropagation();
+      pick(c.id, e);
+      if (!e.ctrlKey && !e.metaKey) seek(c.start + 0.02);
+    };
+    tl.appendChild(b);
+  });
+
+  (S.proj.stitches || []).forEach((s) => {
+    const m = document.createElement("div");
+    m.className = "st";
+    m.style.left = (100 * s.t / d) + "%";
+    m.title = cutLabel(s) + " supprimées ici — clic pour garder ce passage";
+    m.onpointerdown = (e) => {
+      if (e.shiftKey) return;      // laisse la sélection de plage opérer
+      e.stopPropagation();
+      openCutPop(s, m);
+    };
+    tl.appendChild(m);
+  });
+}
+
+/* ------------------------------------------------------- panneau silences */
+function renderCuts() {
+  const p = S.proj;
+  const n = (p.stitches || []).length;
+  $("cutTotal").textContent = "−" + sec(p.removed);
+  $("cutCount").textContent = n + (n > 1 ? " passages" : " passage");
+  const pct = p.source_duration ? Math.round(100 * p.removed / p.source_duration) : 0;
+  $("cutRatio").textContent = `${sec(p.source_duration)} → ${sec(p.duration)} · ${pct} % retiré`;
+
+  const bar = $("srcbar");
+  bar.innerHTML = "";
+  const d = p.source_duration || 1;
+  (p.keep || []).forEach((k) => {
+    const el = document.createElement("div");
+    el.className = "k";
+    el.style.left = (100 * k.start / d) + "%";
+    el.style.width = (100 * (k.end - k.start) / d) + "%";
+    bar.appendChild(el);
+  });
+  (p.cuts || []).filter((c) => c.kind === "filler").forEach((c) => {
+    const el = document.createElement("div");
+    el.className = "f";
+    el.style.left = (100 * c.start / d) + "%";
+    el.style.width = Math.max(0.3, 100 * (c.end - c.start) / d) + "%";
+    bar.appendChild(el);
+  });
+
+  // Passages rendus par l'utilisateur : soulignés sur la barre, listés dessous.
+  const kept = p.kept || [];
+  kept.forEach((k) => {
+    const el = document.createElement("div");
+    el.className = "r";
+    el.style.left = (100 * k.start / d) + "%";
+    el.style.width = Math.max(0.3, 100 * (k.end - k.start) / d) + "%";
+    bar.appendChild(el);
+  });
+  $("keptBox").classList.toggle("hidden", !kept.length);
+  const list = $("keptList");
+  list.innerHTML = "";
+  kept.forEach((k) => {
+    const row = document.createElement("div");
+    row.className = "kr";
+    row.innerHTML = `<span>${fmt(k.start)} → ${fmt(k.end)} · ${sec(k.end - k.start)}</span>` +
+      `<button class="btn sm quiet" title="Laisser les coupes automatiques supprimer ce passage">Recouper</button>`;
+    row.querySelector("button").onclick = () => recutPassage(k);
+    list.appendChild(row);
+  });
+}
+
+/* ------------------------------------------------------------- inspecteur */
+$("scopeAll").onclick = () => { S.scope = "all"; renderInspector(); };
+$("scopeSel").onclick = () => {
+  if (!S.sel.size) return toast("Sélectionne d'abord des sous-titres.");
+  S.scope = "sel";
+  renderInspector();
+};
+
+/** Les lignes que l'inspecteur modifie. */
+function targets() { return S.scope === "sel" ? selCaps() : S.caps; }
+function refCap() { return targets()[0] || S.caps[0] || null; }
+
+function buildStyleChips() {
+  const box = $("edStyles");
+  box.innerHTML = "";
+  S.presets.forEach((p) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (p.name === S.style ? " on" : "");
+    b.textContent = p.label;
+    b.title = p.hint;
+    b.onclick = () => applyPreset(p);
+    box.appendChild(b);
+  });
+}
+
+/** Un preset est le gabarit de TOUTE la vidéo (les réglages fins juste en
+ *  dessous, eux, suivent la portée choisie). Il respecte les lignes déplacées. */
+function applyPreset(p) {
+  snapshot();
+  S.style = p.name;
+  S.caps.forEach((c) => {
+    const keepX = c.moved ? c.x : p.x, keepY = c.moved ? c.y : p.y;
+    Object.assign(c, {
+      font: p.font, size: p.size, bold: p.bold, upper: p.upper, color: p.color,
+      hl: p.hl, outline_col: p.outline_col, outline: p.outline, shadow: p.shadow,
+      box: p.box, box_alpha: p.box_alpha, mode: p.mode, pop: p.pop,
+      x: keepX, y: keepY,
+    });
+    const g = emojiGeometry(c.size);
+    c.emoji_size = g[0];
+    if (!c.emoji_moved) { c.emoji_dy = g[1]; c.emoji_dx = 0; }
+  });
+  buildStyleChips();
+  refreshAll();
+}
+
+function setField(field, value, light) {
+  snapshot();
+  targets().forEach((c) => {
+    c[field] = value;
+    if (field === "size") {
+      const g = emojiGeometry(c.size);
+      c.emoji_size = g[0];
+      if (!c.emoji_moved) c.emoji_dy = g[1];
+    }
+  });
+  if (light) { renderStage(true); syncValues(); renderTimeline(); }
+  else refreshAll();
+}
+
+function renderInspector() {
+  const n = S.sel.size;
+  $("scopeAll").classList.toggle("on", S.scope === "all");
+  $("scopeSel").classList.toggle("on", S.scope === "sel");
+  $("scopeSel").textContent = n ? `Sélection (${n})` : "Sélection";
+  $("selBlock").classList.toggle("hidden", !n);
+  $("oneOnly").classList.toggle("hidden", n !== 1);
+  $("selCount").textContent = n + (n > 1 ? " lignes" : " ligne");
+  const wide = S.scope === "all" && n > 0;
+  $("scopeHint").classList.toggle("hidden", !wide);
+  if (wide) {
+    $("scopeHint").textContent =
+      `${n} ligne${n > 1 ? "s" : ""} sélectionnée${n > 1 ? "s" : ""}, mais les réglages ci-dessous s'appliquent à TOUTES les lignes.`;
+  }
+
+  const c = refCap();
+  if (!c) return;
+  $("fSize").value = c.size;
+  $("fFont").value = c.font;
+  $("fMode").value = c.mode;
+  $("fColor").value = c.color;
+  $("fHl").value = c.hl;
+  $("fOutlineCol").value = c.outline_col;
+  $("fOutline").value = c.outline;
+  $("fBox").checked = !!c.box;
+  $("fBoxAlpha").value = Math.round((1 - (c.box_alpha || 0)) * 100);
+  $("fUpper").checked = !!c.upper;
+  $("fPop").checked = !!c.pop;
+  $("boxAlphaField").classList.toggle("hidden", !c.box);
+
+  if (n === 1) {
+    const one = selCaps()[0];
+    $("fText").value = capText(one);
+    renderEmojiSel(one);
+  }
+  if (n) {
+    const hidden = selCaps().every((o) => o.hidden);
+    $("toggleHide").textContent = hidden ? "Réafficher" : "Masquer";
+    $("mergeNext").textContent = n > 1 ? "Fusionner la sélection" : "Fusionner avec la suivante";
+  }
+  renderLang();
+  syncValues();
+}
+
+/** Rafraîchit uniquement les nombres affichés (pendant un glisser). */
+function syncValues() {
+  const c = refCap();
+  if (!c) return;
+  $("vSize").textContent = c.size;
+  $("vOutline").textContent = c.outline;
+  $("vBoxAlpha").textContent = Math.round((1 - (c.box_alpha || 0)) * 100) + " %";
+  $("fSize").value = c.size;
+  const g = selCaps();
+  if (g.length) {
+    const x = g.reduce((a, o) => a + o.x, 0) / g.length;
+    const y = g.reduce((a, o) => a + o.y, 0) / g.length;
+    $("vX").textContent = Math.round(x * 100) + " %";
+    $("vY").textContent = Math.round(y * 100) + " %";
+    $("fX").value = Math.round(x * 100);
+    $("fY").value = Math.round(y * 100);
+  }
+}
+
+$("fSize").oninput = (e) => setField("size", +e.target.value, true);
+$("fOutline").oninput = (e) => setField("outline", +e.target.value, true);
+$("fBoxAlpha").oninput = (e) => setField("box_alpha", 1 - (+e.target.value / 100), true);
+$("fFont").onchange = (e) => setField("font", e.target.value);
+$("fMode").onchange = (e) => setField("mode", e.target.value);
+$("fColor").oninput = (e) => setField("color", e.target.value, true);
+$("fHl").oninput = (e) => setField("hl", e.target.value, true);
+$("fOutlineCol").oninput = (e) => setField("outline_col", e.target.value, true);
+$("fBox").onchange = (e) => setField("box", e.target.checked);
+$("fUpper").onchange = (e) => setField("upper", e.target.checked);
+$("fPop").onchange = (e) => setField("pop", e.target.checked);
+
+/* Les curseurs X/Y déplacent le GROUPE : on applique l'ÉCART, pas la valeur,
+   sinon toutes les lignes sélectionnées s'empileraient au même endroit. */
+function nudge(axis, pct) {
+  const g = selCaps();
+  if (!g.length) return;
+  const cur = g.reduce((a, o) => a + o[axis], 0) / g.length;
+  const d = pct / 100 - cur;
+  snapshot();
+  g.forEach((o) => { o[axis] = clamp(o[axis] + d, 0.02, 0.98); o.moved = true; });
+  renderStage(true); syncValues();
+}
+$("fX").oninput = (e) => nudge("x", +e.target.value);
+$("fY").oninput = (e) => nudge("y", +e.target.value);
+
+$("fText").onchange = (e) => {
+  const one = selCaps()[0];
+  if (!one) return;
+  setText(one, e.target.value);
+  refreshAll();
+};
+
+$("applyAll").onclick = () => {
+  const c = refCap();
+  if (!c) return;
+  snapshot();
+  const look = ["font", "size", "bold", "upper", "color", "hl", "outline_col",
+                "outline", "shadow", "box", "box_alpha", "mode", "pop"];
+  S.caps.forEach((o) => {
+    if (o.id === c.id) return;
+    look.forEach((f) => o[f] = c[f]);
+    const g = emojiGeometry(o.size);
+    o.emoji_size = g[0];
+    if (!o.emoji_moved) o.emoji_dy = g[1];
+  });
+  refreshAll();
+  toast("Look appliqué à toutes les lignes.");
+};
+
+$("toggleHide").onclick = () => {
+  const g = selCaps();
+  if (!g.length) return;
+  snapshot();
+  const hide = !g.every((c) => c.hidden);
+  g.forEach((c) => c.hidden = hide);
+  refreshAll();
+};
+
+$("mergeNext").onclick = () => {
+  const g = selCaps();
+  if (!g.length) return;
+  // Fusionner des lignes non contiguës produirait un sous-titre qui chevauche
+  // ceux restés entre elles : on refuse plutôt que de casser le montage.
+  const idx = g.map((c) => S.caps.indexOf(c));
+  if (g.length > 1 && idx.some((v, i) => i && v !== idx[i - 1] + 1)) {
+    return toast("Sélectionne des lignes qui se suivent pour les fusionner.");
+  }
+  snapshot();
+  if (g.length > 1) {
+    const first = g[0];
+    if (g.some((c) => c.src_words)) first.src_words = g.flatMap((c) => c.src_words || c.words);
+    first.words = g.flatMap((c) => c.words);
+    first.end = g[g.length - 1].end;
+    first.emoji = (g.find((c) => c.emoji) || {}).emoji || "";
+    const drop = new Set(g.slice(1).map((c) => c.id));
+    S.caps = S.caps.filter((c) => !drop.has(c.id));
+    S.sel.clear(); S.sel.add(first.id); S.anchor = first.id;
+  } else {
+    const i = S.caps.indexOf(g[0]);
+    if (i < 0 || i >= S.caps.length - 1) { S.hist.pop(); updateUndo(); return toast("Pas de ligne suivante."); }
+    const next = S.caps[i + 1];
+    if (g[0].src_words || next.src_words) {
+      g[0].src_words = (g[0].src_words || g[0].words).concat(next.src_words || next.words);
+    }
+    g[0].words = g[0].words.concat(next.words);
+    g[0].end = next.end;
+    g[0].emoji = g[0].emoji || next.emoji;
+    S.caps.splice(i + 1, 1);
+    S.sel.delete(next.id);
+  }
+  refreshAll();
+};
+
+function buildEmojiPicker() {
+  const box = $("emoPick");
+  box.innerHTML = "";
+  EMOJIS.forEach((e) => {
+    const b = document.createElement("button");
+    b.textContent = e || "—";
+    b.title = e || "aucun émoji";
+    b.dataset.emoji = e;
+    b.onclick = () => {
+      const one = selCaps()[0];
+      if (!one) return;
+      snapshot();
+      one.emoji = e;
+      const g = emojiGeometry(one.size);
+      one.emoji_size = g[0];
+      if (!one.emoji_moved) { one.emoji_dx = 0; one.emoji_dy = g[1]; }
+      renderEmojiSel(one); renderStage(true); renderList();
+    };
+    box.appendChild(b);
+  });
+}
+function renderEmojiSel(c) {
+  [...$("emoPick").children].forEach((b) =>
+    b.classList.toggle("on", b.dataset.emoji === (c.emoji || "")));
+}
+
+/* --------------------------------------------------- recalcul des coupes */
+$("fGap").oninput = (e) =>
+  $("vGap").textContent = (+e.target.value).toFixed(1).replace(".", ",") + " s";
+
+$("recut").onclick = () => runRecut({
+  max_gap: +$("fGap").value,
+  cut_silence: $("fCutSilence").checked,
+  cut_fillers: $("fCutFillers").checked,
+});
+
+/** Relance les coupes côté serveur puis recharge l'aperçu.
+ *  `at` = où reprendre la lecture (par défaut, là où on en était). */
+async function runRecut(body, { at, done } = {}) {
+  if (S.recutting) return;
+  S.recutting = true;
+  const btn = $("recut");
+  btn.disabled = true;
+  const prevT = at ?? video.currentTime;
+  try {
+    await saveNow();
+    await post("/api/recut", { job_id: S.id, ...body });
+    await watch((s) => { btn.textContent = "Recalcul… " + (s.pct || 0) + " %"; });
+    const fresh = await api("/api/project/" + S.id);
+    const wasTranslated = S.caps.some((c) => c.src_words);
+    mergeProject(fresh);
+    video.src = fresh.preview;
+    video.load();
+    video.onloadeddata = () => {
+      seek(Math.min(prevT, fresh.duration - 0.05));
+      video.onloadeddata = null;
+    };
+    refreshAll();
+    // Les lignes sont redécoupées depuis la transcription : on retraduit.
+    if (wasTranslated) await translateCaps(S.caps, { quiet: true });
+    saveNow();
+    toast(done || "Coupes mises à jour : −" + sec(fresh.removed));
+  } catch (e) {
+    toast("Recalcul impossible : " + e.message);
+  } finally {
+    S.recutting = false;
+    btn.disabled = false;
+    btn.textContent = "Recalculer les coupes";
+  }
+}
+
+/* ------------------------------------------- garder un passage coupé */
+function cutLabel(s) {
+  const what = { filler: " de tic de langage", manual: " de coupe manuelle" }[s.kind] || " de blanc";
+  return sec(s.removed) + what;
+}
+const keptRanges = () => (S.proj.kept || []).map((k) => [k.start, k.end]);
+
+/** Rend un passage coupé : il rejoint la liste des plages gardées. */
+function keepPassage(s) {
+  runRecut({ keep_ranges: [...keptRanges(), [s.start, s.end]] },
+           { at: Math.max(0, s.t - 1), done: "Passage gardé : +" + sec(s.removed) });
+}
+/** Annule un « garder » : les coupes automatiques reprennent la main. */
+function recutPassage(k) {
+  runRecut({ keep_ranges: keptRanges().filter(([a, b]) => a !== k.start || b !== k.end) },
+           { done: "Passage de nouveau coupé" });
+}
+
+/** Menu ouvert sur un repère : ce qui a sauté, et le bouton pour le garder. */
+function openCutPop(s, marker) {
+  closeCutPop();
+  seek(s.t);
+  const pop = document.createElement("div");
+  pop.className = "cutpop";
+  pop.id = "cutpop";
+  pop.innerHTML =
+    `<div class="ttl">${svg(P.cut, 13)}<span>${cutLabel(s)} supprimées</span></div>` +
+    `<div class="meta" style="margin-top:4px">Dans la source : ${fmt(s.start)} → ${fmt(s.end)}</div>` +
+    (s.text ? `<div class="said"></div>` : "") +
+    `<button class="btn sm primary">Garder ce passage</button>`;
+  if (s.text) pop.querySelector(".said").textContent = "« " + s.text + " »";
+  pop.querySelector("button").onclick = () => { closeCutPop(); keepPassage(s); };
+  document.body.appendChild(pop);
+  marker.classList.add("on");
+
+  const r = marker.getBoundingClientRect();
+  pop.style.left = clamp(r.left - pop.offsetWidth / 2, 8, innerWidth - pop.offsetWidth - 8) + "px";
+  pop.style.top = Math.max(8, r.top - pop.offsetHeight - 8) + "px";
+  setTimeout(() => document.addEventListener("pointerdown", outsideCutPop), 0);
+}
+function outsideCutPop(e) {
+  if (!e.target.closest("#cutpop")) closeCutPop();
+}
+function closeCutPop() {
+  document.removeEventListener("pointerdown", outsideCutPop);
+  const pop = $("cutpop");
+  if (pop) pop.remove();
+  tl.querySelectorAll(".st.on").forEach((m) => m.classList.remove("on"));
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeCutPop(); });
+
+/** Après un recalcul, on récupère les retouches déjà faites.
+ *  Le lien se fait par `anchor` = index du 1er mot de la ligne dans la
+ *  transcription source, stable d'un découpage à l'autre. */
+function mergeProject(fresh) {
+  const old = new Map(S.caps.map((c) => [c.anchor, c]));
+  const look = ["font", "size", "bold", "upper", "color", "hl", "outline_col", "outline",
+                "shadow", "box", "box_alpha", "mode", "pop", "x", "y", "moved",
+                "emoji", "emoji_size", "emoji_dx", "emoji_dy", "emoji_moved", "hidden"];
+  fresh.captions.forEach((c) => {
+    const prev = old.get(c.anchor);
+    if (!prev) return;
+    look.forEach((f) => { if (prev[f] !== undefined) c[f] = prev[f]; });
+    // texte corrigé : on le reprend si le découpage en mots n'a pas bougé
+    // (une ligne traduite compare son texte d'origine, gardé dans src_words)
+    const src = prev.src_words || prev.words;
+    if (src.length === c.words.length) {
+      c.words.forEach((w, i) => w.text = src[i].text);
+    }
+  });
+  S.proj = fresh;
+  S.caps = fresh.captions;
+  pruneSel();
+}
+
+/* ============================================================== EXPORT ==== */
+
+/** Empreinte du montage : dit si l'export en cache correspond encore. */
+function signature() {
+  const s = JSON.stringify(S.caps.filter((c) => !c.hidden).map((c) => [
+    c.id, c.words.map((w) => w.text).join(" "), c.start, c.end, c.x, c.y, c.size,
+    c.font, c.bold, c.upper, c.color, c.hl, c.outline_col, c.outline, c.shadow,
+    c.box, c.box_alpha, c.mode, c.pop, c.emoji, c.emoji_size, c.emoji_dx, c.emoji_dy,
+  ])) + "|" + (S.proj ? S.proj.duration : 0);
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+
+/** Un export déjà fait n'est PAS refait : on montre le rendu précédent, et
+ *  c'est l'utilisateur qui décide de relancer un encodage. */
+$("export").onclick = () => {
+  $("expOverlay").classList.remove("hidden");
+  const prev = S.proj && S.proj.export;
+  if (prev) showExportResult(prev);
+  else startExport();
+};
+
+function showExportResult(res) {
+  $("expTitle").textContent = "Dernier export";
+  $("expRunning").classList.add("hidden");
+  $("expError").classList.add("hidden");
+  $("expResult").classList.remove("hidden");
+  $("expVideo").src = "/api/result/" + S.id + "?v=" + (res.at || 0);
+  $("expDl").href = "/api/result/" + S.id;
+  $("kvDur").textContent = `${sec(res.source_duration)} → ${sec(res.output_duration)}`;
+  $("kvCut").textContent = "−" + sec(res.removed);
+  $("kvCaps").textContent = res.captions;
+  $("kvAt").textContent = when(res.at) + (res.size ? " · " + mo(res.size) : "");
+  $("expPath").textContent = res.output;
+
+  const stale = !!res.signature && res.signature !== signature();
+  $("expStale").classList.toggle("hidden", !stale);
+  if (stale) {
+    $("expStale").innerHTML = svg(P.warn, 15) +
+      "<span>Le montage a changé depuis cet export. Relance un rendu pour appliquer tes modifications.</span>";
+  }
+  $("expAgain").className = "btn " + (stale ? "primary" : "dark");
+}
+
+async function startExport() {
+  if (S.exporting) return;
+  S.exporting = true;
+  $("expTitle").textContent = "Export en cours";
+  $("expResult").classList.add("hidden");
+  $("expError").classList.add("hidden");
+  $("expRunning").classList.remove("hidden");
+  $("expBar").style.width = "0%";
+  $("expPct").textContent = "0 %";
+  try {
+    await saveNow();
+    await post("/api/export", {
+      job_id: S.id, captions: S.caps.filter((c) => !c.hidden),
+      style: S.style, signature: signature(),
+    });
+    const done = await watch((s) => {
+      $("expBar").style.width = (s.pct || 0) + "%";
+      $("expPct").textContent = (s.pct || 0) + " %";
+      $("expMsg").textContent = s.message || "";
+    });
+    S.proj.export = done.result;
+    showExportResult(done.result);
+  } catch (e) {
+    $("expRunning").classList.add("hidden");
+    $("expError").classList.remove("hidden");
+    $("expErrMsg").innerHTML = svg(P.warn, 15) + "<span></span>";
+    $("expErrMsg").querySelector("span").textContent = e.message;
+  } finally {
+    S.exporting = false;
+  }
+}
+$("expAgain").onclick = startExport;
+$("expRetry").onclick = startExport;
+$("expClose").onclick = closeExport;
+$("expOverlay").onpointerdown = (e) => { if (e.target === $("expOverlay")) closeExport(); };
+function closeExport() {
+  $("expVideo").pause();
+  $("expOverlay").classList.add("hidden");
+}
+
+/* ============================================================= CLAVIER ==== */
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (e.target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select") return;
+  if (!$("expOverlay").classList.contains("hidden")) {
+    if (e.key === "Escape") closeExport();
+    return;
+  }
+  if ($("v-edit").classList.contains("hidden")) return;
+
+  const mod = e.ctrlKey || e.metaKey;
+  if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); $("undo").click(); }
+  else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); $("redo").click(); }
+  else if (mod && e.key.toLowerCase() === "a") { e.preventDefault(); selectAll(); }
+  else if (mod && e.key.toLowerCase() === "s") { e.preventDefault(); saveNow(); toast("Projet enregistré."); }
+  else if (e.code === "Space") { e.preventDefault(); $("play").click(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); seek(video.currentTime - (e.shiftKey ? 2 : 0.3)); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); seek(video.currentTime + (e.shiftKey ? 2 : 0.3)); }
+  else if (e.key === "Escape") selectNone();
+  else if ((e.key === "Delete" || e.key === "Backspace") && S.sel.size) {
+    e.preventDefault(); $("toggleHide").click();
+  }
+});
+
+stage.addEventListener("pointerdown", (e) => {
+  if (e.target === stage || e.target === video || e.target === layer || e.target === ghosts) {
+    selectNone();
+  }
+});
+
+/* ============================================================== DÉPART ==== */
+$("navProjects").innerHTML = svg(P.grid, 18);
+$("navEditor").innerHTML = svg(P.film, 18);
+$("newProject").innerHTML = svg(P.plus, 15) + "Nouveau projet";
+$("importBack").innerHTML = svg(P.back, 16);
+$("edBack").innerHTML = svg(P.back, 16);
+$("undo").innerHTML = svg(P.undo, 15);
+$("redo").innerHTML = svg(P.redo, 15);
+$("export").innerHTML = svg(P.down, 15) + "Exporter";
+$("selAll").innerHTML = svg(P.layers, 14);
+$("expClose").innerHTML = svg(P.close, 14);
+$("play").innerHTML = playSvg;
+$("expDl").innerHTML = svg(P.down, 15) + "Télécharger";
+$("expAgain").innerHTML = svg(P.again, 15) + "Réexporter";
+
+$("navProjects").onclick = () => { saveNow(); loadProjects(); };
+$("navEditor").onclick = () => { if (S.proj) showView("edit"); };
+$("importBack").onclick = loadProjects;
+$("edBack").onclick = () => { saveNow(); loadProjects(); };
+$("newProject").onclick = openImport;
+// Fermeture de l'onglet : `fetch` n'a plus le temps d'aboutir, sendBeacon si.
+window.addEventListener("beforeunload", () => {
+  if (!S.saveTimer || !S.id) return;
+  const body = new Blob([JSON.stringify(
+    { captions: S.caps, style: S.style, name: $("edName").value })],
+    { type: "application/json" });
+  navigator.sendBeacon(`/api/project/${S.id}/save`, body);
+});
+
+/** Le projet vit sur le serveur : `#p=<id>` rouvre le même montage. */
+async function boot() {
+  await loadStyles();
+  const id = new URLSearchParams(location.hash.slice(1)).get("p");
+  if (!id) return loadProjects();
+
+  S.id = id;
+  const st = await api("/api/jobs/" + id).catch(() => null);
+  if (st && (st.status === "running" || st.status === "queued")) {
+    busy("Analyse", "Reprise de l'analyse en cours…");
+    try { await watch(); } catch (e) { return busyFail(e.message); }
+  }
+  return openProject(id);
+}
+
+boot().catch((e) => {
+  showView("projects");
+  toast("Serveur injoignable : " + e.message);
+});
+updateUndo();
+</script>
+</body>
+</html>

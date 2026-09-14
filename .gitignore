@@ -1,0 +1,36 @@
+# --- Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Données de travail (projets, aperçus, exports, vidéos)
+work/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.m4a
+*.wav
+
+# --- Modèles téléchargés ou convertis (voir scripts/download_models.py)
+models/*
+!models/README.md
+
+# --- Fabrication (PyInstaller / Inno Setup)
+dist/
+build/_work/
+*.spec.bak
+
+# --- Éditeurs / OS
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
+desktop.ini

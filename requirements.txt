@@ -1,0 +1,14 @@
+# Dépendances de l'application — fonctionne sur processeur, sur tous les systèmes.
+#   GPU NVIDIA (plus rapide) :  pip install -r requirements-gpu.txt
+#   Tests :                     pip install -r requirements-dev.txt
+# Outil externe obligatoire : ffmpeg + ffprobe dans le PATH (avec libass).
+
+faster-whisper>=1.1        # transcription (CTranslate2)
+sentencepiece>=0.2         # tokenizer du modèle de traduction des sous-titres
+huggingface_hub>=0.23      # téléchargement des modèles (scripts/download_models.py)
+pydantic>=2.5
+Pillow>=10.0               # émojis couleur incrustés à l'export
+
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9    # upload des vidéos
