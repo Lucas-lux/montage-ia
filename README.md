@@ -96,6 +96,20 @@ once. To fetch it in advance: `python scripts/download_models.py --whisper`.
 3. **Export** — renders the full-resolution video with the captions burned in.
    A finished export is kept; *Réexporter* only runs when you ask for it.
 
+## Supported videos
+
+Anything ffmpeg can read (MP4, MOV, MKV…; H.264, HEVC, VP9, AV1…), from 720p up
+to 8K, including 10-bit phone footage.
+
+- **9:16 mode** (default): the output is always 1080×1920, whatever the source.
+- **Original format**: the output keeps the source resolution. The bitrate scales
+  with it; above 4096 px (8K), NVENC switches to HEVC.
+- Exports are 8-bit H.264 (HEVC for 8K) for maximum compatibility.
+- **HDR** footage (HLG/PQ, e.g. recent iPhones) is not tone-mapped yet: colours may
+  look washed out. Export it as SDR from your phone for now.
+- Large sources mostly cost time: decoding 4K/8K is heavier, and 8K exports without
+  an NVIDIA GPU are slow.
+
 ## Command line
 
 For batch use, without the editor:
@@ -217,6 +231,7 @@ tests/                     pytest suite
 | Emojis missing in the exported video (Linux) | Install `fonts-noto-color-emoji`. |
 | Exported captions use a different font (macOS/Linux) | The editor offers Windows fonts (Arial, Impact…); install them or pick one available on your system. |
 | `ffmpeg` not found | Install it (see prerequisites) and open a new terminal. |
+| A project shows *Analyse non terminée* | The analysis was interrupted (app closed, crash). Click the card to run it again — the video is already imported. |
 
 ## Roadmap
 

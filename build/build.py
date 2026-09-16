@@ -21,6 +21,7 @@ celui déjà présent dans le cache HuggingFace de la machine, et ne le téléch
 from __future__ import annotations
 
 import argparse
+import filecmp
 import os
 import shutil
 import subprocess
@@ -111,6 +112,29 @@ def _whisper_dirs(hub: str) -> list[str]:
         return []
     return [d for d in os.listdir(hub)
             if d.startswith("models--") and d.lower().endswith(WHISPER_MODEL)]
+
+
+def check_cudnn(dlls: list[str]) -> None:
+    """Refuse un build où cuDNN est dépareillé.
+
+    ctranslate2 livre son propre cudnn64_9.dll ; les sous-bibliothèques
+    (cudnn_ops, cudnn_cnn…) viennent de nvidia-cudnn-cu12. Si les versions
+    diffèrent, la transcription GPU plante en natif (0xC0000409) sans le
+    moindre message — c'est arrivé.
+    """
+    import importlib.util
+
+    spec = importlib.util.find_spec("ctranslate2")
+    if not spec or not spec.origin:
+        return
+    bundled = os.path.join(os.path.dirname(spec.origin), "cudnn64_9.dll")
+    ours = next((d for d in dlls if os.path.basename(d).lower() == "cudnn64_9.dll"), None)
+    if os.path.isfile(bundled) and ours and not filecmp.cmp(bundled, ours, shallow=False):
+        raise SystemExit(
+            "cuDNN dépareillé : le cudnn64_9.dll de ctranslate2 diffère de celui de "
+            "nvidia-cudnn-cu12.\nAligne la version de nvidia-cudnn-cu12 dans "
+            "requirements-gpu.txt sur celle livrée par ctranslate2.")
+    say("cuDNN : versions cohérentes avec ctranslate2")
 
 
 def find_model() -> str | None:
@@ -217,6 +241,7 @@ def main() -> None:
     else:
         dlls = find_cuda_dlls()
         if dlls:
+            check_cudnn(dlls)
             copy_into(dlls, "cuda", "DLL CUDA")
         else:
             say("CUDA : paquets nvidia-* absents de l'environnement, ignoré")

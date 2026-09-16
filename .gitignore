@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .venv/
+.venv-*/
 venv/
 env/
 .pytest_cache/
@@ -34,3 +35,5 @@ build/_work/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+PORTFOLIO.md

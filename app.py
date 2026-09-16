@@ -102,6 +102,8 @@ def wire_runtime() -> None:
                 pass
     if dirs:
         os.environ["PATH"] = os.pathsep.join(dirs) + os.pathsep + os.environ.get("PATH", "")
+        # Relu par le processus de transcription, qui n'hérite pas des add_dll_directory.
+        os.environ["MONTAGE_IA_DLL_DIRS"] = os.pathsep.join(dirs)
 
     # Modèles de traduction des sous-titres (Opus-MT, quelques dizaines de Mo).
     translate = os.path.join(root, "models", "translate")
@@ -178,6 +180,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Exe PyInstaller : la transcription tourne dans un processus enfant, qui
+    # relance ce même exe — freeze_support() l'aiguille vers son travail.
+    import multiprocessing
+    multiprocessing.freeze_support()
     try:
         main()
     except KeyboardInterrupt:

@@ -12,15 +12,15 @@ X264 = ["-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p
 
 @pytest.fixture
 def encoder_works(monkeypatch):
-    """Simule le test d'ouverture de l'encodeur ; note les encodeurs sondés."""
+    """Simule le test d'ouverture de l'encodeur ; note (encodeur, taille) sondés."""
     original = render._encoder_works
     original.cache_clear()
-    probed: list[str] = []
+    probed: list[tuple[str, str]] = []
 
-    def install(result: bool):
-        def fake(enc):
-            probed.append(enc)
-            return result
+    def install(result):
+        def fake(enc, size="320x240"):
+            probed.append((enc, size))
+            return result(enc) if callable(result) else result
         monkeypatch.setattr(render, "_encoder_works", fake)
         return probed
 
@@ -31,8 +31,21 @@ def encoder_works(monkeypatch):
 @pytest.mark.parametrize("enc", ["h264_nvenc", "hevc_qsv", "h264_amf", "h264_videotoolbox"])
 def test_encodeur_materiel_disponible(encoder_works, enc):
     probed = encoder_works(True)
-    assert _video_codec_args(enc) == ["-c:v", enc, "-b:v", "8M"]
-    assert probed == [enc]
+    args = _video_codec_args(enc, 1080, 1920)
+    assert args[:4] == ["-c:v", enc, "-b:v", "8M"]
+    assert args[4:6] == ["-pix_fmt", "yuv420p"]   # les sources 10 bits repassent en 8 bits
+    assert probed == [(enc, "320x240")]
+
+
+def test_hevc_marque_pour_apple(encoder_works):
+    encoder_works(True)
+    assert _video_codec_args("hevc_nvenc", 1080, 1920)[-2:] == ["-tag:v", "hvc1"]
+
+
+def test_auto_prend_nvenc(encoder_works):
+    probed = encoder_works(True)
+    assert _video_codec_args("auto", 1080, 1920)[1] == "h264_nvenc"
+    assert probed == [("h264_nvenc", "320x240")]
 
 
 def test_encodeur_materiel_indisponible_repli_x264(encoder_works, capsys):
@@ -41,10 +54,37 @@ def test_encodeur_materiel_indisponible_repli_x264(encoder_works, capsys):
     assert "h264_nvenc indisponible" in capsys.readouterr().out
 
 
+def test_auto_sans_gpu_repli_silencieux(encoder_works, capsys):
+    encoder_works(False)
+    assert _video_codec_args("auto") == X264
+    assert capsys.readouterr().out == ""
+
+
+def test_8k_passe_en_hevc_teste_a_la_vraie_taille(encoder_works):
+    probed = encoder_works(True)
+    args = _video_codec_args("auto", 7680, 4320)
+    assert args[:2] == ["-c:v", "hevc_nvenc"]
+    assert probed == [("hevc_nvenc", "7680x4320")]
+
+
+def test_8k_sans_hevc_materiel_repli_x264(encoder_works):
+    encoder_works(lambda enc: enc != "hevc_nvenc")
+    assert _video_codec_args("h264_nvenc", 7680, 4320) == X264
+
+
+@pytest.mark.parametrize("w, h, rate", [
+    (1080, 1920, "8M"), (720, 1280, "8M"), (0, 0, "8M"),
+    (3840, 2160, "32M"), (7680, 4320, "80M"),
+])
+def test_debit_proportionnel_a_la_definition(encoder_works, w, h, rate):
+    encoder_works(True)
+    assert _video_codec_args("h264_nvenc", w, h)[3] == rate
+
+
 @pytest.mark.parametrize("enc, expected", [
     ("libx264", X264),
-    ("libx265", ["-c:v", "libx265", "-b:v", "8M"]),
-    ("mpeg4", ["-c:v", "mpeg4", "-b:v", "8M"]),
+    ("libx265", ["-c:v", "libx265", "-b:v", "8M", "-pix_fmt", "yuv420p"]),
+    ("mpeg4", ["-c:v", "mpeg4", "-b:v", "8M", "-pix_fmt", "yuv420p"]),
 ])
 def test_encodeur_logiciel_sans_sonde(encoder_works, enc, expected):
     probed = encoder_works(False)

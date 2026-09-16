@@ -76,6 +76,8 @@ def summary(state: dict) -> dict:
         "captions": len(state.get("captions") or []),
         "vertical": bool((state.get("opts") or {}).get("vertical", True)),
         "exported_at": (exp or {}).get("at"),
+        # Faux si l'analyse n'a jamais abouti (plantage, fermeture en cours de route).
+        "ready": bool(state.get("words")) and bool(state.get("info")),
     }
 
 

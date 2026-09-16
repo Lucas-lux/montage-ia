@@ -4,9 +4,11 @@ Cette unique passe alimente sous-titres et coupe des blancs : on ne transcrit
 qu'une seule fois.
 
 Matériel : `device="auto"` prend le GPU NVIDIA s'il est utilisable, sinon le
-processeur. Si le GPU échoue en route (DLL CUDA absentes, pilote trop ancien,
-mémoire saturée), la transcription est relancée sur le processeur au lieu
-d'abandonner — l'application doit marcher sur n'importe quel PC.
+processeur. Sur GPU, la transcription tourne dans un processus à part :
+CTranslate2/CUDA peuvent planter en natif (DLL CUDA incompatibles, pilote trop
+ancien, mémoire saturée) et, dans le processus du serveur, un tel plantage
+fermerait toute l'application. Isolé, il devient une erreur ordinaire, et le
+mode "auto" relance alors la transcription sur le processeur.
 """
 from __future__ import annotations
 
@@ -16,18 +18,25 @@ from engine.edl import Word
 
 
 def _register_cuda_dll_dirs() -> None:
-    """Windows : rend chargeables les DLL CUDA des paquets pip `nvidia-*`.
+    """Windows : rend chargeables les DLL CUDA.
 
-    ctranslate2 cherche `cublas64_12.dll` (qui dépend lui-même de
-    `cudart64_12.dll`) et `cudnn64_9.dll`, mais pip les range dans
-    `site-packages/nvidia/<lib>/bin`, hors du chemin de recherche par défaut.
-    On enregistre ces dossiers via add_dll_directory ET via le PATH du process
-    (selon comment le loader résout les dépendances). Sans effet hors Windows.
+    Deux sources : les dossiers listés dans `MONTAGE_IA_DLL_DIRS` (posés par
+    app.py pour l'application installée — un processus enfant n'hérite pas des
+    `add_dll_directory` de son parent) et les paquets pip `nvidia-*`, que pip
+    range dans `site-packages/nvidia/<lib>/bin`, hors du chemin de recherche.
+    Sans effet hors Windows.
     """
     if os.name != "nt":
         return
 
     import importlib.util
+
+    for d in os.environ.get("MONTAGE_IA_DLL_DIRS", "").split(os.pathsep):
+        if d and os.path.isdir(d):
+            try:
+                os.add_dll_directory(d)
+            except OSError:
+                pass
 
     spec = importlib.util.find_spec("nvidia")
     roots = list(spec.submodule_search_locations) if spec and spec.submodule_search_locations else []
@@ -45,8 +54,11 @@ def _register_cuda_dll_dirs() -> None:
         except OSError:
             pass
 
-    if bindirs:
-        os.environ["PATH"] = os.pathsep.join(bindirs) + os.pathsep + os.environ.get("PATH", "")
+    # ctranslate2 résout aussi certaines dépendances via le PATH.
+    path = os.environ.get("PATH", "")
+    missing = [b for b in bindirs if b not in path]
+    if missing:
+        os.environ["PATH"] = os.pathsep.join(missing) + os.pathsep + path
 
 
 def resolve_device(device: str = "auto") -> str:
@@ -81,19 +93,68 @@ def transcribe(
     réellement utilisé (`device`). Seul le mode "auto" se replie sur le
     processeur : un `device="cuda"` explicite laisse remonter l'erreur.
     """
-    # Windows + CUDA : enregistrer les DLL nvidia AVANT de charger le modèle.
+    # Windows + CUDA : enregistrer les DLL nvidia AVANT de sonder le GPU.
     _register_cuda_dll_dirs()
 
     if resolve_device(device) == "cuda":
         try:
-            return _run(path, model_size, "cuda", resolve_compute_type("cuda", compute_type),
-                        language, info)
+            return _isolated(path, model_size, "cuda", resolve_compute_type("cuda", compute_type),
+                             language, info)
         except Exception as exc:  # noqa: BLE001 - toute panne GPU mérite un 2e essai
             if device != "auto":
                 raise
             print(f"[transcribe] GPU inutilisable ({exc}) : transcription sur processeur.")
     return _run(path, model_size, "cpu", resolve_compute_type("cpu", compute_type),
                 language, info)
+
+
+def _isolated(path: str, model_size: str, device: str, compute_type: str,
+              language: str | None, info: dict | None, target=None) -> list[Word]:
+    """Exécute la transcription dans un processus enfant et en rapporte le résultat.
+
+    Un plantage natif de l'enfant devient un RuntimeError ici. La mémoire du GPU
+    est rendue au système dès la fin de la transcription. `target` ne sert
+    qu'aux tests.
+    """
+    import multiprocessing as mp
+
+    ctx = mp.get_context("spawn")
+    recv, send = ctx.Pipe(duplex=False)
+    proc = ctx.Process(target=target or _child, daemon=True,
+                       args=(send, path, model_size, device, compute_type, language))
+    proc.start()
+    send.close()          # sinon recv() attendrait indéfiniment un enfant mort
+    try:
+        status, payload = recv.recv()
+    except EOFError:      # l'enfant est mort sans répondre
+        status, payload = "crash", None
+    finally:
+        recv.close()
+        proc.join()
+
+    if status == "ok":
+        words, meta = payload
+        if info is not None:
+            info.update(meta)
+        return [Word(text=t, start=s, end=e) for t, s, e in words]
+    if status == "error":
+        raise RuntimeError(payload)
+    code = proc.exitcode
+    shown = f"0x{code & 0xFFFFFFFF:08X}" if os.name == "nt" and code else str(code)
+    raise RuntimeError(f"le moteur de transcription s'est arrêté brutalement (code {shown})")
+
+
+def _child(conn, path, model_size, device, compute_type, language) -> None:
+    """Corps du processus enfant : transcrit et renvoie des tuples picklables."""
+    try:
+        _register_cuda_dll_dirs()
+        meta: dict = {}
+        words = _run(path, model_size, device, compute_type, language, meta)
+        conn.send(("ok", ([(w.text, w.start, w.end) for w in words], meta)))
+    except Exception as exc:  # noqa: BLE001 - relayé au parent
+        conn.send(("error", f"{type(exc).__name__}: {exc}"))
+    finally:
+        conn.close()
 
 
 def _run(path: str, model_size: str, device: str, compute_type: str,

@@ -150,6 +150,39 @@ def project_preview(pid: str) -> dict:
     return {"ok": True}
 
 
+@app.post("/api/project/{pid}/reanalyze")
+def project_reanalyze(pid: str) -> dict:
+    """Relance l'analyse d'un projet dont la transcription n'a pas abouti.
+
+    La vidéo importée est déjà sur disque : pas besoin de la renvoyer.
+    """
+    proj = PROJECTS.get(pid)
+    if proj is None:
+        state = store.read_state(WORK_DIR, pid)
+        if not state:
+            raise HTTPException(404, "Projet introuvable.")
+        if state.get("words"):
+            raise HTTPException(400, "Ce projet est déjà analysé.")
+        opts = Options(**{k: v for k, v in (state.get("opts") or {}).items()
+                          if k in Options.__dataclass_fields__})
+        proj = Project(pid, state.get("source") or "", WORK_DIR, opts,
+                       state.get("output_path") or "", state.get("name", ""))
+        proj.created = state.get("created", proj.created)
+    else:
+        _idle(proj)
+        if proj.words:
+            raise HTTPException(400, "Ce projet est déjà analysé.")
+    if not os.path.isfile(proj.source):
+        raise HTTPException(400, "La vidéo de ce projet a disparu : recrée le projet.")
+    # Anciennes versions : "cuda" imposé par l'interface. Une nouvelle tentative
+    # doit pouvoir se rabattre sur le processeur.
+    if proj.opts.device == "cuda":
+        proj.opts.device = "auto"
+    PROJECTS[pid] = proj
+    _spawn(proj.analyze)
+    return {"ok": True}
+
+
 @app.post("/api/project/{pid}/translate")
 def project_translate(pid: str, body: dict = Body(...)) -> dict:
     """Traduit des lignes de sous-titres sur la machine (aucun appel réseau).

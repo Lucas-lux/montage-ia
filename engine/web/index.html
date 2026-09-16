@@ -889,6 +889,7 @@ async function loadProjects() {
   grid.appendChild(add);
 
   projects.forEach((p) => {
+    const broken = p.ready === false;
     const el = document.createElement("div");
     el.className = "pcard";
     el.innerHTML = `
@@ -899,11 +900,13 @@ async function loadProjects() {
       </div>
       <div class="pbody">
         <div class="nm ell"></div>
-        <div class="meta ell">${sec(p.duration)} · ${p.captions} sous-titres · −${sec(p.removed)}</div>
+        <div class="meta ell"${broken ? ' style="color:var(--accent)"' : ""}>${broken
+          ? "Analyse non terminée — cliquer pour relancer"
+          : `${sec(p.duration)} · ${p.captions} sous-titres · −${sec(p.removed)}`}</div>
         <div class="meta ell" style="color:var(--ink-3);margin-top:2px">${ago(p.updated)}</div>
       </div>`;
     el.querySelector(".nm").textContent = p.name;
-    el.onclick = () => openProject(p.id);
+    el.onclick = () => (broken ? reanalyze(p) : openProject(p.id));
     el.querySelector(".pdel").onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Supprimer « ${p.name} » ?\nLe montage et son aperçu seront effacés.`)) return;
@@ -916,6 +919,23 @@ async function loadProjects() {
     };
     grid.appendChild(el);
   });
+}
+
+/** Projet dont l'analyse a échoué : la vidéo est déjà là, on retente. */
+async function reanalyze(p) {
+  if (!confirm(`L'analyse de « ${p.name} » n'a pas abouti.\nLa relancer ?`)) return;
+  S.id = p.id;
+  location.hash = "p=" + p.id;
+  busy("Analyse", "Nouvelle tentative…");
+  try {
+    try {
+      await post(`/api/project/${p.id}/reanalyze`);
+    } catch (e) {
+      if (!/déjà en cours/.test(e.message)) throw e;   // elle tourne encore : on la suit
+    }
+    await watch();
+    openProject(p.id);
+  } catch (e) { busyFail(e.message); }
 }
 
 function openImport() {

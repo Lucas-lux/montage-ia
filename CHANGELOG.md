@@ -25,6 +25,16 @@ First public release.
   (`--device auto`, `--compute-type auto`, `--encoder auto`).
 
 ### Fixed
+- The app could close without any message while analysing a video: CUDA
+  libraries of mismatched versions (cuDNN) made CTranslate2 crash natively.
+  cuDNN is now pinned to the version bundled with CTranslate2, the Windows build
+  refuses a mismatch, and GPU transcription runs in a separate process — a crash
+  there no longer takes the app down and the analysis continues on the CPU.
+- Projects whose analysis never finished can be re-analysed from the project list.
+- 10-bit sources (common for 4K phone videos) failed to export with NVENC; exports
+  are now always 8-bit.
+- Exports wider than 4096 px (8K in original format) switch to HEVC NVENC, and the
+  bitrate scales with the resolution instead of a fixed 8 Mb/s.
 - Exports no longer fail when NVENC can't start (NVIDIA driver too old for the
   bundled ffmpeg): they fall back to libx264.
 - Caption timestamps like 59.999 s were written as `0:00:60.00` in the .ass file.

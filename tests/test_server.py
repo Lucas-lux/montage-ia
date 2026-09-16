@@ -94,6 +94,56 @@ def test_recut_keep_ranges_pas_une_liste(client, server):
     assert r.status_code == 400
 
 
+# ------------------------------------------------ analyse qui n'a pas abouti
+
+
+def broken_project(server, pid="b1", with_source=True) -> Project:
+    """Projet enregistré à l'import mais dont la transcription a planté."""
+    source = os.path.join(server.WORK_DIR, "projects", pid, "source.mp4")
+    proj = Project(pid, source, server.WORK_DIR, Options(device="cuda", compute_type="float16"),
+                   os.path.join(server.WORK_DIR, "out.mp4"), "rush 60 ips")
+    proj.save()
+    if with_source:
+        open(source, "wb").close()
+    return proj
+
+
+def test_projet_non_analyse_marque_non_pret(client, server):
+    stored_project(server, "p1")
+    broken_project(server, "b1")
+    ready = {p["id"]: p["ready"] for p in client.get("/api/projects").json()["projects"]}
+    assert ready == {"p1": True, "b1": False}
+
+
+def test_reanalyze_relance_sur_le_disque(client, server, monkeypatch):
+    broken_project(server, "b1")
+    spawned = []
+    monkeypatch.setattr(server, "_spawn", lambda fn, *a, **k: spawned.append(fn))
+    r = client.post("/api/project/b1/reanalyze")
+    assert r.status_code == 200
+    proj = server.PROJECTS["b1"]
+    assert spawned == [proj.analyze]
+    assert proj.name == "rush 60 ips"
+    assert proj.opts.device == "auto"  # l'ancien « cuda » imposé peut se replier sur le CPU
+
+
+def test_reanalyze_refus(client, server, monkeypatch):
+    monkeypatch.setattr(server, "_spawn", lambda *a, **k: None)
+    stored_project(server, "p1")
+    broken_project(server, "sans_video", with_source=False)
+    assert client.post("/api/project/nope/reanalyze").status_code == 404
+    assert client.post("/api/project/p1/reanalyze").status_code == 400
+    r = client.post("/api/project/sans_video/reanalyze")
+    assert r.status_code == 400 and "disparu" in r.json()["detail"]
+
+
+def test_reanalyze_pendant_une_analyse(client, server):
+    proj = broken_project(server, "b1")
+    proj.task["status"] = "running"
+    server.PROJECTS["b1"] = proj
+    assert client.post("/api/project/b1/reanalyze").status_code == 409
+
+
 # ---------------------------------------------------------------- traduction
 
 

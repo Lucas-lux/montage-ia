@@ -4,6 +4,9 @@
 -r requirements.txt
 
 nvidia-cublas-cu12; sys_platform != "darwin"
-nvidia-cudnn-cu12; sys_platform != "darwin"
+# Même version que le cudnn64_9.dll livré DANS ctranslate2 : si le cœur de cuDNN
+# et ses sous-bibliothèques (cudnn_ops, cudnn_cnn…) diffèrent, la transcription
+# plante en natif (0xC0000409), sans message. À mettre à jour avec ctranslate2.
+nvidia-cudnn-cu12==9.10.2.21; sys_platform != "darwin"
 nvidia-cuda-runtime-cu12; sys_platform != "darwin"
 nvidia-cuda-nvrtc-cu12; sys_platform != "darwin"

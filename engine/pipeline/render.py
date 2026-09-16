@@ -120,44 +120,67 @@ def _even(v: float) -> int:
 
 _HW_SUFFIXES = ("_nvenc", "_qsv", "_amf", "_vaapi", "_videotoolbox", "_mf")
 
+# Les encodeurs H.264 matériels plafonnent à 4096 px de côté : au-delà (8K au
+# format d'origine), on passe en HEVC, qui monte à 8192 px.
+_H264_HW_MAX = 4096
+
 
 @functools.lru_cache(maxsize=None)
-def _encoder_works(encoder: str) -> bool:
+def _encoder_works(encoder: str, size: str = "320x240") -> bool:
     """Encode une image de test pour vérifier que l'encodeur s'ouvre vraiment.
 
     `ffmpeg -encoders` ne suffit pas : NVENC y figure même quand le pilote
     NVIDIA est trop ancien pour ce build de ffmpeg (« Driver does not support
     the required nvenc API version »), et l'échec n'arrive qu'à l'export.
+    `size` permet de vérifier aussi qu'il accepte la définition de sortie.
     """
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error",
-           "-f", "lavfi", "-i", "color=c=black:s=320x240:d=0.1",
-           "-frames:v", "1", "-c:v", encoder, "-f", "null", "-"]
+           "-f", "lavfi", "-i", f"color=c=black:s={size}:d=0.1",
+           "-frames:v", "1", "-pix_fmt", "yuv420p", "-c:v", encoder, "-f", "null", "-"]
     try:
         return subprocess.run(cmd, capture_output=True, timeout=30).returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return False
 
 
-def _video_codec_args(encoder: str) -> list[str]:
-    """Options vidéo de l'export.
+def _bitrate(width: int, height: int) -> str:
+    """8 Mb/s pour du 1080x1920, proportionnel au nombre de pixels au-delà."""
+    mbps = 8 * max(1.0, (width * height) / (1080 * 1920))
+    return f"{min(80, round(mbps))}M"
+
+
+def _video_codec_args(encoder: str, width: int = 0, height: int = 0) -> list[str]:
+    """Options vidéo de l'export pour une sortie `width`x`height`.
 
     "auto" = NVENC si le GPU répond, sinon x264 (sans bruit : c'est le cas
     normal d'un PC sans carte NVIDIA). Un encodeur matériel demandé
     explicitement mais indisponible retombe aussi sur x264, en le signalant.
+    La sortie est toujours en 8 bits (yuv420p) : les vidéos 10 bits des
+    téléphones sont refusées telles quelles par NVENC H.264, et peu de lecteurs
+    les acceptent.
     """
     requested = encoder
+    big = max(width, height) > _H264_HW_MAX
     if encoder == "auto":
         encoder = "h264_nvenc"
+    if big and encoder == "h264_nvenc":
+        encoder = "hevc_nvenc"
+    rate = _bitrate(width or 1080, height or 1920)
+
     if encoder.endswith(_HW_SUFFIXES):
-        if _encoder_works(encoder):
-            return ["-c:v", encoder, "-b:v", "8M"]
+        size = f"{_even(width)}x{_even(height)}" if big else "320x240"
+        if _encoder_works(encoder, size):
+            args = ["-c:v", encoder, "-b:v", rate, "-pix_fmt", "yuv420p"]
+            if encoder.startswith("hevc"):
+                args += ["-tag:v", "hvc1"]   # lisible par QuickTime et iOS
+            return args
         if requested != "auto":
             print(f"[render] {encoder} indisponible (pilote GPU trop ancien ou absent) : "
                   "export en libx264.")
         encoder = "libx264"
     if encoder == "libx264":
         return ["-c:v", "libx264", "-preset", "fast", "-crf", "20", "-pix_fmt", "yuv420p"]
-    return ["-c:v", encoder, "-b:v", "8M"]
+    return ["-c:v", encoder, "-b:v", rate, "-pix_fmt", "yuv420p"]
 
 
 def render_cut(
@@ -173,9 +196,10 @@ def render_cut(
 ) -> None:
     """Export : coupe + recadrage en pleine résolution."""
     fc, vmap, amap = _cut_graph(segs, vertical, width, height)
+    out_w, out_h = output_size(width, height, vertical)
     _run_ffmpeg(
         ["-i", os.path.abspath(input_path), "-map", vmap, "-map", amap,
-         *_video_codec_args(encoder), "-c:a", "aac", "-b:a", "160k",
+         *_video_codec_args(encoder, out_w, out_h), "-c:a", "aac", "-b:a", "160k",
          "-movflags", "+faststart", os.path.abspath(out_path)],
         filtergraph=fc, duration=duration, on_progress=on_progress,
     )
@@ -232,8 +256,13 @@ def burn_and_overlay(
     encoder: str = "auto",
     duration: float = 0.0,
     on_progress=None,
+    width: int = 0,
+    height: int = 0,
 ) -> None:
     """Sous-titres + émojis couleur en une seule passe d'encodage.
+
+    `width`/`height` : définition de la vidéo d'entrée (déjà coupée et
+    recadrée), qui choisit l'encodeur et le débit.
 
     Le filtre `subtitles` avale mal les chemins Windows (`C:\\...`) : on lance
     ffmpeg avec le dossier du .ass comme répertoire courant et on ne passe que
@@ -261,7 +290,7 @@ def burn_and_overlay(
 
     _run_ffmpeg(
         [*inputs, "-map", f"[{prev}]", "-map", "0:a?",
-         *_video_codec_args(encoder), "-c:a", "copy",
+         *_video_codec_args(encoder, width, height), "-c:a", "copy",
          "-movflags", "+faststart", os.path.abspath(out_path)],
         filtergraph=";".join(chain), duration=duration, on_progress=on_progress,
         cwd=work,

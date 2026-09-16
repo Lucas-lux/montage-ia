@@ -47,6 +47,15 @@ Name: "desktopicon"; Description: "Créer un raccourci sur le Bureau"; \
 Source: "{#AppSource}\*"; DestDir: "{app}"; \
   Flags: recursesubdirs createallsubdirs ignoreversion
 
+[InstallDelete]
+; Une mise à jour repart d'un dossier propre : d'anciennes DLL laissées à côté
+; des nouvelles (cuDNN de versions différentes) font planter la transcription.
+; Les projets de l'utilisateur sont ailleurs (%LOCALAPPDATA%\MontageIA).
+Type: filesandordirs; Name: "{app}\_internal"
+Type: filesandordirs; Name: "{app}\cuda"
+Type: filesandordirs; Name: "{app}\ffmpeg"
+Type: filesandordirs; Name: "{app}\models\translate"
+
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\Désinstaller {#AppName}"; Filename: "{uninstallexe}"

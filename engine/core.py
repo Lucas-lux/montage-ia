@@ -100,7 +100,7 @@ def run_pipeline(
         emojis = [{"char": e, "x": ow // 2, "y": int(oh * 0.72), "size": 150,
                    "start": s, "end": t} for e, s, t in overlays]
         burn_and_overlay(cut_path, ass_path, emojis, out, encoder=opts.encoder,
-                         duration=kept)
+                         duration=kept, width=ow, height=oh)
     else:
         report(5, "Finalisation...")
         render_cut(input_path, keep, out, vertical=opts.vertical, encoder=opts.encoder,

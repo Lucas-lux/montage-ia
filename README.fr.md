@@ -99,6 +99,21 @@ une seule fois. Pour le récupérer d'avance : `python scripts/download_models.p
 3. **Export** — rend la vidéo en pleine définition, sous-titres incrustés. Un
    export terminé est conservé ; *Réexporter* ne se lance que si tu le demandes.
 
+## Vidéos acceptées
+
+Tout ce que ffmpeg sait lire (MP4, MOV, MKV… ; H.264, HEVC, VP9, AV1…), du 720p à
+la 8K, y compris les vidéos 10 bits des téléphones.
+
+- **Mode 9:16** (par défaut) : la sortie fait toujours 1080×1920, quelle que soit la source.
+- **Format d'origine** : la sortie garde la définition de la source. Le débit suit ;
+  au-delà de 4096 px (8K), NVENC passe en HEVC.
+- Les exports sont en H.264 8 bits (HEVC pour la 8K), pour être lus partout.
+- Les vidéos **HDR** (HLG/PQ, iPhone récents) ne sont pas encore converties en SDR :
+  les couleurs peuvent paraître délavées. Exporte-les en SDR depuis le téléphone
+  en attendant.
+- Les grosses sources coûtent surtout du temps : décoder de la 4K/8K est plus lourd,
+  et un export 8K sans GPU NVIDIA est lent.
+
 ## Ligne de commande
 
 Pour traiter des vidéos sans l'éditeur :
@@ -220,6 +235,7 @@ tests/                     suite pytest
 | Émojis absents de la vidéo exportée (Linux) | Installe `fonts-noto-color-emoji`. |
 | Police différente à l'export (macOS/Linux) | L'éditeur propose des polices Windows (Arial, Impact…) ; installe-les ou choisis-en une présente sur ton système. |
 | `ffmpeg` introuvable | Installe-le (voir prérequis) et ouvre un nouveau terminal. |
+| Un projet affiche *Analyse non terminée* | L'analyse a été interrompue (app fermée, plantage). Clique sur la carte pour la relancer : la vidéo est déjà importée. |
 
 ## Pistes
 
