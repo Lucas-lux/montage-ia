@@ -31,6 +31,10 @@ compte, pas d'envoi en ligne, pas de clé d'API.
   encodage NVENC), sinon bascule tout seul sur le processeur.
 - **Bibliothèque de projets** — tout est enregistré sur disque ; tu fermes, tu
   reprends plus tard.
+- **Boîte à outils** — des utilitaires qui marchent sur n'importe quel fichier,
+  sans projet. Premier outil : *Extraire le son* — récupère la bande son d'une
+  vidéo en MP3 (par défaut), AAC, Opus, Ogg Vorbis, WAV ou FLAC, au débit ou à
+  la profondeur de ton choix.
 
 > **État :** jeune (v0.1). Développé et utilisé sous Windows ; macOS et Linux
 > fonctionnent depuis les sources mais sont moins testés. Le français est la
@@ -141,6 +145,17 @@ python -m engine.cli "mon_rush.mp4"            # → mon_rush_short.mp4 à côt�
 | `--no-subtitles` | | Pas de sous-titres incrustés |
 | `--no-emojis` | | Pas d'émojis sur les mots-clés |
 
+Les outils de la boîte à outils se lancent aussi en ligne de commande :
+
+```bash
+python -m engine.tools.audio "mon_rush.mp4"                 # → mon_rush.mp3, 192 kbit/s
+python -m engine.tools.audio "mon_rush.mp4" -f flac -q 24 --rate 48000 --channels mono
+```
+
+`-f` vaut `mp3`, `m4a`, `opus`, `ogg`, `wav` ou `flac` ; `-q` est un débit en
+kbit/s pour les formats compressés, une profondeur (16 ou 24 bits) pour WAV et
+FLAC. Un fichier existant n'est jamais écrasé (`mon_rush (1).mp3`…).
+
 ## Installeur Windows
 
 Pour fabriquer l'application autonome (`MontageIA.exe`, sans Python) et son installeur :
@@ -220,6 +235,8 @@ engine/
     translate.py           traduction locale (CTranslate2 + SentencePiece)
     emoji.py · emoji_overlay.py   mot-clé → émoji, PNG couleur
     render.py              ffmpeg : coupe/concat, aperçu, incrustation, repli d'encodeur
+  tools/
+    audio.py               boîte à outils : extraire le son d'une vidéo (aussi en CLI)
 scripts/download_models.py récupère le modèle de traduction (et Whisper en option)
 build/                     recettes PyInstaller + Inno Setup de l'application Windows
 tests/                     suite pytest

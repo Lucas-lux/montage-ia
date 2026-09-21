@@ -16,6 +16,9 @@ First public release.
 - Local French → English caption translation (Opus-MT via CTranslate2).
 - Project library stored on disk; export cached until the edit changes.
 - Command-line pipeline (`python -m engine.cli`).
+- Toolbox, usable without a project. First tool: extract a video's audio as
+  MP3 (default), AAC, Opus, Ogg Vorbis, WAV or FLAC, with a chosen bitrate or
+  bit depth, sample rate and channels (`python -m engine.tools.audio`).
 - Windows app and installer (PyInstaller + Inno Setup), bundling ffmpeg, CUDA
   libraries and the translation model.
 - `scripts/download_models.py`, test suite and CI.

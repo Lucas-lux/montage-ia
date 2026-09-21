@@ -221,6 +221,22 @@
   .swatch { width: 26px; height: 26px; border-radius: 5px; display: grid; place-items: center;
             font-size: 13px; font-weight: 800; flex: 0 0 auto; }
 
+  /* ---------------------------------------------------------- boîte à outils */
+  .tgrid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px; padding: 2px 4px 20px;
+  }
+  .tcard {
+    background: var(--card); border-radius: var(--r-card); box-shadow: var(--shadow);
+    border: 1px solid transparent; padding: 14px; cursor: pointer; display: flex; gap: 12px;
+    align-items: flex-start; text-align: left; transition: border-color .12s;
+  }
+  .tcard:hover { border-color: var(--ink-3); }
+  .tcard .ic { width: 36px; height: 36px; border-radius: var(--r-ctl); background: var(--soft-2);
+               display: grid; place-items: center; flex: 0 0 auto; }
+  .tcard b { display: block; font-weight: 600; margin-bottom: 2px; }
+  .tool-res audio { width: 100%; margin: 4px 0 8px; display: block; }
+
   /* ----------------------------------------------------------- vue occupation */
   .busywrap { flex: 1; display: grid; place-items: center; }
   .busy { width: 100%; max-width: 380px; text-align: center; }
@@ -439,6 +455,7 @@
     </div>
     <button class="rbtn" id="navProjects" title="Projets"></button>
     <button class="rbtn" id="navEditor" title="Éditeur" disabled></button>
+    <button class="rbtn" id="navTools" title="Boîte à outils"></button>
   </nav>
 
   <div class="main">
@@ -521,6 +538,92 @@
           </div>
 
           <button class="btn primary" id="go" style="width:100%;height:38px">Analyser la vidéo</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================================================ BOÎTE À OUTILS ==== -->
+    <div class="view hidden" id="v-tools">
+      <div class="page-head">
+        <h1 class="grow">Boîte à outils</h1>
+        <span class="meta">sans projet, directement sur un fichier</span>
+      </div>
+      <div class="scroll grow">
+        <div class="tgrid">
+          <button class="tcard" id="toolAudio">
+            <span class="ic" id="toolAudioIc"></span>
+            <span class="grow"><b>Extraire le son</b>
+              <span class="meta">Récupère la bande son d'une vidéo en MP3, AAC, Opus, WAV ou FLAC,
+                dans la qualité de ton choix.</span></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="view hidden" id="v-tool-audio">
+      <div class="scroll grow">
+        <div class="narrow">
+          <div class="page-head" style="padding:4px 0 14px">
+            <button class="btn icon quiet" id="audioBack"></button>
+            <h1 class="grow">Extraire le son</h1>
+          </div>
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Vidéo</h2></div>
+            <div class="cb">
+              <div class="drop" id="aDrop">
+                <b>Dépose ta vidéo ici</b>
+                <span class="meta">ou clique pour la choisir</span>
+                <input type="file" id="aFile" accept="video/*,audio/*" class="hidden" />
+              </div>
+              <div class="meta hidden" id="aFname" style="margin-top:8px"></div>
+              <div class="or">ou</div>
+              <input type="text" id="aPath" placeholder="C:\Users\...\clip.mp4" />
+              <div class="meta" style="margin-top:6px">Avec un chemin, le son est enregistré à côté de la vidéo.</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Format</h2><span class="meta" id="aFmtHint"></span></div>
+            <div class="cb">
+              <div class="chips" id="aFormats" style="margin-bottom:14px"></div>
+              <div class="field">
+                <div class="head"><span class="label" id="aQLabel">Qualité</span></div>
+                <div class="chips" id="aQualities"></div>
+              </div>
+              <div class="g2">
+                <div class="field" style="margin-bottom:0">
+                  <div class="head"><span class="label">Fréquence</span></div>
+                  <select id="aRate"><option value="">Comme la source</option></select>
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <div class="head"><span class="label">Canaux</span></div>
+                  <select id="aChannels">
+                    <option value="">Comme la source</option>
+                    <option value="stereo">Stéréo</option>
+                    <option value="mono">Mono</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <button class="btn primary" id="aGo" style="width:100%;height:38px;margin-bottom:10px">Extraire le son</button>
+
+          <div class="card hidden" id="aStatus">
+            <div class="cb" style="padding-top:14px">
+              <div id="aRunning">
+                <div class="meta" id="aMsg">Démarrage…</div>
+                <div class="track-bar"><i id="aBar"></i></div>
+              </div>
+              <div class="tool-res hidden" id="aResult">
+                <audio id="aAudio" controls preload="none"></audio>
+                <div class="kv"><span>Durée</span><b id="aKvDur"></b></div>
+                <div class="kv"><span>Taille</span><b id="aKvSize"></b></div>
+                <div class="path" id="aOutPath"></div>
+                <a class="btn" id="aDl" download style="width:100%;margin-top:10px"></a>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -796,6 +899,8 @@ const P = {
   layers: "M10 3l7 3.6-7 3.6-7-3.6zM3 11l7 3.6 7-3.6",
   again: "M16 10a6 6 0 1 1-1.9-4.4M16 3v3.5h-3.5",
   warn: "M10 4l6.5 12h-13zM10 8.5v3M10 13.8v.1",
+  tools: "M3 8h14v8H3zM7.5 8V5.5h5V8M3 11.5h14M10 10.5v2",
+  note: "M8 14.5V5l8-1.5v9.5M8 14.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM16 13a2 2 0 1 1-4 0 2 2 0 0 1 4 0z",
 };
 function svg(d, size) {
   return `<svg viewBox="0 0 20 20" width="${size || 16}" height="${size || 16}" fill="none"
@@ -862,10 +967,11 @@ const post = (url, body) => api(url, {
 /* =============================================================== VUES ==== */
 
 function showView(name) {
-  ["projects", "import", "busy", "edit"].forEach((v) =>
+  ["projects", "import", "busy", "edit", "tools", "tool-audio"].forEach((v) =>
     $("v-" + v).classList.toggle("hidden", v !== name));
   $("navProjects").classList.toggle("on", name === "projects" || name === "import");
   $("navEditor").classList.toggle("on", name === "edit");
+  $("navTools").classList.toggle("on", name.startsWith("tool"));
   $("navEditor").disabled = !S.proj;
   if (name !== "edit") { video.pause(); cancelAnimationFrame(S.raf); }
 }
@@ -2227,9 +2333,151 @@ stage.addEventListener("pointerdown", (e) => {
   }
 });
 
+/* ===================================================== BOÎTE À OUTILS ==== */
+
+/** Envoie la vidéo (ou son chemin) puis suit la tâche jusqu'au bout. */
+async function runTool(url, fd, onProgress) {
+  const { job_id } = await api(url, { method: "POST", body: fd });
+  return new Promise((resolve, reject) => {
+    const tick = async () => {
+      try {
+        const s = await api("/api/tools/jobs/" + job_id);
+        onProgress(s);
+        if (s.status === "error") return reject(new Error(s.message));
+        if (s.status === "done") return resolve({ id: job_id, ...s });
+        setTimeout(tick, 500);
+      } catch (e) { reject(e); }
+    };
+    tick();
+  });
+}
+
+/** Zone de dépôt : clic ou glisser-déposer ; un chemin collé l'emporte sur le fichier. */
+function dropZone(zone, input, label, pathInput) {
+  const show = (f) => {
+    if (!f) return;
+    label.textContent = f.name;
+    label.classList.remove("hidden");
+    pathInput.value = "";
+  };
+  zone.onclick = () => input.click();
+  input.onchange = () => show(input.files[0]);
+  zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("over"); };
+  zone.ondragleave = () => zone.classList.remove("over");
+  zone.ondrop = (e) => {
+    e.preventDefault();
+    zone.classList.remove("over");
+    if (e.dataTransfer.files.length) {
+      input.files = e.dataTransfer.files;
+      show(e.dataTransfer.files[0]);
+    }
+  };
+  pathInput.oninput = () => {
+    if (!pathInput.value.trim()) return;
+    input.value = "";
+    label.classList.add("hidden");
+  };
+}
+
+const A = { cat: null, fmt: "mp3", q: {}, busy: false };
+
+function openTools() { saveNow(); showView("tools"); }
+
+async function openAudioTool() {
+  showView("tool-audio");
+  if (A.cat) return;
+  try {
+    A.cat = await api("/api/tools/audio/formats");
+    A.fmt = A.cat.default;
+    A.cat.formats.forEach((f) => { A.q[f.name] = f.default; });
+    A.cat.sample_rates.forEach((r) => {
+      const o = document.createElement("option");
+      o.value = r;
+      o.textContent = (r / 1000).toLocaleString("fr-FR") + " kHz";
+      $("aRate").appendChild(o);
+    });
+    renderAudioFormats();
+  } catch (e) { toast("Outil indisponible : " + e.message); }
+}
+
+function renderAudioFormats() {
+  const cur = A.cat.formats.find((f) => f.name === A.fmt);
+  const box = $("aFormats");
+  box.innerHTML = "";
+  A.cat.formats.forEach((f) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (f.name === A.fmt ? " on" : "");
+    b.textContent = f.label;
+    b.onclick = () => { A.fmt = f.name; renderAudioFormats(); };
+    box.appendChild(b);
+  });
+  $("aFmtHint").textContent = cur.lossless ? "sans perte · fichier lourd" : "compressé";
+  $("aQLabel").textContent = cur.lossless ? "Profondeur" : "Débit";
+  const qbox = $("aQualities");
+  qbox.innerHTML = "";
+  cur.qualities.forEach((q) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (q === A.q[cur.name] ? " on" : "");
+    b.textContent = q + (cur.lossless ? " bits" : " kbit/s");
+    b.onclick = () => { A.q[cur.name] = q; renderAudioFormats(); };
+    qbox.appendChild(b);
+  });
+}
+
+dropZone($("aDrop"), $("aFile"), $("aFname"), $("aPath"));
+
+$("aGo").onclick = async () => {
+  if (A.busy || !A.cat) return;
+  const fd = new FormData();
+  const file = $("aFile").files[0];
+  const path = $("aPath").value.trim();
+  if (file) fd.append("file", file);
+  else if (path) fd.append("path", path);
+  else return toast("Choisis une vidéo ou colle un chemin.");
+  fd.append("format", A.fmt);
+  fd.append("quality", A.q[A.fmt]);
+  if ($("aRate").value) fd.append("sample_rate", $("aRate").value);
+  if ($("aChannels").value) fd.append("channels", $("aChannels").value);
+
+  A.busy = true;
+  $("aGo").disabled = true;
+  $("aStatus").classList.remove("hidden");
+  $("aRunning").classList.remove("hidden");
+  $("aResult").classList.add("hidden");
+  $("aMsg").className = "meta";
+  $("aMsg").textContent = file ? "Envoi de la vidéo…" : "Démarrage…";
+  $("aBar").style.width = "0%";
+  try {
+    const job = await runTool("/api/tools/audio", fd, (s) => {
+      $("aBar").style.width = (s.pct || 0) + "%";
+      $("aMsg").textContent = s.message +
+        (s.status === "running" ? ` ${Math.round(s.pct || 0)} %` : "");
+    });
+    const url = "/api/tools/result/" + job.id;
+    $("aAudio").src = url;
+    $("aDl").href = url;
+    $("aKvDur").textContent = fmt(job.result.duration);
+    $("aKvSize").textContent = mo(job.result.size);
+    $("aOutPath").textContent = job.result.output;
+    $("aRunning").classList.add("hidden");
+    $("aResult").classList.remove("hidden");
+    toast("Son extrait.");
+  } catch (e) {
+    $("aMsg").className = "meta err";
+    $("aMsg").textContent = e.message;
+  } finally {
+    A.busy = false;
+    $("aGo").disabled = false;
+  }
+};
+
 /* ============================================================== DÉPART ==== */
 $("navProjects").innerHTML = svg(P.grid, 18);
 $("navEditor").innerHTML = svg(P.film, 18);
+$("navTools").innerHTML = svg(P.tools, 18);
+$("toolAudioIc").innerHTML = svg(P.note, 18);
+$("audioBack").innerHTML = svg(P.back, 16);
+$("aDl").innerHTML = svg(P.down, 15) + "Télécharger";
 $("newProject").innerHTML = svg(P.plus, 15) + "Nouveau projet";
 $("importBack").innerHTML = svg(P.back, 16);
 $("edBack").innerHTML = svg(P.back, 16);
@@ -2245,6 +2493,9 @@ $("expAgain").innerHTML = svg(P.again, 15) + "Réexporter";
 $("navProjects").onclick = () => { saveNow(); loadProjects(); };
 $("navEditor").onclick = () => { if (S.proj) showView("edit"); };
 $("importBack").onclick = loadProjects;
+$("navTools").onclick = openTools;
+$("toolAudio").onclick = openAudioTool;
+$("audioBack").onclick = () => showView("tools");
 $("edBack").onclick = () => { saveNow(); loadProjects(); };
 $("newProject").onclick = openImport;
 // Fermeture de l'onglet : `fetch` n'a plus le temps d'aboutir, sendBeacon si.

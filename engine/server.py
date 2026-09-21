@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import threading
 import uuid
 from typing import Optional
@@ -34,6 +35,7 @@ from engine.pipeline.style_presets import catalog
 from engine.pipeline.translate import available as translate_available
 from engine.pipeline.translate import translate_captions
 from engine.project import Project
+from engine.tools import audio as audio_tool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
@@ -71,6 +73,13 @@ def _clean_workdir() -> None:
 
 
 _clean_workdir()
+
+# Boîte à outils : pas de projet, juste des tâches en mémoire. Leurs fichiers
+# (vidéo envoyée, résultat à télécharger) vivent dans `work/tools/<id>/` et
+# sont effacés au démarrage suivant.
+TOOLS_DIR = os.path.join(WORK_DIR, "tools")
+TOOL_JOBS: dict[str, dict] = {}
+shutil.rmtree(TOOLS_DIR, ignore_errors=True)
 
 
 def _project(pid: str) -> Project:
@@ -326,6 +335,104 @@ def job_result(pid: str):
         raise HTTPException(404, "Aucun export disponible.")
     return FileResponse(result["output"], media_type="video/mp4",
                         filename=os.path.basename(result["output"]))
+
+
+# --------------------------------------------------------- boîte à outils
+
+def _tool_job(tid: str) -> dict:
+    job = TOOL_JOBS.get(tid)
+    if job is None:
+        raise HTTPException(404, "Tâche introuvable.")
+    return job
+
+
+def _run_extract_audio(job: dict, src: str, upload: bool, **kw) -> None:
+    job.update(status="running", message="Extraction du son…")
+    try:
+        res = audio_tool.extract_audio(
+            src, job["output"],
+            on_progress=lambda p: job.update(pct=round(p * 100, 1)), **kw)
+        job.update(status="done", pct=100, message="Terminé.", result=res)
+    except Exception as exc:  # noqa: BLE001 - message remonté tel quel au front
+        job.update(status="error", message=str(exc))
+        try:
+            os.remove(job["output"])
+        except OSError:
+            pass
+    finally:
+        if upload:   # la copie envoyée ne sert plus
+            try:
+                os.remove(src)
+            except OSError:
+                pass
+
+
+@app.get("/api/tools/audio/formats")
+def audio_formats() -> dict:
+    return audio_tool.catalog()
+
+
+@app.post("/api/tools/audio")
+async def extract_audio(
+    file: Optional[UploadFile] = File(None),
+    path: Optional[str] = Form(None),
+    format: str = Form(audio_tool.DEFAULT_FORMAT),
+    quality: Optional[int] = Form(None),
+    sample_rate: Optional[int] = Form(None),
+    channels: Optional[str] = Form(None),
+) -> dict:
+    """Extrait la bande son d'une vidéo, hors de tout projet.
+
+    Vidéo envoyée : le son est rangé dans `work/tools/` et se télécharge.
+    Chemin local : il est écrit à côté de la vidéo, sans rien écraser.
+    """
+    kw = dict(fmt=format, quality=quality, sample_rate=sample_rate or None,
+              channels=channels or None)
+    try:
+        audio_tool.encode_args(**kw)   # réglage invalide : refusé avant de copier la vidéo
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    tid = uuid.uuid4().hex
+    tdir = os.path.join(TOOLS_DIR, tid)
+    if file is not None and file.filename:
+        os.makedirs(tdir, exist_ok=True)
+        name = _safe(os.path.basename(file.filename))
+        src = os.path.join(tdir, "_source_" + name)
+        with open(src, "wb") as out_f:
+            while chunk := await file.read(1024 * 1024):
+                out_f.write(chunk)
+        out = audio_tool.output_path(name, format, folder=tdir)
+        upload = True
+    elif path:
+        src = path.strip().strip('"')
+        if not os.path.isfile(src):
+            raise HTTPException(400, f"Fichier introuvable : {src}")
+        out = audio_tool.output_path(src, format)
+        upload = False
+    else:
+        raise HTTPException(400, "Aucune vidéo fournie (fichier ou chemin).")
+
+    job = {"status": "queued", "pct": 0, "message": "En attente…", "output": out}
+    TOOL_JOBS[tid] = job
+    _spawn(_run_extract_audio, job, src, upload, **kw)
+    return {"job_id": tid}
+
+
+@app.get("/api/tools/jobs/{tid}")
+def tool_job_status(tid: str) -> dict:
+    job = _tool_job(tid)
+    return {k: job.get(k) for k in ("status", "pct", "message", "output", "result")}
+
+
+@app.get("/api/tools/result/{tid}")
+def tool_job_result(tid: str):
+    job = _tool_job(tid)
+    res = job.get("result")
+    if job.get("status") != "done" or not res or not os.path.isfile(res["output"]):
+        raise HTTPException(404, "Aucun résultat disponible.")
+    return FileResponse(res["output"], media_type=res["mime"],
+                        filename=os.path.basename(res["output"]))
 
 
 def main() -> None:

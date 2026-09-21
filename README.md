@@ -31,6 +31,10 @@ API key.
   NVENC encoding) and falls back to the CPU automatically otherwise.
 - **Project library** — every edit is saved on disk; close the app, come back
   later.
+- **Toolbox** — standalone utilities that work on any file, no project needed.
+  First tool: *Extraire le son* (extract audio) — pull the soundtrack out of a
+  video as MP3 (default), AAC, Opus, Ogg Vorbis, WAV or FLAC, at the bitrate or
+  bit depth you choose.
 
 > **Status:** early (v0.1). Developed and used on Windows; macOS and Linux work
 > from source but are less tested. French is the primary language: the interface
@@ -137,6 +141,17 @@ python -m engine.cli "my_clip.mp4"            # → my_clip_short.mp4 next to th
 | `--no-subtitles` | | Don't burn captions |
 | `--no-emojis` | | No emojis on keywords |
 
+Toolbox tools run from the command line too:
+
+```bash
+python -m engine.tools.audio "my_clip.mp4"                  # → my_clip.mp3, 192 kbit/s
+python -m engine.tools.audio "my_clip.mp4" -f flac -q 24 --rate 48000 --channels mono
+```
+
+`-f` is `mp3`, `m4a`, `opus`, `ogg`, `wav` or `flac`; `-q` is a bitrate in
+kbit/s for compressed formats, a bit depth (16 or 24) for WAV and FLAC. An
+existing file is never overwritten (`my_clip (1).mp3`…).
+
 ## Windows installer
 
 To produce a standalone app (`MontageIA.exe`, no Python needed) and its installer:
@@ -216,6 +231,8 @@ engine/
     translate.py           local caption translation (CTranslate2 + SentencePiece)
     emoji.py · emoji_overlay.py   keyword → emoji, colour emoji PNGs
     render.py              ffmpeg: cut/concat, preview proxy, burn-in, encoder fallback
+  tools/
+    audio.py               toolbox: extract a video's audio (also a command line)
 scripts/download_models.py fetch the translation (and optionally Whisper) models
 build/                     PyInstaller + Inno Setup recipes for the Windows app
 tests/                     pytest suite
