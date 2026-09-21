@@ -28,6 +28,7 @@ from typing import Optional
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from engine import store
 from engine.core import Options, default_output
@@ -35,6 +36,7 @@ from engine.pipeline.style_presets import catalog
 from engine.pipeline.translate import available as translate_available
 from engine.pipeline.translate import translate_captions
 from engine.project import Project
+from engine.timeline import api as timeline_api
 from engine.tools import audio as audio_tool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -46,6 +48,23 @@ WORK_DIR = os.path.abspath(os.environ.get("MONTAGE_IA_WORK")
 os.makedirs(WORK_DIR, exist_ok=True)
 
 app = FastAPI(title="Montage IA")
+
+
+class _Static(StaticFiles):
+    """Fichiers de l'interface, revalidés à chaque chargement : après une mise
+    à jour de l'application, le navigateur ne doit pas garder d'anciens modules."""
+
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
+app.mount("/web", _Static(directory=WEB_DIR), name="web")
+# Le studio lit le dossier de travail au moment de chaque requête : les tests
+# le déplacent en cours de route.
+timeline_api.configure(lambda: WORK_DIR)
+app.include_router(timeline_api.router)
 
 # Cache des projets ouverts ; la vérité est sur disque.
 PROJECTS: dict[str, Project] = {}
@@ -109,10 +128,20 @@ def _safe(name: str) -> str:
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .") or "video"
 
 
+def _page(name: str) -> HTMLResponse:
+    with open(os.path.join(WEB_DIR, name), encoding="utf-8") as f:
+        return HTMLResponse(f.read(), headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> str:
-    with open(os.path.join(WEB_DIR, "index.html"), encoding="utf-8") as f:
-        return f.read()
+def index() -> HTMLResponse:
+    return _page("index.html")
+
+
+@app.get("/studio", response_class=HTMLResponse)
+def studio() -> HTMLResponse:
+    """Éditeur timeline (le projet est désigné par `#p=<id>`)."""
+    return _page("studio.html")
 
 
 @app.get("/api/styles")
@@ -129,9 +158,11 @@ def projects() -> dict:
 
 @app.delete("/api/projects/{pid}")
 def delete_project(pid: str) -> dict:
-    proj = PROJECTS.pop(pid, None)
+    proj = PROJECTS.get(pid)
     if proj is not None and proj.is_busy:
         raise HTTPException(409, "Une opération est en cours sur ce projet.")
+    timeline_api.forget(pid)
+    PROJECTS.pop(pid, None)
     if not store.delete_project(WORK_DIR, pid):
         raise HTTPException(404, "Projet introuvable.")
     return {"ok": True}

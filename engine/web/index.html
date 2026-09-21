@@ -191,6 +191,22 @@
   .pcard:hover .pdel { opacity: 1; }
   .pdel:hover { background: #fff; color: var(--accent); }
   .pbody { padding: 10px 12px 12px; }
+  .pkind {
+    position: absolute; left: 8px; bottom: 8px; height: 20px; padding: 0 7px; border-radius: 5px;
+    background: rgba(23,24,28,.78); color: #fff; font-size: 10.5px; font-weight: 600;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .modes { display: grid; gap: 8px; }
+  .mode {
+    display: flex; gap: 12px; align-items: flex-start; text-align: left; padding: 13px;
+    border-radius: var(--r-ctl); border: 1px solid var(--line); background: var(--card);
+  }
+  .mode:hover { border-color: var(--ink-3); }
+  .mode .ic { width: 36px; height: 36px; border-radius: var(--r-ctl); background: var(--soft-2);
+              display: grid; place-items: center; flex: 0 0 auto; }
+  .mode.primary .ic { background: var(--accent); color: #fff; }
+  .mode b { display: block; font-weight: 600; margin-bottom: 2px; }
+  .fmts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .pbody .nm { font-size: 13.5px; font-weight: 600; margin-bottom: 3px; }
   .pnew {
     background: var(--card); border-radius: var(--r-card); border: 1px dashed var(--line-2);
@@ -876,6 +892,33 @@
   </div>
 </div>
 
+<div class="overlay hidden" id="modeOverlay">
+  <div class="modal" style="max-width:460px">
+    <div class="mh">
+      <h2>Nouveau projet</h2>
+      <button class="btn sm icon quiet" id="modeClose"></button>
+    </div>
+    <div class="mb">
+      <div class="modes">
+        <div class="mode primary">
+          <span class="ic" id="modeTlIc"></span>
+          <span class="grow"><b>Montage</b>
+            <span class="meta">Timeline multipiste comme CapCut : importe tes rushs ou un dossier,
+              coupe, divise, sépare le son, ajoute musique et sous-titres.</span>
+            <div class="fmts" id="modeFormats"></div>
+          </span>
+        </div>
+        <button class="mode" id="modeShort">
+          <span class="ic" id="modeShortIc"></span>
+          <span class="grow"><b>Short automatique</b>
+            <span class="meta">Une vidéo face caméra : coupe des blancs, recadrage 9:16 et
+              sous-titres animés, en une analyse.</span></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -991,28 +1034,32 @@ async function loadProjects() {
   const add = document.createElement("div");
   add.className = "pnew";
   add.innerHTML = svg(P.plus, 20) + "<span>Nouveau projet</span>";
-  add.onclick = openImport;
+  add.onclick = openNew;
   grid.appendChild(add);
 
   projects.forEach((p) => {
     const broken = p.ready === false;
+    const timeline = p.kind === "timeline";
     const el = document.createElement("div");
     el.className = "pcard";
+    const info = timeline
+      ? `${sec(p.duration)} · ${p.media} média${p.media > 1 ? "s" : ""} · ${p.clips} clip${p.clips > 1 ? "s" : ""}`
+      : `${sec(p.duration)} · ${p.captions} sous-titres · −${sec(p.removed)}`;
     el.innerHTML = `
       <div class="pthumb">
         <img src="/api/thumb/${p.id}?v=${p.updated}" alt="" onerror="this.remove()" />
         ${p.exported_at ? `<span class="ptag">${svg(P.down, 11)}Exporté</span>` : ""}
+        <span class="pkind">${svg(timeline ? P.layers : P.cut, 11)}${timeline ? "Montage" : "Short"}</span>
         <button class="pdel" title="Supprimer">${svg(P.trash, 14)}</button>
       </div>
       <div class="pbody">
         <div class="nm ell"></div>
         <div class="meta ell"${broken ? ' style="color:var(--accent)"' : ""}>${broken
-          ? "Analyse non terminée — cliquer pour relancer"
-          : `${sec(p.duration)} · ${p.captions} sous-titres · −${sec(p.removed)}`}</div>
+          ? "Analyse non terminée — cliquer pour relancer" : info}</div>
         <div class="meta ell" style="color:var(--ink-3);margin-top:2px">${ago(p.updated)}</div>
       </div>`;
     el.querySelector(".nm").textContent = p.name;
-    el.onclick = () => (broken ? reanalyze(p) : openProject(p.id));
+    el.onclick = () => (timeline ? openStudio(p.id) : broken ? reanalyze(p) : openProject(p.id));
     el.querySelector(".pdel").onclick = async (e) => {
       e.stopPropagation();
       if (!confirm(`Supprimer « ${p.name} » ?\nLe montage et son aperçu seront effacés.`)) return;
@@ -1044,7 +1091,35 @@ async function reanalyze(p) {
   } catch (e) { busyFail(e.message); }
 }
 
+function openStudio(id) { saveNow(); location.href = "/studio#p=" + id; }
+
+/** Choix du type de projet : montage timeline (au format choisi) ou short. */
+async function openNew() {
+  $("modeOverlay").classList.remove("hidden");
+  const box = $("modeFormats");
+  if (box.children.length) return;
+  try {
+    const { canvas, default: def } = await api("/api/timeline/presets");
+    canvas.forEach((c) => {
+      const b = document.createElement("button");
+      b.className = "btn sm" + (c.name === def ? " primary" : "");
+      b.textContent = c.name;
+      b.title = `${c.w}×${c.h}`;
+      b.onclick = async () => {
+        b.disabled = true;
+        try {
+          const { id } = await post("/api/timeline", { canvas: c.name });
+          openStudio(id);
+        } catch (e) { toast(e.message); b.disabled = false; }
+      };
+      box.appendChild(b);
+    });
+  } catch (e) { toast("Création impossible : " + e.message); }
+}
+function closeNew() { $("modeOverlay").classList.add("hidden"); }
+
 function openImport() {
+  closeNew();
   showView("import");
   fileInput.value = "";
   $("fname").classList.add("hidden");
@@ -2311,6 +2386,10 @@ document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeExport();
     return;
   }
+  if (!$("modeOverlay").classList.contains("hidden")) {
+    if (e.key === "Escape") closeNew();
+    return;
+  }
   if ($("v-edit").classList.contains("hidden")) return;
 
   const mod = e.ctrlKey || e.metaKey;
@@ -2477,6 +2556,9 @@ $("navEditor").innerHTML = svg(P.film, 18);
 $("navTools").innerHTML = svg(P.tools, 18);
 $("toolAudioIc").innerHTML = svg(P.note, 18);
 $("audioBack").innerHTML = svg(P.back, 16);
+$("modeClose").innerHTML = svg(P.close, 14);
+$("modeTlIc").innerHTML = svg(P.layers, 18);
+$("modeShortIc").innerHTML = svg(P.cut, 18);
 $("aDl").innerHTML = svg(P.down, 15) + "Télécharger";
 $("newProject").innerHTML = svg(P.plus, 15) + "Nouveau projet";
 $("importBack").innerHTML = svg(P.back, 16);
@@ -2497,7 +2579,10 @@ $("navTools").onclick = openTools;
 $("toolAudio").onclick = openAudioTool;
 $("audioBack").onclick = () => showView("tools");
 $("edBack").onclick = () => { saveNow(); loadProjects(); };
-$("newProject").onclick = openImport;
+$("newProject").onclick = openNew;
+$("modeShort").onclick = openImport;
+$("modeClose").onclick = closeNew;
+$("modeOverlay").onpointerdown = (e) => { if (e.target === $("modeOverlay")) closeNew(); };
 // Fermeture de l'onglet : `fetch` n'a plus le temps d'aboutir, sendBeacon si.
 window.addEventListener("beforeunload", () => {
   if (!S.saveTimer || !S.id) return;
@@ -2510,6 +2595,7 @@ window.addEventListener("beforeunload", () => {
 /** Le projet vit sur le serveur : `#p=<id>` rouvre le même montage. */
 async function boot() {
   await loadStyles();
+  if (location.hash === "#tools") { history.replaceState(null, "", "/"); return openTools(); }
   const id = new URLSearchParams(location.hash.slice(1)).get("p");
   if (!id) return loadProjects();
 

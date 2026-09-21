@@ -16,7 +16,8 @@ from PyInstaller.utils.hooks import collect_all
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
-datas = [(os.path.join(ROOT, "engine", "web", "index.html"), "engine/web")]
+# Toute l'interface : pages, modules JS et feuilles de style du studio.
+datas = [(os.path.join(ROOT, "engine", "web"), "engine/web")]
 binaries = []
 hiddenimports = [
     # Chargés paresseusement dans le moteur : PyInstaller ne peut pas les voir.

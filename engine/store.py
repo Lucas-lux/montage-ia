@@ -64,8 +64,28 @@ def read_state(work_dir: str, pid: str) -> dict | None:
 def summary(state: dict) -> dict:
     """Fiche courte affichée dans la grille de projets."""
     exp = state.get("export") or None
+    if state.get("kind") == "timeline":
+        clips = state.get("clips") or []
+        canvas = state.get("canvas") or {}
+        return {
+            "id": state.get("id"),
+            "kind": "timeline",
+            "name": state.get("name") or "Sans titre",
+            "created": state.get("created", 0),
+            "updated": state.get("updated", 0),
+            "duration": round(max((c.get("start", 0) + c.get("dur", 0) for c in clips),
+                                  default=0.0), 3),
+            "media": len(state.get("media") or []),
+            "clips": sum(1 for c in clips if c.get("kind") != "text"),
+            "captions": sum(1 for c in clips if c.get("kind") == "text"),
+            "canvas": [canvas.get("w", 1080), canvas.get("h", 1920)],
+            "vertical": canvas.get("h", 1920) > canvas.get("w", 1080),
+            "exported_at": (exp or {}).get("at"),
+            "ready": True,
+        }
     return {
         "id": state.get("id"),
+        "kind": "short",
         "name": state.get("name") or "Sans titre",
         "source_name": os.path.basename(state.get("source") or ""),
         "created": state.get("created", 0),

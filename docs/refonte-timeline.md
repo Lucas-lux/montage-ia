@@ -67,13 +67,13 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 
 ### 1. Fondations
 - [x] Branche, feuille de route.
-- [ ] Les fichiers de l'interface sont servis en statique (modules JS/CSS
+- [x] Les fichiers de l'interface sont servis en statique (modules JS/CSS
       séparés), et l'installeur les embarque tous.
-- [ ] Type de projet `timeline` : création, lecture, sauvegarde, liste des
+- [x] Type de projet `timeline` : création, lecture, sauvegarde, liste des
       projets commune aux deux modes.
-- [ ] Normalisation côté serveur de l'état envoyé par l'éditeur (bornes,
+- [x] Normalisation côté serveur de l'état envoyé par l'éditeur (bornes,
       chevauchements, pistes manquantes).
-- [ ] Page « Studio » (squelette : médias, lecteur, inspecteur, timeline).
+- [x] Page « Studio » (squelette : médias, lecteur, inspecteur, timeline).
 
 ### 2. Médias
 - [ ] Import de fichiers, d'un dossier entier (glisser-déposer compris) ou
