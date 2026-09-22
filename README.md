@@ -55,8 +55,8 @@ API key.
   video as MP3 (default), AAC, Opus, Ogg Vorbis, WAV or FLAC, at the bitrate or
   bit depth you choose.
 
-> **Status:** early (v0.1). Developed and used on Windows; macOS and Linux work
-> from source but are less tested. French is the primary language: the interface
+> **Status:** early (v0.1). Windows app (installer) and macOS app (`.dmg`, Apple
+> Silicon); Linux works from source but is less tested. French is the primary language: the interface
 > is in French, and filler-word detection and translation (French → English)
 > assume French speech.
 
@@ -67,10 +67,13 @@ API key.
 | | Windows | macOS | Debian / Ubuntu |
 |---|---|---|---|
 | **Python 3.10 – 3.12** | `winget install Python.Python.3.12` | `brew install python@3.12` | `sudo apt install python3 python3-venv` |
-| **ffmpeg** (with libass) | `winget install Gyan.FFmpeg` | `brew install ffmpeg` | `sudo apt install ffmpeg` |
+| **ffmpeg** (with libass) | `winget install Gyan.FFmpeg` | `brew install homebrew-ffmpeg/ffmpeg/ffmpeg` ¹ | `sudo apt install ffmpeg` |
 | Colour emoji font | built in | built in | `sudo apt install fonts-noto-color-emoji` |
 
 Check that `ffmpeg -version` and `ffprobe -version` work in a new terminal.
+
+¹ Homebrew's default `ffmpeg` is built without libass, so it can't burn captions in:
+use the `homebrew-ffmpeg` tap, or the Mac app, whose ffmpeg is complete.
 
 ### 2. Install
 
@@ -269,6 +272,59 @@ libraries and the translation model. Projects are stored in
 > The bundled ffmpeg decides which NVIDIA driver NVENC needs (ffmpeg 8.x needs
 > driver 570+). Exports fall back to libx264 when NVENC can't start.
 
+## macOS app
+
+**Apple Silicon (M1 and later), macOS 14 Sonoma or later.** Intel Macs are not
+supported: CTranslate2, which runs Whisper and the local language model, is no
+longer published for them.
+
+Open `MontageIA-<version>-macos-arm64.dmg` and drag *Montage IA* into
+*Applications*. The app has no terminal window: it lives in the **Dock** and the
+**menu bar** (film icon) — *Ouvrir Montage IA*, *Dossier des projets*, *Afficher le
+journal*, *Quitter* (`⌘Q`). Clicking its Dock icon reopens the editor in your
+browser. Transcription and the local language model run on the CPU (Apple's
+Accelerate framework); exports use the VideoToolbox hardware encoder.
+
+Unless the app is signed with an Apple Developer ID, macOS blocks it the first
+time: open *System Settings → Privacy & Security* and click *Open Anyway* (or run
+`xattr -dr com.apple.quarantine "/Applications/Montage IA.app"`). Recording a
+voice-over asks for microphone access in the browser.
+
+| | Location |
+|---|---|
+| Projects, models downloaded by the app | `~/Library/Application Support/Montage IA` |
+| Exports | `~/Movies/Montage IA` |
+| Log | `~/Library/Logs/Montage IA/montage-ia.log` |
+
+The Windows fonts used by some caption styles are replaced by their closest macOS
+equivalent, in the preview and in the export (Segoe UI → Helvetica Neue,
+Bahnschrift → DIN Condensed, Consolas → Menlo, Ink Free → Chalkboard SE…).
+
+### Building it
+
+On an Apple Silicon Mac:
+
+```bash
+pip install -r requirements-build.txt
+python scripts/download_models.py
+python build/build.py                 # add --with-model to bundle Whisper (+1.6 GB)
+```
+
+`build.py` detects macOS and produces `dist/Montage IA.app` and
+`dist/MontageIA-<version>-macos-arm64.dmg`. It downloads a static ffmpeg/ffprobe
+for arm64 ([ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de), with libass,
+x264, x265, Opus…) and checks it has everything the app needs. The app is signed
+ad hoc; set `MAC_SIGN_IDENTITY` (a *Developer ID Application* certificate) to sign
+it for real, and `MAC_NOTARY_APPLE_ID`, `MAC_NOTARY_TEAM_ID`, `MAC_NOTARY_PASSWORD`
+to notarize the `.dmg` too.
+
+The [`build-macos`](.github/workflows/build-macos.yml) workflow does all this on a
+GitHub Mac runner, then launches the app and makes a real edit with it
+(`scripts/smoke_test.py`: import, transcription, captions, voice-over, automatic
+edit, export, and a check that the text is actually drawn). The `.dmg` is attached
+to the run, and to the release for `v*` tags. Signing secrets are optional (see the
+workflow file).
+
 ## Configuration
 
 | Environment variable | Default | Effect |
@@ -353,7 +409,9 @@ tests/                     pytest suite (+ tests/js, run by node --test)
 | `cublas64_12.dll is not found` / `libcublas.so.12` | CUDA libraries missing: `pip install -r requirements-gpu.txt`. Transcription falls back to the CPU meanwhile. On Linux, see faster-whisper's notes on `LD_LIBRARY_PATH`. |
 | *Traduire en anglais* is greyed out | Run `python scripts/download_models.py`. The button is also disabled when the video isn't in French. |
 | Emojis missing in the exported video (Linux) | Install `fonts-noto-color-emoji`. |
-| Exported captions use a different font (macOS/Linux) | The editor offers Windows fonts (Arial, Impact…); install them or pick one available on your system. |
+| Exported captions use a different font (Linux) | The editor offers Windows fonts (Arial, Impact…); install them or pick one available on your system. On macOS they are replaced automatically. |
+| « Ce ffmpeg ne sait pas incruster de sous-titres » | Your ffmpeg has no libass (Homebrew's default one): see the prerequisites. |
+| macOS: « Montage IA » can't be opened | See *macOS app* above (*Open Anyway* in Privacy & Security). |
 | `ffmpeg` not found | Install it (see prerequisites) and open a new terminal. |
 | A project shows *Analyse non terminée* | The analysis was interrupted (app closed, crash). Click the card to run it again — the video is already imported. |
 

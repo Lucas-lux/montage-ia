@@ -18,6 +18,7 @@ the components below, which keep their own licenses.
 | [huggingface_hub](https://github.com/huggingface/huggingface_hub) | Apache-2.0 |
 | [tokenizers](https://github.com/huggingface/tokenizers) | Apache-2.0 |
 | [OpenCV](https://github.com/opencv/opencv) (`opencv-python-headless`) | Apache-2.0 |
+| [PyObjC](https://github.com/ronaldoussoren/pyobjc) (macOS only) | MIT |
 
 ## Models (downloaded, not stored in this repository)
 
@@ -40,6 +41,14 @@ the components below, which keep their own licenses.
 |---|---|---|
 | [FFmpeg](https://ffmpeg.org/) | LGPL-2.1+ or GPL-2.0+/GPL-3.0, depending on the build | Not included in this repository; you install it yourself. |
 | Colour emoji fonts (Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji) | Their vendors' licenses | Used from the operating system, never redistributed. Emojis burned into your videos come from your system font. |
+
+## The macOS app built by `build/build.py`
+
+Same obligations as the Windows installer below, except CUDA (not bundled). The
+bundled **FFmpeg** is the static arm64 build from
+[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de) — a **GPL** build (x264,
+x265): distributing the `.dmg` requires providing the corresponding source code or
+a written offer, per the GPL (the build page links to its sources and build script).
 
 ## The Windows installer built by `build/build.py`
 

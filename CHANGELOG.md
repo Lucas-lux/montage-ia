@@ -49,6 +49,10 @@ First public release.
   bit depth, sample rate and channels (`python -m engine.tools.audio`).
 - Windows app and installer (PyInstaller + Inno Setup), bundling ffmpeg, CUDA
   libraries and the translation model.
+- macOS app for Apple Silicon (`.dmg`): lives in the Dock and the menu bar,
+  bundles a static ffmpeg, uses VideoToolbox for exports, replaces Windows
+  caption fonts with macOS equivalents; built and exercised end to end on a
+  GitHub Mac runner (`build-macos` workflow, `scripts/smoke_test.py`).
 - `scripts/download_models.py`, test suite and CI.
 
 ### Changed
@@ -56,6 +60,10 @@ First public release.
   (`--device auto`, `--compute-type auto`, `--encoder auto`).
 
 ### Fixed
+- Choosing another Whisper model, or downloading the automatic-edit language
+  model, failed when large-v3-turbo was already cached (HuggingFace offline).
+- Project saves could fail on Windows (« Accès refusé ») when the file was read
+  at the same moment; each save now has its own temporary file and retries.
 - The app could close without any message while analysing a video: CUDA
   libraries of mismatched versions (cuDNN) made CTranslate2 crash natively.
   cuDNN is now pinned to the version bundled with CTranslate2, the Windows build

@@ -31,6 +31,7 @@ import urllib.error
 import urllib.request
 
 PORT = 8791
+MAC_LOG = os.path.expanduser("~/Library/Logs/Montage IA/montage-ia.log")
 BASE = f"http://127.0.0.1:{PORT}"
 
 
@@ -131,6 +132,14 @@ def main() -> int:
                 return False
         wait(up, "démarrage", 120)
         say("moteur : prêt")
+        if exe.endswith("MacOS/MontageIA"):
+            # l'app Mac doit tourner avec son icône (Dock, barre des menus), pas en repli
+            log = open(MAC_LOG, encoding="utf-8", errors="replace").read() if os.path.isfile(MAC_LOG) else ""
+            if "PyObjC absent" in log or "Traceback" in log[-4000:]:
+                raise SystemExit("app Mac : démarrée sans Dock ni barre des menus (voir le journal)")
+            if "Interface" not in log:
+                raise SystemExit(f"app Mac : journal {MAC_LOG} vide ou absent")
+            say("app Mac : Dock et barre des menus, journal dans ~/Library/Logs")
         llm = api("/api/llm")
         say(f"IA locale : {'présente' if llm['available'] else 'absente (règles)'}")
 
@@ -230,10 +239,9 @@ def main() -> int:
         if not ok:
             print("----- sortie de l'application -----")
             print((out_log or b"").decode("utf-8", "replace")[-6000:])
-            log = os.path.expanduser("~/Library/Logs/Montage IA/montage-ia.log")
-            if os.path.isfile(log):
+            if os.path.isfile(MAC_LOG):
                 print("----- journal ~/Library/Logs/Montage IA -----")
-                print(open(log, encoding="utf-8", errors="replace").read()[-8000:])
+                print(open(MAC_LOG, encoding="utf-8", errors="replace").read()[-8000:])
 
 
 if __name__ == "__main__":
