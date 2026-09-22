@@ -16,8 +16,10 @@ from PyInstaller.utils.hooks import collect_all
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
-# Toute l'interface : pages, modules JS et feuilles de style du studio.
-datas = [(os.path.join(ROOT, "engine", "web"), "engine/web")]
+# Toute l'interface : pages, modules JS et feuilles de style du studio, et
+# les données du moteur (détecteur de visage YuNet).
+datas = [(os.path.join(ROOT, "engine", "web"), "engine/web"),
+         (os.path.join(ROOT, "engine", "data"), "engine/data")]
 binaries = []
 hiddenimports = [
     # Chargés paresseusement dans le moteur : PyInstaller ne peut pas les voir.
@@ -27,8 +29,9 @@ hiddenimports = [
 
 # uvicorn/fastapi résolvent leurs protocoles par nom au démarrage.
 # sentencepiece : tokenizer des modèles de traduction (engine/pipeline/translate.py).
+# cv2 : détecteur de visage du montage automatique (engine/timeline/autoedit.py).
 for pkg in ("faster_whisper", "ctranslate2", "onnxruntime", "tokenizers",
-            "huggingface_hub", "uvicorn", "sentencepiece"):
+            "huggingface_hub", "uvicorn", "sentencepiece", "cv2"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b

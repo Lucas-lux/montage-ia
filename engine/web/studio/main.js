@@ -217,7 +217,8 @@ async function boot() {
   // Les zones de l'écran : chacune s'initialise puis écoute le store.
   const mods = await Promise.all([
     import("./bin.js"), import("./timeline.js"), import("./player.js"),
-    import("./inspector.js"), import("./panels.js"), import("./exporter.js"), import("./stage.js"),
+    import("./inspector.js"), import("./panels.js"), import("./autoedit.js"), import("./exporter.js"),
+    import("./stage.js"),
   ].map((p) => p.catch((err) => { console.error(err); return null; })));
   mods.forEach((m) => m && m.init && m.init());
 

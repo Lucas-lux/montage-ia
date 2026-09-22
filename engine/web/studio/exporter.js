@@ -49,6 +49,8 @@ async function open() {
   E.folder = st.folder;
   E.last = st.export;
   if (!E.opts.fps || !FPS.includes(E.opts.fps)) E.opts.fps = S.doc.canvas.fps;
+  // le montage automatique demande un volume normalisé : coché d'office ici
+  if ((S.doc.settings || {}).loudness) E.opts.loudness = true;
   const box = h("div", { id: "expBox" });
   E.modal = modalShell(box);
   if (st.task.status === "running") { running(); watch(); }

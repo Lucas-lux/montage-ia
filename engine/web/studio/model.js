@@ -616,19 +616,20 @@ export function mergeRanges(ranges) {
  *  (`words`) ou les silences mesurés au volume (`silences`). Un bout gardé de
  *  moins de `minKeep` entre deux coupes part aussi ; une coupe de moins de
  *  `minCut` est ignorée (on ne découpe pas pour trois images). */
-export function clipCuts(clip, { words, silences, maxGap = 0.5, pad = 0.08, fillers = false,
+export function clipCuts(clip, { words, silences, extra, maxGap = 0.5, pad = 0.08, fillers = false,
                                   minKeep = 0.1, minCut = 0.12 } = {}) {
   const a = clip.in, b = srcEnd(clip);
   let cuts = [];
+  if (extra) cuts = extra.map(([x, y]) => [x, y]);          // plages imposées (montage automatique)
   if (words) {
     const inside = words.filter((w) => w.end > a && w.start < b)
       .map((w) => ({ text: w.text, start: Math.max(0, w.start - a), end: Math.min(b - a, w.end - a) }));
-    cuts = silenceCuts(inside, b - a, maxGap, pad);
-    if (fillers) cuts = cuts.concat(fillerCuts(inside));
-    cuts = cuts.map(([x, y]) => [x + a, y + a]);
+    let found = silenceCuts(inside, b - a, maxGap, pad);
+    if (fillers) found = found.concat(fillerCuts(inside));
+    cuts = cuts.concat(found.map(([x, y]) => [x + a, y + a]));
   } else if (silences) {
-    cuts = silences.filter(([x, y]) => y > a && x < b)
-      .map(([x, y]) => [x + pad, y - pad]);
+    cuts = cuts.concat(silences.filter(([x, y]) => y > a && x < b)
+      .map(([x, y]) => [x + pad, y - pad]));
   }
   cuts = mergeRanges(cuts.map(([x, y]) => [Math.max(a, x), Math.min(b, y)]));
   const merged = [];
@@ -718,6 +719,77 @@ export function applyCuts(doc, clip, cuts) {
   if (isMain(doc, clip.track)) packMain(doc);
   else fixOverlaps(doc);
   return { removed: r4(removed), pieces };
+}
+
+/* ------------------------------------------------- montage automatique */
+
+/** Fait passer des clips de la piste principale en tête du montage (accroche
+ *  déplacée au début), dans leur ordre actuel ; le reste suit. */
+export function moveToFront(doc, ids) {
+  const main = mainTrack(doc);
+  if (!main) return [];
+  const row = trackClips(doc, main.id);
+  const front = row.filter((c) => ids.has(c.id));
+  if (!front.length) return [];
+  const rest = row.filter((c) => !ids.has(c.id));
+  let at = 0;
+  for (const c of front.concat(rest)) {
+    shiftWithPartners(doc, c, at - c.start);
+    at = r4(at + c.dur);
+  }
+  packMain(doc);
+  return front;
+}
+
+/** Ne garde que l'intervalle [a, b] de la timeline : tout le reste part, ce
+ *  qui reste recule à 0. Les sous-titres liés à la voix sont recalés. */
+export function isolateRange(doc, a, b) {
+  const all = new Set(doc.clips.map((c) => c.id));
+  splitAt(doc, b, all);
+  splitAt(doc, a, new Set(doc.clips.map((c) => c.id)));
+  doc.clips = doc.clips.filter((c) => c.start >= a - EPS && clipEnd(c) <= b + EPS);
+  for (const c of doc.clips) c.start = r4(Math.max(0, c.start - a));
+  packMain(doc);
+  reflowCaptions(doc);
+  return r4(b - a);
+}
+
+/** Centre (x, y) à donner à un clip « remplir » zoomé de `scale` pour que le
+ *  visage, en `face` (0..1 dans l'image source), reste où il était à l'échelle
+ *  1. Sans visage : un léger recentrage vers le haut (la tête est rarement au
+ *  milieu d'un plan vertical). */
+export function zoomCenter(face, media, canvas, scale) {
+  const W = canvas.w || 1080, H = canvas.h || 1920;
+  const w = (media && media.w) || W, h = (media && media.h) || H;
+  const base = Math.max(W / w, H / h);
+  let X = 0.5, Y = 0.42;
+  if (face) {
+    X = 0.5 + (face.x - 0.5) * (w * base / W);
+    Y = 0.5 + (face.y - 0.5) * (h * base / H);
+  }
+  // le visage est parfois hors du cadre vertical rogné : on reste dans l'image
+  X = Math.min(0.9, Math.max(0.1, X));
+  Y = Math.min(0.9, Math.max(0.1, Y));
+  return { x: r4(0.5 + (X - 0.5) * (1 - scale)), y: r4(0.5 + (Y - 0.5) * (1 - scale)) };
+}
+
+/** Instants (timeline) où couper un clip pour le rythmer : de préférence aux
+ *  fins de phrases (`cutpoints`, temps source), sinon tous les `maxPiece` s.
+ *  Aucun morceau plus court que `minPiece`. */
+export function rhythmSplits(clip, cutpoints, { minPiece = 2, maxPiece = 6 } = {}) {
+  const sp = clip.speed || 1;
+  const end = clipEnd(clip);
+  const pts = (cutpoints || []).map((s) => clip.start + (s - clip.in) / sp)
+    .filter((t) => t > clip.start + minPiece && t < end - minPiece).sort((a, b) => a - b);
+  const out = [];
+  let cur = clip.start;
+  while (end - cur > maxPiece + minPiece) {
+    const window = pts.filter((t) => t >= cur + minPiece && t <= cur + maxPiece);
+    const t = window.length ? window[window.length - 1] : r4(cur + maxPiece);
+    out.push(r4(t));
+    cur = t;
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ vitesse */

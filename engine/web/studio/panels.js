@@ -3,10 +3,12 @@
    - Texte : ajoute des titres (texte libre) à la tête de lecture.
    - Sous-titres : génère des sous-titres liés à la voix depuis les clips de la
      timeline, liste les lignes, fusionne, masque, traduit.
-   - Outils IA : transcription des médias, suppression des blancs (par la voix
-     ou par le volume) et des tics de langage, avec aperçu avant d'appliquer. */
+   - Outils IA : montage automatique (autoedit.js), transcription des médias,
+     suppression des blancs (par la voix ou par le volume) et des tics de
+     langage, avec aperçu avant d'appliquer. */
 
 import { api, post } from "./api.js";
+import * as autoedit from "./autoedit.js";
 import { startPolling } from "./bin.js";
 import { emojiGeometry } from "./captions.js";
 import { I as Insp, applyLook, styleGrid } from "./inspector.js";
@@ -52,7 +54,7 @@ export function init() {
   if (new URLSearchParams(location.hash.slice(1)).get("auto") === "1") {
     X.autoArmed = true;
     showTab("media");
-    toast("Short automatique : importe ta vidéo, les coupes et les sous-titres se font tout seuls.", 6000);
+    toast("Short automatique : importe ta vidéo, le montage se fait tout seul.", 6000);
     on("media", armedStart);
     armedStart();
   }
@@ -75,52 +77,8 @@ function armedStart() {
     const input = document.getElementById("name");
     if (input) input.value = S.doc.name;
   }
-  autoShort();
-}
-
-/** Coupe les blancs de la piste principale puis génère les sous-titres. */
-export async function autoShort() {
-  if (X.busy) return;
-  if (!S.doc.clips.some((c) => c.kind === "video" || c.kind === "audio")) {
-    toast("Ajoute d'abord une vidéo à la timeline.");
-    return;
-  }
-  const veil = h("div.busyveil", {}, h("div.box", {},
-    h("div", { style: { fontWeight: 600, marginBottom: "6px" } }, "Short automatique"),
-    h("div.meta", { id: "autoMsg" }, "Préparation…"),
-    h("div.track-bar", {}, h("i", { id: "autoBar", style: { width: "10%" } }))));
-  document.body.appendChild(veil);
-  const say = (t, pct) => {
-    const m = document.getElementById("autoMsg");
-    if (m) m.textContent = t;
-    if (pct !== undefined) document.getElementById("autoBar").style.width = pct + "%";
-  };
-  const old = { scope: X.scope, method: X.method };
-  try {
-    X.scope = "main";
-    X.method = "voice";
-    const ids = S.doc.clips.filter((c) => c.kind === "video" || c.kind === "audio").map((c) => c.media);
-    say("Transcription de la voix (Whisper, sur ton PC)…", 20);
-    if (!(await ensureTranscripts(ids, (t) => say(t, 35)))) return;
-    say("Suppression des blancs…", 60);
-    const plan = await computeCuts();
-    if (plan && plan.length) {
-      edit((doc) => {
-        const order = plan.map((p) => ({ ...p, c: doc.clips.find((x) => x.id === p.id) }))
-          .filter((p) => p.c).sort((a, b) => b.c.start - a.c.start);
-        for (const p of order) M.applyCuts(doc, p.c, p.cuts);
-        M.reflowCaptions(doc);
-      }, "silence");
-    }
-    say("Sous-titres…", 80);
-    await generateCaptions();
-    say("Terminé", 100);
-    toast("Short prêt : blancs coupés, sous-titres posés. Tout se retouche dans la timeline.", 6000);
-  } finally {
-    Object.assign(X, old);
-    veil.remove();
-    renderSilence();
-  }
+  showTab("auto");
+  autoedit.run();
 }
 
 /* ============================================================== transcription */
@@ -159,7 +117,7 @@ function waitTranscripts(ids, onTick) {
 }
 
 /** S'assure que ces médias sont transcrits (lance et attend ce qui manque). */
-async function ensureTranscripts(ids, status) {
+export async function ensureTranscripts(ids, status) {
   const need = [...new Set(ids)].filter((id) => trStatus(id) !== "done");
   if (!need.length) return true;
   const fresh = need.filter((id) => !["queued", "running"].includes(trStatus(id)));
@@ -267,7 +225,7 @@ function renderCapGen() {
   box.innerHTML = "";
   put(box,
     h("button.btn.primary.wide", { id: "capGo", html: svg("cc", 14) + (hasAuto ? "Régénérer les sous-titres" : "Générer les sous-titres"),
-                                   onclick: generateCaptions }),
+                                   onclick: () => generateCaptions() }),
     h("div.hint", { id: "capMsg", style: { margin: "6px 0 10px" } }, "D'après la voix des clips. Ils suivent ensuite les coupes."),
     section({ title: "Style", key: "cap.style", count: current ? current.label : undefined },
       styleGrid(Insp.presets, Insp.groups, {
@@ -304,27 +262,31 @@ function renderCapState() {
   go.innerHTML = svg("cc", 14) + (hasAuto ? "Régénérer les sous-titres" : "Générer les sous-titres");
 }
 
-async function generateCaptions() {
-  if (X.busy) return;
+/** Génère les sous-titres des clips avec de la voix. `quiet` : sans message
+ *  (montage automatique) ; `replace` force le remplacement. Renvoie le nombre
+ *  de lignes créées. */
+export async function generateCaptions({ quiet = false, replace } = {}) {
+  if (X.busy) return 0;
   const voice = voiceClips(S.doc.clips);
-  if (!voice.length) { toast("Aucun clip avec de la voix sur la timeline."); return; }
+  if (!voice.length) { if (!quiet) toast("Aucun clip avec de la voix sur la timeline."); return 0; }
   const btn = $("capGo"), msg = $("capMsg");
   const say = (t) => { msg.textContent = t; };
+  const doReplace = replace === undefined ? X.replace : replace;
   X.busy = true;
   btn.disabled = true;
   try {
     const ok = await ensureTranscripts(voice.map((c) => c.media), say);
-    if (!ok) return;
+    if (!ok) return 0;
     say("Création des lignes…");
     const st = S.doc.settings || {};
     const res = await post(`/api/timeline/${S.pid}/captions`, {
       clips: voiceClips(S.doc.clips),
       settings: { style: X.capStyle, words_per_line: st.words_per_line, max_chars: st.max_chars, emojis: st.emojis },
     });
-    if (!res.captions.length) { toast("Aucune parole trouvée dans les clips."); say(""); return; }
+    if (!res.captions.length) { if (!quiet) toast("Aucune parole trouvée dans les clips."); say(""); return 0; }
     const n = edit((doc) => {
       let tr = doc.tracks.find((t) => t.kind === "text" && t.name === "Sous-titres");
-      if (tr && X.replace) doc.clips = doc.clips.filter((c) => !(c.track === tr.id && c.kind === "text" && c.auto));
+      if (tr && doReplace) doc.clips = doc.clips.filter((c) => !(c.track === tr.id && c.kind === "text" && c.auto));
       if (!tr) tr = M.addTrack(doc, "text", { name: "Sous-titres" });
       res.captions.forEach((c) => { c.track = tr.id; doc.clips.push(c); });
       M.reflowCaptions(doc);
@@ -333,11 +295,13 @@ async function generateCaptions() {
     }, "captions");
     X.translateOk = null;
     say(`${n} lignes créées, liées à la voix.`);
-    toast(`${n} sous-titres générés.`);
+    if (!quiet) toast(`${n} sous-titres générés.`);
     renderCapList();
+    return n;
   } catch (e) {
     toast("Sous-titres impossibles : " + e.message, 5000);
     say("");
+    return 0;
   } finally {
     X.busy = false;
     btn.disabled = false;
@@ -475,13 +439,13 @@ function restore(list) {
 
 function buildAuto() {
   put($("tab-auto"),
-    h("button.btn.primary.wide", { html: svg("wand", 14) + "Short automatique", onclick: autoShort }),
-    h("div.hint", { style: { margin: "6px 0 10px" } }, "Coupe les blancs de la piste principale, puis pose les sous-titres."),
+    h("div", { id: "autoAI" }),
     h("div", { id: "autoSil" }), h("div", { id: "autoPass" }), h("div", { id: "autoTr" }));
   renderAuto();
 }
 
 function renderAuto() {
+  autoedit.render();
   renderSilence();
   renderPassages();
   renderTranscripts();
@@ -590,7 +554,7 @@ function renderSilence() {
 }
 
 /** Un clip par groupe lié : celui de la piste principale, sinon la vidéo. */
-function leads(clips) {
+export function leads(clips) {
   const out = [], seen = new Set();
   const main = M.mainTrack(S.doc);
   for (const c of clips) {

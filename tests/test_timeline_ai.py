@@ -164,3 +164,29 @@ def test_api_silences_au_volume(client, tmp_path):
     r = client.get(f"/api/timeline/{client.pid}/media/m1/silences", params={"noise": -40, "min": 0.5}).json()
     assert len(r["silences"]) == 1
     assert os.path.isfile(os.path.join(client.proj.media_folder("m1"), "silences_-40_50.json"))
+
+
+def test_api_montage_automatique(client, monkeypatch):
+    from engine.pipeline import llm
+    from engine.timeline import api as tl_api
+    monkeypatch.setattr(llm, "available", lambda: False)
+    monkeypatch.setattr(tl_api.autoedit, "face_anchor", lambda path: {"x": 0.4, "y": 0.5, "w": 0.2})
+    base = f"/api/timeline/{client.pid}"
+    r = client.post(base + "/autoedit", json={"media": ["m1"]})
+    assert r.status_code == 409 and r.json()["detail"]["missing"] == ["m1"]
+    assert client.post(base + "/autoedit", json={"media": ["inconnu"]}).status_code == 400
+    client.post(base + "/transcribe", json={"media": ["m1"]})
+    jobs.TRANSCRIBE.join()
+    jid = client.post(base + "/autoedit", json={"media": ["m1"], "options": {"llm": True, "trim": True}}).json()["job_id"]
+    jobs.TRANSCRIBE.join()
+    job = client.get(base + f"/autoedit/{jid}").json()
+    assert job["status"] == "done", job
+    plan = job["plans"]["m1"]
+    assert plan["llm"] is False and plan["sentences"] and plan["cutpoints"]
+    assert plan["face"] is None            # pas de proxy vidéo : pas de visage
+    # le plan est mis en cache à côté des mots
+    folder = client.proj.media_folder("m1")
+    assert any(f.startswith("autoedit_") for f in os.listdir(folder))
+    assert client.get(base + "/autoedit/nope").status_code == 404
+    st = client.get("/api/llm").json()
+    assert st["available"] is False and st["download"]["status"] == "idle"

@@ -16,6 +16,8 @@ the components below, which keep their own licenses.
 | [Pillow](https://github.com/python-pillow/Pillow) | MIT-CMU (HPND) |
 | [python-multipart](https://github.com/Kludex/python-multipart) | Apache-2.0 |
 | [huggingface_hub](https://github.com/huggingface/huggingface_hub) | Apache-2.0 |
+| [tokenizers](https://github.com/huggingface/tokenizers) | Apache-2.0 |
+| [OpenCV](https://github.com/opencv/opencv) (`opencv-python-headless`) | Apache-2.0 |
 
 ## Models (downloaded, not stored in this repository)
 
@@ -23,6 +25,13 @@ the components below, which keep their own licenses.
 |---|---|---|
 | OpenAI Whisper large-v3-turbo, CTranslate2 conversion [`mobiuslabsgmbh/faster-whisper-large-v3-turbo`](https://huggingface.co/mobiuslabsgmbh/faster-whisper-large-v3-turbo) | transcription | MIT |
 | [Opus-MT fr-en](https://huggingface.co/Helsinki-NLP/opus-mt-fr-en) by Helsinki-NLP (University of Helsinki), CTranslate2 conversion [`michaelfeil/ct2fast-opus-mt-fr-en`](https://huggingface.co/michaelfeil/ct2fast-opus-mt-fr-en) | caption translation | Apache-2.0 |
+| [Qwen3-4B-Instruct-2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507) by Alibaba Cloud, CTranslate2 int8 conversion [`jncraton/Qwen3-4B-Instruct-2507-ct2-int8`](https://huggingface.co/jncraton/Qwen3-4B-Instruct-2507-ct2-int8) | automatic edit (hook, cuts, on-screen texts) | Apache-2.0 |
+
+## Data stored in this repository
+
+| File | Origin | License |
+|---|---|---|
+| `engine/data/face_detection_yunet_2023mar.onnx` | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) face detector, from the OpenCV Zoo (Shiqi Yu et al.) | Apache-2.0 |
 
 ## External tools
 

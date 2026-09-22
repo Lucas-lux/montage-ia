@@ -577,6 +577,23 @@ input[type=checkbox]:checked::after {
   max-width: 80vw; box-shadow: var(--shadow-pop);
 }
 .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+/* ---- montage automatique */
+.btn.big { height: 38px; font-size: 13.5px; }
+.optgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 4px; }
+.check.opt { padding: 3px 0; }
+.check.opt span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.llm {
+  display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 10px;
+  border-radius: var(--r-ctl); background: var(--panel-3); font-size: 12px; color: var(--ink);
+}
+.llm.ok > i { color: var(--ok); display: inline-flex; }
+.llm > i { display: inline-flex; flex-shrink: 0; }
+.llm .meta { color: var(--ink-2); }
+.llm .err { color: var(--accent); }
+.row.hl { gap: 8px; padding: 3px 0; cursor: pointer; font-size: 12px; }
+.row.hl .num { font-variant-numeric: tabular-nums; font-size: 12px; }
+.row.hl:hover .ell { color: var(--ink); }
+
 .busyveil { position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, .6); display: grid; place-items: center; }
 .busyveil .box { width: 360px; background: var(--panel); border-radius: var(--r-card); padding: 20px; text-align: center; }
 

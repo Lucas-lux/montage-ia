@@ -58,13 +58,23 @@ SETTINGS_DEFAULTS: dict = {
     "language": None,        # langue parlée, None = détectée
     "model": "large-v3-turbo",
     "device": "auto",
+    "loudness": False,       # export : niveau ramené à -14 LUFS (posé par le montage automatique)
+    "auto": None,            # options du montage automatique (voir AUTO_DEFAULTS)
+}
+# Montage automatique : ce qu'on laisse faire à l'IA, et le rythme des zooms.
+AUTO_DEFAULTS: dict = {
+    "silence": True, "fillers": True, "trim": True, "hook": True, "zoom": True,
+    "texts": True, "captions": True, "sound": True, "llm": True,
+    "rhythm": "normal",      # calm | normal | punchy
+    "max_duration": 0,       # 0 = libre
 }
 
 # Champs d'apparence d'un texte / sous-titre (mêmes clés que le mode short).
 _TEXT_LOOK = dict(CAPTION_BASE)
 _TEXT_EXTRA = {"emoji": "", "emoji_size": 0.0, "emoji_dx": 0.0, "emoji_dy": 0.0,
                "emoji_moved": False, "moved": False, "hidden": False, "auto": False,
-               "gone": False, "lang": "", "tr_hidden": False}
+               "gone": False, "lang": "", "tr_hidden": False,
+               "ai": ""}                       # "hook" / "text" : posé par le montage automatique
 # Réglages d'image d'un clip vidéo ou image.
 FILTERS = ("brightness", "contrast", "saturation", "temperature")
 # Transitions d'entrée (noms des transitions `xfade` de ffmpeg).
@@ -430,7 +440,18 @@ def normalize_settings(s) -> dict:
         "language": _str(lang, "", 8).strip().lower() or None if lang else None,
         "model": _str(s.get("model"), d["model"], 60) or d["model"],
         "device": s.get("device") if s.get("device") in ("auto", "cuda", "cpu") else "auto",
+        "loudness": _bool(s.get("loudness"), d["loudness"]),
+        "auto": normalize_auto(s.get("auto")),
     }
+
+
+def normalize_auto(a) -> dict:
+    a = a if isinstance(a, dict) else {}
+    d = AUTO_DEFAULTS
+    out = {k: _bool(a.get(k), d[k]) for k, v in d.items() if isinstance(v, bool)}
+    out["rhythm"] = a.get("rhythm") if a.get("rhythm") in ("calm", "normal", "punchy") else d["rhythm"]
+    out["max_duration"] = _int(a.get("max_duration"), d["max_duration"], 0, 600)
+    return out
 
 
 def normalize_markers(markers) -> list[dict]:

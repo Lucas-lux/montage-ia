@@ -402,3 +402,63 @@ test("sous-titres : restaurer un blanc fait revenir ses mots", () => {
   M.reflowCaptions(d);
   assert.ok(!cap.words.some((w) => w.cut));
 });
+
+/* ------------------------------------------------- montage automatique */
+
+test("coupes : des plages imposées se mêlent aux blancs", () => {
+  const v = { start: 0, dur: 10, in: 0, speed: 1 };
+  const cuts = M.clipCuts(v, { words: WORDS, maxGap: 0.5, pad: 0.08, extra: [[3, 6], [5.5, 7]] });
+  assert.ok(cuts.some(([a, b]) => a <= 3 && b >= 7));          // fusionnées avec les blancs voisins
+  assert.deepEqual(M.clipCuts(v, { extra: [[1, 1.05]] }), []);   // trop courte pour valoir une coupe
+});
+
+test("accroche en tête : les clips passent devant, la suite recule", () => {
+  const d = doc();
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  const [w] = M.appendMedia(d, VIDEO2, 99);
+  const right = M.splitAt(d, 4, new Set([v.id]));
+  const [hook] = M.splitAt(d, 7, new Set(right.map((c) => c.id)));
+  assert.deepEqual(spans(d, "tv1"), [[0, 4], [4, 3], [7, 3], [10, 6]]);
+  M.moveToFront(d, new Set([right[0].id]));
+  assert.deepEqual(on(d, "tv1").map((c) => [c.start, c.in]), [[0, 4], [3, 0], [7, 7], [10, 0]]);
+  assert.equal(on(d, "tv1")[0].id, right[0].id);
+  assert.equal(on(d, "tv1")[3].id, w.id);
+  assert.ok(hook);
+});
+
+test("isoler un moment : tout le reste part, les sous-titres suivent", () => {
+  const { d, v, cap } = captioned();
+  M.appendMedia(d, VIDEO2, 99);
+  assert.ok(v);
+  const kept = M.isolateRange(d, 2, 5);
+  assert.equal(kept, 3);
+  assert.deepEqual(spans(d, "tv1"), [[0, 3]]);
+  assert.equal(on(d, "tv1")[0].in, 2);
+  M.reflowCaptions(d);
+  assert.ok(cap.words.filter((w) => !w.cut).every((w) => w.start >= 0 && w.end <= 3.001));
+});
+
+test("zoom : le visage ne bouge pas, et reste dans le cadre", () => {
+  const canvas = { w: 1080, h: 1920 }, media = { w: 1920, h: 1080 };
+  // visage au tiers gauche d'une vidéo 16:9 recadrée en 9:16 : à l'échelle 1 il
+  // est à X = 0.5 + (1/3 - 0.5) * (1920 * (1920/1080) / 1080) ≈ -0.03 → borné à 0.1
+  const c = M.zoomCenter({ x: 1 / 3, y: 0.5, w: 0.2 }, media, canvas, 1.2);
+  near(c.x, 0.5 + (0.1 - 0.5) * (1 - 1.2));
+  near(c.y, 0.5);
+  // portrait, visage un peu haut : le centre descend pour que la tête reste en place
+  const p = M.zoomCenter({ x: 0.5, y: 0.35, w: 0.2 }, { w: 1080, h: 1920 }, canvas, 1.15);
+  near(p.x, 0.5);
+  near(p.y, 0.5 + (0.35 - 0.5) * (1 - 1.15));
+  // sans visage : léger recentrage vers le haut
+  assert.ok(M.zoomCenter(null, media, canvas, 1.2).y > 0.5);
+});
+
+test("rythme : coupes aux fins de phrases, sinon régulières, jamais de bout trop court", () => {
+  const c = { start: 10, dur: 20, in: 5, speed: 1 };
+  // fins de phrases (source) : 9, 12.5, 16, 24, 26 → timeline 14, 17.5, 21, 29, 31
+  const t = M.rhythmSplits(c, [9, 12.5, 16, 24, 26], { minPiece: 2, maxPiece: 6 });
+  assert.deepEqual(t, [14, 17.5, 21, 27]);      // 21 → 29 trop loin : coupe régulière à 27
+  assert.deepEqual(M.rhythmSplits({ start: 0, dur: 7, in: 0, speed: 1 }, [3], { minPiece: 2, maxPiece: 6 }), []);
+  const sped = M.rhythmSplits({ start: 0, dur: 10, in: 0, speed: 2 }, [8], { minPiece: 2, maxPiece: 6 });
+  assert.deepEqual(sped, [4]);                   // 8 s de source à ×2 = 4 s de timeline
+});

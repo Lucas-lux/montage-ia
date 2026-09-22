@@ -6,6 +6,7 @@ Branchées par `engine.server`, qui leur fournit le dossier de travail via
 from __future__ import annotations
 
 import copy
+import json
 import os
 import re
 import shutil
@@ -16,7 +17,8 @@ from fastapi.responses import FileResponse
 
 from engine.pipeline.translate import available as translate_available
 from engine.pipeline.translate import translate_captions
-from engine.timeline import ai
+from engine.pipeline import llm
+from engine.timeline import ai, autoedit, jobs
 from engine.timeline import media as mediatools
 from engine.timeline import model
 from engine.timeline.project import TimelineProject
@@ -340,6 +342,142 @@ def translate_ready(pid: str, target: str = Query("en")) -> dict:
     proj = get(pid)
     source = ai.language_of(proj, [m["id"] for m in proj.state["media"]])
     return {"source": source, "target": target, "available": translate_available(source, target)}
+
+
+# --------------------------------------------------------- montage automatique
+
+AUTOEDIT_JOBS: dict[str, dict] = {}
+LLM_DL: dict = {"status": "idle", "pct": 0, "message": ""}
+
+
+@router.get("/api/llm")
+def llm_status() -> dict:
+    """État du modèle de langage local (présent, chargé) et du téléchargement."""
+    return {**llm.info(), "download": dict(LLM_DL), "size_gb": 4.0}
+
+
+@router.post("/api/llm/download")
+def llm_download() -> dict:
+    """Télécharge le modèle (~4 Go) en tâche de fond, une seule fois."""
+    if llm.available():
+        return {"ok": True, "done": True}
+    if LLM_DL["status"] == "running":
+        return {"ok": True}
+    LLM_DL.update(status="running", pct=0, message="Téléchargement…")
+
+    def run() -> None:
+        import threading
+        stop = threading.Event()
+
+        def watch() -> None:
+            # progression estimée d'après la taille des fichiers déjà écrits
+            from huggingface_hub import constants
+            folder = os.path.join(constants.HF_HUB_CACHE, "models--" + llm._env_repo().replace("/", "--"), "blobs")
+            while not stop.wait(1.0):
+                try:
+                    got = sum(os.path.getsize(os.path.join(folder, f)) for f in os.listdir(folder))
+                except OSError:
+                    got = 0
+                LLM_DL["pct"] = round(min(99.0, 100.0 * got / 4.05e9), 1)
+        threading.Thread(target=watch, daemon=True).start()
+        try:
+            llm.download()
+            LLM_DL.update(status="done", pct=100, message="Modèle prêt.")
+        except Exception as exc:  # noqa: BLE001 - réseau, disque
+            LLM_DL.update(status="error", message=str(exc)[:300])
+        finally:
+            stop.set()
+    _spawn(run)
+    return {"ok": True}
+
+
+def _autoedit_job(proj: TimelineProject, jid: str, mids: list[str], opts: dict) -> None:
+    job = AUTOEDIT_JOBS[jid]
+    try:
+        plans: dict[str, dict] = {}
+        for n, mid in enumerate(mids):
+            m = proj.media(mid)
+            if not m:
+                continue
+            job.update(message=f"Analyse de « {m['name']} »…", pct=round(100 * n / max(1, len(mids))))
+            folder = proj.media_folder(mid)
+            words_file = ai.words_path(proj, mid)
+            key = autoedit.cache_key(words_file, opts)
+            cache = os.path.join(folder, f"autoedit_{key}.json")
+            plan = None
+            try:
+                with open(cache, encoding="utf-8") as f:
+                    plan = json.load(f)
+            except (OSError, ValueError):
+                pass
+            if plan is None:
+                words = ai.load_words(proj, mid)
+                wave, rate = None, 100
+                try:
+                    with open(os.path.join(folder, "wave.bin"), "rb") as f:
+                        wave = f.read()
+                    rate = int((m.get("waveform") or {}).get("rate") or 100)
+                except OSError:
+                    pass
+                if opts.get("llm", True) and llm.available():
+                    job["message"] = f"L'IA prépare le montage de « {m['name']} »…"
+                lang = (m.get("transcript") or {}).get("language") or "fr"
+                plan = autoedit.build_plan(words, wave, rate, opts, lang)
+                with open(cache, "w", encoding="utf-8") as f:
+                    json.dump(plan, f, ensure_ascii=False)
+            plan["face"] = _face(proj, m)
+            plans[mid] = plan
+        job.update(status="done", pct=100, message="Plan prêt.", plans=plans)
+    except Exception as exc:  # noqa: BLE001 - affiché dans l'éditeur
+        job.update(status="error", message=str(exc)[:600])
+
+
+def _face(proj: TimelineProject, m: dict) -> dict | None:
+    """Position du visage dans un média vidéo (calculée une fois sur le proxy)."""
+    if m.get("kind") != "video":
+        return None
+    cache = os.path.join(proj.media_folder(m["id"]), "face.json")
+    try:
+        with open(cache, encoding="utf-8") as f:
+            return json.load(f).get("face")
+    except (OSError, ValueError):
+        pass
+    proxy = os.path.join(proj.media_folder(m["id"]), m.get("proxy_file") or "")
+    face = autoedit.face_anchor(proxy) if os.path.isfile(proxy) else None
+    try:
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump({"face": face}, f)
+    except OSError:
+        pass
+    return face
+
+
+@router.post("/api/timeline/{pid}/autoedit")
+def autoedit_start(pid: str, body: dict = Body(...)) -> dict:
+    """Plan de montage automatique pour des médias transcrits (tâche de fond)."""
+    proj = get(pid)
+    mids = [str(x) for x in (body.get("media") or []) if proj.media(str(x))]
+    if not mids:
+        raise HTTPException(400, "Aucun média à monter.")
+    missing = [mid for mid in mids if (proj.media(mid).get("transcript") or {}).get("status") != "done"]
+    if missing:
+        raise HTTPException(409, {"message": "Transcription nécessaire.", "missing": missing})
+    opts = body.get("options") or {}
+    opts = {"llm": bool(opts.get("llm", True)), "trim": bool(opts.get("trim", True)),
+            "max_duration": float(opts.get("max_duration") or 0)}
+    jid = model.new_id("j")
+    AUTOEDIT_JOBS[jid] = {"status": "running", "pct": 0, "message": "En attente…", "plans": None}
+    jobs.TRANSCRIBE.submit(("autoedit", jid), _autoedit_job, proj, jid, mids, opts)
+    return {"job_id": jid, "llm": opts["llm"] and llm.available()}
+
+
+@router.get("/api/timeline/{pid}/autoedit/{jid}")
+def autoedit_status(pid: str, jid: str) -> dict:
+    get(pid)
+    job = AUTOEDIT_JOBS.get(jid)
+    if job is None:
+        raise HTTPException(404, "Tâche introuvable.")
+    return job
 
 
 # -------------------------------------------------------------------- export

@@ -30,6 +30,13 @@ First public release.
 - Timeline export: all tracks composited, audio mixed, captions and emojis
   burned in; 720p to 4K, H.264 or HEVC (NVENC when available), or audio only;
   cancellable. Short projects can be opened in the timeline.
+- One-click automatic edit (*Outils IA → Montage automatique*): silences, filler
+  words, greetings/sign-offs and false starts cut; hook title and cold open;
+  rhythm cuts and alternating zooms framed on the face (YuNet); on-screen
+  keywords; captions; cleaned voice and −14 LUFS loudness at export; ★ markers
+  on the strongest moments with *Isoler*. Uses an optional local language model
+  (Qwen3-4B-Instruct int8 via CTranslate2, `download_models.py --llm`) or
+  built-in rules. Per-project options, summary, *Revenir en arrière*.
 - Toolbox, usable without a project. First tool: extract a video's audio as
   MP3 (default), AAC, Opus, Ogg Vorbis, WAV or FLAC, with a chosen bitrate or
   bit depth, sample rate and channels (`python -m engine.tools.audio`).

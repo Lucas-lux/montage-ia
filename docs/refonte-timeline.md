@@ -136,3 +136,17 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [x] Arrière-plan flou pour les formats qui ne remplissent pas le cadre.
 - [x] Arrêt sur image, marqueurs.
 - [x] Son : normalisation du volume, réduction du bruit.
+
+### 10. Montage automatique par IA
+- [x] Analyse de la voix : phrases, score (mots forts, questions, chiffres,
+      énergie, débit), salutations, formules de fin, tics, faux départs.
+- [x] Modèle de langage local (Qwen3 4B int8, CTranslate2, ~4 Go, optionnel) :
+      accroche, phrases à retirer, moments forts, textes à l'écran ; règles
+      simples sans lui. Téléchargement depuis l'application ou
+      `scripts/download_models.py --llm`.
+- [x] Application en un clic : coupes (blancs, tics, phrases), accroche en
+      titre et ouverture à froid, coupes rythmées et zooms alternés cadrés sur
+      le visage (YuNet), textes à l'écran, sous-titres, son (débruitage, voix,
+      −14 LUFS à l'export), repères ★ sur les moments forts (« Isoler »).
+- [x] Options par projet (chaque étape, rythme, durée visée), résumé du
+      passage, « Revenir en arrière ».

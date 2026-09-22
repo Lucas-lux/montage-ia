@@ -21,6 +21,14 @@ API key.
   voice-over and titles. Silence removal and auto captions work directly on the
   timeline, and captions stay in sync with the voice after every cut. Export up
   to 4K (H.264 or HEVC), or the audio mix alone.
+- **One-click AI edit** — *Monter la vidéo* turns a raw talking-head video into
+  a finished short: silences, filler words, greetings, sign-offs and false starts
+  removed; the strongest sentence pulled to the front as a cold open with a title
+  on screen; the video cut at sentence ends and punched in on alternating shots
+  (zooms framed on the face); keywords popped on screen; captions; cleaned voice
+  and normalised loudness; the strongest moments flagged on the timeline. Runs
+  with a local language model (Qwen3 4B, ~4 GB, optional) or with built-in rules.
+  Every step stays editable, and one button restores the original.
 - **Automatic cuts** — removes silences (adjustable threshold) and, optionally,
   French filler words (« euh », « du coup », « en fait »…).
 - **Keep what matters** — every cut is marked on the timeline; click a marker
@@ -69,6 +77,7 @@ python -m venv .venv
 pip install -r requirements.txt
 pip install -r requirements-gpu.txt   # optional: NVIDIA GPU (Windows/Linux)
 python scripts/download_models.py     # subtitle translation model (~80 MB)
+python scripts/download_models.py --llm   # optional: language model of the automatic edit (~4 GB)
 ```
 
 ### 3. Run
@@ -91,7 +100,7 @@ once. To fetch it in advance: `python scripts/download_models.py --whisper`.
 
 *Nouveau projet → Montage* opens an empty timeline in the format of your choice
 (9:16, 16:9, 1:1, 4:5…). *Short automatique → Dans la timeline* does the same, then
-cuts the silences and adds captions as soon as your video is imported.
+runs the automatic edit as soon as your video is imported.
 
 - **Media** — *Importer* (files), *Dossier* (a whole folder, drag-and-drop works
   too) or *Par chemin* (local files read in place, no copy — best for big rushes).
@@ -107,7 +116,8 @@ cuts the silences and adds captions as soon as your video is imported.
 - **Preview** — click a clip in the preview to move, scale (corners) or rotate it;
   the inspector on the right has every setting (fit/fill, position, opacity,
   mirror, brightness/contrast/saturation).
-- **AI tools** — *Supprimer les blancs* on the selection, the main track or
+- **AI tools** — *Montage automatique* edits the whole main track in one click
+  (see below). *Supprimer les blancs* on the selection, the main track or
   everything, based on the voice (transcription, optional filler words) or on the
   sound level, with a red preview before applying. *Sous-titres* generates
   captions from the voice; they follow later cuts and moves. Styles, positions,
@@ -117,6 +127,38 @@ cuts the silences and adds captions as soon as your video is imported.
   `Videos\Montage IA` and never overwrite each other.
 
 Everything is saved automatically; `Ctrl+Z` / `Ctrl+Y` undo and redo any edit.
+
+### Automatic edit (*Outils IA → Montage automatique*)
+
+Put your rushes on the main track and click *Monter la vidéo*. The engine
+transcribes the voice (Whisper), splits it into sentences, scores them (strong
+words, questions, numbers, energy, speaking rate) and spots greetings, sign-offs,
+filler words and false starts. If the local language model is installed it also
+picks the hook, the sentences to drop, the strongest moments and the on-screen
+keywords; otherwise built-in rules do it. The studio then applies the plan:
+
+1. **Cuts** — silences, filler words and dropped sentences, each with a red
+   marker you can click to restore.
+2. **Hook** — a title with the promise of the video during the first 3 seconds;
+   when the strongest sentence is further in and stands on its own, it is moved to
+   the front (cold open).
+3. **Rhythm and zooms** — long shots are cut at sentence ends (*Calme*, *Normal*
+   or *Punchy* sets the pace) and every other shot is punched in, more on the
+   strong moments. Zooms are framed on the face (YuNet detector, on the proxy).
+4. **On-screen texts** — 2 to 5 keywords on the strongest sentences.
+5. **Captions** — in the style chosen in the *Sous-titres* tab.
+6. **Sound** — noise reduction and voice clarity on the clips, loudness
+   normalised to −14 LUFS at export.
+7. **Strong moments** — ★ markers on the timeline; *Isoler* keeps only one of
+   them (a teaser in two clicks).
+
+Each toggle can be switched off, *Durée visée* trims the weakest sentences to
+fit 30/45/60/90 s, and *Revenir en arrière* restores the montage as it was.
+
+The language model is optional (`python scripts/download_models.py --llm`, or the
+*Télécharger* button in the panel): Qwen3-4B-Instruct in int8 for CTranslate2,
+~4 GB in the HuggingFace cache, running on the GPU when available (a few seconds
+per video) or on the CPU. Nothing leaves your machine.
 
 ## Using the short editor
 

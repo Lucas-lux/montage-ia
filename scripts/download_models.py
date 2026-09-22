@@ -73,10 +73,19 @@ def get_whisper(name: str) -> None:
     say(f"Whisper {name} : prêt ({download_model(name)})")
 
 
+def get_llm() -> None:
+    from engine.pipeline import llm
+
+    say(f"IA de montage ({llm.REPO}, ~4 Go) : téléchargement (cache HuggingFace)…")
+    say(f"IA de montage : prête ({llm.download()})")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Télécharge les modèles de Montage IA")
     ap.add_argument("--whisper", nargs="?", const="large-v3-turbo", default=None,
                     metavar="MODELE", help="récupère aussi Whisper (défaut : large-v3-turbo)")
+    ap.add_argument("--llm", action="store_true",
+                    help="récupère aussi le modèle de langage du montage automatique (~4 Go)")
     ap.add_argument("--convert", action="store_true",
                     help="reconvertit la traduction depuis Helsinki-NLP (transformers + torch)")
     args = ap.parse_args()
@@ -84,6 +93,8 @@ def main() -> None:
     get_translation("fr", "en", args.convert)
     if args.whisper:
         get_whisper(args.whisper)
+    if args.llm:
+        get_llm()
 
 
 if __name__ == "__main__":
