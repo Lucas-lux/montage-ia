@@ -83,13 +83,13 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [x] Panneau Médias : vignettes, durées, état, ajout à la timeline.
 
 ### 3. Timeline
-- [ ] Règle, zoom (Ctrl + molette), défilement, tête de lecture.
-- [ ] Pistes vidéo, audio et texte : nom, muet, masquée, verrouillée, ajout,
+- [x] Règle, zoom (Ctrl + molette), défilement, tête de lecture.
+- [x] Pistes vidéo, audio et texte : nom, muet, masquée, verrouillée, ajout,
       suppression.
-- [ ] Clips avec vignettes ou forme d'onde ; glisser depuis les médias.
-- [ ] Sélection (clic, Ctrl, Maj, rectangle), déplacement entre pistes,
+- [x] Clips avec vignettes ou forme d'onde ; glisser depuis les médias.
+- [x] Sélection (clic, Ctrl, Maj, rectangle), déplacement entre pistes,
       rognage par les bords, aimantation, piste principale magnétique.
-- [ ] Diviser (Ctrl+B), supprimer (avec fermeture du trou), dupliquer,
+- [x] Diviser (Ctrl+B), supprimer (avec fermeture du trou), dupliquer,
       copier-coller, annuler/rétablir.
 
 ### 4. Lecteur

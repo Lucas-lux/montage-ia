@@ -324,6 +324,7 @@ export function deleteClips(doc, ids) {
  *  principale, le début du clip ne bouge pas : c'est la suite qui se décale.
  *  Renvoie le décalage appliqué au bord. */
 export function trimClip(doc, clip, side, t, mediaById = new Map()) {
+  makeManual(clip);
   const group = [clip, ...partners(doc, clip)];
   const others = (g) => trackClips(doc, g.track).filter((c) => c !== g && !group.includes(c));
   let lo = -Infinity, hi = Infinity, delta;
@@ -392,9 +393,22 @@ export function canMove(doc, ids, dt, trackMap = new Map()) {
 export function moveClips(doc, ids, dt, trackMap = new Map()) {
   doc.clips.forEach((c) => {
     if (!ids.has(c.id)) return;
-    c.start = r4(Math.max(0, c.start + dt));
+    const d = Math.max(0, c.start + dt) - c.start;
+    c.start = r4(c.start + d);
     c.track = trackMap.get(c.track) || c.track;
+    if (c.kind === "text") {
+      makeManual(c);
+      (c.words || []).forEach((w) => { w.start = r4(w.start + d); w.end = r4(w.end + d); });
+    }
   });
+}
+
+/** Un sous-titre recalé à la main n'est plus lié à la voix : ses mots coupés
+ *  disparaissent pour de bon et il garde désormais ses horaires. */
+export function makeManual(c) {
+  if (c.kind !== "text" || !c.auto) return;
+  c.auto = false;
+  c.words = (c.words || []).filter((w) => !w.cut).map((w) => ({ text: w.text, start: w.start, end: w.end }));
 }
 
 /** Réordonne la piste principale : `clip` s'insère là où tombe son milieu. */

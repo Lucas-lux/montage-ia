@@ -374,8 +374,8 @@ input[type=checkbox]:checked::after {
 .thead .btn.sm.icon { width: 22px; height: 22px; color: var(--ink-3); }
 .thead .btn.sm.icon:hover { color: var(--ink); }
 .thead .btn.sm.icon.on { color: var(--accent); background: transparent; }
-.trow.main .thead { background: #202329; }
-.trow.main .thead .tn { color: var(--ink); }
+.trow.is-main .thead { background: #202329; }
+.trow.is-main .thead .tn { color: var(--ink); }
 .lane { position: relative; flex: 1; min-width: 0; }
 .lane canvas.content { position: sticky; left: var(--head-w); display: block; pointer-events: none; }
 .trow.locked .lane { background-image: repeating-linear-gradient(45deg, transparent 0 8px, rgba(255, 255, 255, .025) 8px 16px); }
