@@ -128,7 +128,7 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
       puis retouches à la main.
 - [x] Ouvrir un ancien projet dans la timeline.
 - [x] Documentation, changelog.
-- [ ] Build de l'application et installation.
+- [x] Build de l'application et installation.
 
 ### 9. Finitions (seconde vague)
 - [x] Transitions entre clips (fondu, fondu au noir, glissement, zoom).
