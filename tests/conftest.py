@@ -27,6 +27,14 @@ def no_translate_model(tmp_path_factory, monkeypatch):
     return root
 
 
+@pytest.fixture(autouse=True)
+def exports_dir(tmp_path_factory, monkeypatch):
+    """Exports dans un dossier jetable : jamais dans les Vidéos de l'utilisateur."""
+    d = tmp_path_factory.mktemp("exports")
+    monkeypatch.setenv("MONTAGE_IA_EXPORTS", str(d))
+    return d
+
+
 @pytest.fixture
 def fake_model(no_translate_model):
     """Installe un faux modèle fr->en (seule la présence des fichiers compte)."""

@@ -117,10 +117,10 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [x] Textes libres (titres).
 
 ### 7. Export
-- [ ] Rendu ffmpeg de la timeline complète : pistes vidéo superposées,
+- [x] Rendu ffmpeg de la timeline complète : pistes vidéo superposées,
       transformations, images, mixage audio, sous-titres et émojis.
-- [ ] Réglages : définition, images/s, qualité, codec (H.264 / HEVC).
-- [ ] Export du son seul (formats de la boîte à outils).
+- [x] Réglages : définition, images/s, qualité, codec (H.264 / HEVC).
+- [x] Export du son seul (formats de la boîte à outils).
 
 ### 8. Intégration
 - [ ] Accueil : choix entre « Montage » et « Short automatique ».

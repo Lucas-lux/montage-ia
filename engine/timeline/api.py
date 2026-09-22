@@ -342,6 +342,82 @@ def translate_ready(pid: str, target: str = Query("en")) -> dict:
     return {"source": source, "target": target, "available": translate_available(source, target)}
 
 
+# -------------------------------------------------------------------- export
+
+def _spawn(fn, *args) -> None:
+    import threading
+    threading.Thread(target=fn, args=args, daemon=True).start()
+
+
+@router.post("/api/timeline/{pid}/export")
+def export_start(pid: str, body: dict = Body(default={})) -> dict:
+    """Lance l'export (l'éditeur a sauvegardé juste avant)."""
+    from engine.timeline import render
+    from engine.tools import audio as audio_tool
+    proj = get(pid)
+    if not proj.state["clips"]:
+        raise HTTPException(400, "Le montage est vide : rien à exporter.")
+    res = body.get("resolution")
+    if res and res not in render.RESOLUTIONS:
+        raise HTTPException(400, f"Définition inconnue : {res}")
+    if body.get("audio_only"):
+        try:
+            audio_tool.encode_args(str(body.get("audio_format") or "mp3"), body.get("audio_quality"))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    folder = str(body.get("folder") or "").strip().strip('"')
+    if folder and not os.path.isdir(os.path.dirname(os.path.abspath(folder))):
+        raise HTTPException(400, f"Dossier introuvable : {folder}")
+    if not proj.reserve_export():
+        raise HTTPException(409, "Un export est déjà en cours.")
+    _spawn(proj.export, dict(body))
+    return {"ok": True}
+
+
+@router.get("/api/timeline/{pid}/export")
+def export_status(pid: str) -> dict:
+    from engine.timeline.project import default_export_dir
+    proj = get(pid)
+    return {"task": dict(proj.task), "export": proj.state.get("export"),
+            "folder": default_export_dir(proj, create=False)}
+
+
+@router.post("/api/timeline/{pid}/export/cancel")
+def export_cancel(pid: str) -> dict:
+    return {"ok": get(pid).cancel_export()}
+
+
+@router.get("/api/timeline/{pid}/export/file")
+def export_file(pid: str):
+    proj = get(pid)
+    res = proj.state.get("export") or {}
+    path = res.get("output") or ""
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Aucun export disponible.")
+    return FileResponse(path, filename=os.path.basename(path))
+
+
+@router.post("/api/timeline/{pid}/export/reveal")
+def export_reveal(pid: str) -> dict:
+    """Ouvre le dossier de l'export dans l'explorateur, le fichier sélectionné."""
+    import subprocess
+    import sys
+    proj = get(pid)
+    path = (proj.state.get("export") or {}).get("output") or ""
+    if not os.path.isfile(path):
+        raise HTTPException(404, "Aucun export disponible.")
+    try:
+        if os.name == "nt":
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", path])
+        else:
+            subprocess.Popen(["xdg-open", os.path.dirname(path)])
+    except OSError as exc:
+        raise HTTPException(500, f"Impossible d'ouvrir le dossier : {exc}") from exc
+    return {"ok": True}
+
+
 # Route générique en DERNIER : elle avalerait /words et /silences.
 _FILES = {
     "thumbs": ("thumbs.jpg", "image/jpeg"),

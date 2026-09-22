@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import os
+import re
 import shutil
 import threading
 import time
@@ -170,6 +171,60 @@ class TimelineProject:
                 if m.get("status") == "ready":
                     ai.queue_transcription(self, m["id"])
 
+    # ------------------------------------------------------------------ export
+
+    def reserve_export(self) -> bool:
+        """Réserve le projet pour un export. Faux si un export tourne déjà."""
+        with self.lock:
+            if self.is_busy:
+                return False
+            self.task = {"status": "running", "pct": 0, "message": "Préparation de l'export…"}
+            self._cancel = threading.Event()
+            return True
+
+    def export(self, opts: dict) -> None:
+        """Rend le montage (dans un thread, après `reserve_export`)."""
+        from engine.timeline import render
+        from engine.tools import audio as audio_tool
+        with self.lock:
+            snapshot = copy.deepcopy(self.state)
+        audio_only = bool(opts.get("audio_only"))
+        fmt = str(opts.get("audio_format") or "mp3")
+        ext = audio_tool.FORMATS[fmt]["ext"] if audio_only else "mp4"
+        try:
+            folder = str(opts.get("folder") or "").strip().strip('"') or default_export_dir(self)
+            out = unique_path(folder, safe_name(self.state.get("name") or "Montage"), ext)
+            audio_args = audio_tool.encode_args(fmt, opts.get("audio_quality")) if audio_only else None
+            self.task["message"] = "Rendu…"
+
+            def progress(frac: float) -> None:
+                self.task["pct"] = round(100 * frac, 1)
+
+            res = render.export(snapshot, snapshot["media"], out, resolution=opts.get("resolution"),
+                                fps=opts.get("fps"), quality=str(opts.get("quality") or "standard"),
+                                codec=str(opts.get("codec") or "h264"),
+                                encoder=str(opts.get("encoder") or "auto"), audio_only=audio_only,
+                                audio_args=audio_args, on_progress=progress, cancel=self._cancel)
+            res.update(at=store.now(), audio_only=audio_only, signature=str(opts.get("signature") or ""))
+            with self.lock:
+                self.state["export"] = res
+                self.save()
+            if not audio_only:
+                from engine.pipeline.render import grab_thumbnail
+                grab_thumbnail(out, os.path.join(self.dir, "thumb.jpg"), at=min(1.0, res["duration"] * 0.1))
+            self.task = {"status": "done", "pct": 100, "message": "Export terminé", "result": res}
+        except render.Cancelled:
+            self.task = {"status": "cancelled", "pct": 0, "message": "Export annulé."}
+        except Exception as exc:  # noqa: BLE001 - affiché dans la fenêtre d'export
+            self.task = {"status": "error", "pct": 0, "message": str(exc)[:1500]}
+
+    def cancel_export(self) -> bool:
+        ev = getattr(self, "_cancel", None)
+        if ev is None or not self.is_busy:
+            return False
+        ev.set()
+        return True
+
     @property
     def media_busy(self) -> bool:
         return any(m.get("status") in ("pending", "processing") for m in self.state["media"])
@@ -269,6 +324,38 @@ def _project_thumb(proj: TimelineProject, poster: str) -> None:
             shutil.copyfile(poster, thumb)
         except OSError:
             pass
+
+
+def default_export_dir(proj: TimelineProject, create: bool = True) -> str:
+    """Dossier des exports : `MONTAGE_IA_EXPORTS`, sinon « Vidéos\Montage IA »
+    de l'utilisateur, sinon le dossier du projet. Créé seulement pour écrire."""
+    videos = os.path.join(os.path.expanduser("~"), "Videos")
+    target = os.environ.get("MONTAGE_IA_EXPORTS") or (
+        os.path.join(videos, "Montage IA") if os.path.isdir(videos) else os.path.join(proj.dir, "exports"))
+    if not create:
+        return target
+    try:
+        os.makedirs(target, exist_ok=True)
+        return target
+    except OSError:
+        fallback = os.path.join(proj.dir, "exports")
+        os.makedirs(fallback, exist_ok=True)
+        return fallback
+
+
+def safe_name(name: str) -> str:
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name).strip(" .")[:120] or "Montage"
+
+
+def unique_path(folder: str, base: str, ext: str) -> str:
+    """`dossier/nom.ext`, ou `nom (2).ext`… : un export n'en écrase jamais un autre."""
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{base}.{ext}")
+    n = 2
+    while os.path.exists(path):
+        path = os.path.join(folder, f"{base} ({n}).{ext}")
+        n += 1
+    return path
 
 
 def upgrade(state: dict) -> dict:
