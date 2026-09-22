@@ -36,6 +36,8 @@ jobs:
     name: Montage IA.app (Apple Silicon)
     runs-on: macos-14
     timeout-minutes: 90
+    permissions:
+      contents: write        # joindre le .dmg à la release d'un tag v*
     env:
       MONTAGE_IA_VERSION: ${{ inputs.version || '0.1.0' }}
       # les secrets ne se lisent pas dans un « if » : on en garde la présence ici
