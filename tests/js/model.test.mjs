@@ -352,3 +352,53 @@ test("transitions : valides seulement entre deux clips qui se touchent", () => {
   a.trans = { type: "fade", dur: 1 };
   assert.equal(M.transIn(d, a), null);                 // rien avant le premier clip
 });
+
+
+test("passages supprimés : repérés, restaurés un par un, le clip se reforme", () => {
+  const d = doc();
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  const [next] = M.appendMedia(d, VIDEO2, 10);
+  M.detachAudio(d, v);
+  const cuts = M.clipCuts(v, { words: WORDS, maxGap: 0.5, pad: 0.08 });
+  M.applyCuts(d, v, cuts);
+  const passages = M.removedPassages(d);
+  assert.deepEqual(passages.map((p) => [p.side, p.s, p.e]),
+                   [["gap", 0, 0.92], ["gap", 2.38, 3.92], ["tail", 4.88, 10]]);
+  assert.equal(passages.length, 3);                   // le son séparé ne compte pas en double
+  const kept = next.start;
+  // on restaure le blanc du milieu : +1,54 s, les deux morceaux n'en font plus qu'un
+  const mid = passages[1];
+  near(M.restoreGap(d, mid.id, mid.side), 1.54);
+  near(next.start, kept + 1.54);
+  const vids = on(d, "tv1").filter((c) => c.media === "mv");
+  const auds = on(d, "ta1").filter((c) => c.media === "mv");
+  assert.equal(vids.length, 1);
+  assert.equal(auds.length, 1);
+  assert.deepEqual([vids[0].in, auds[0].in, vids[0].dur, auds[0].dur], [0.92, 0.92, 3.96, 3.96]);
+  assert.equal(vids[0].link, auds[0].link);
+  // et le reste
+  M.restoreAll(d);
+  assert.deepEqual(M.removedPassages(d), []);
+  const [whole] = on(d, "tv1").filter((c) => c.media === "mv");
+  assert.deepEqual([whole.in, whole.dur, next.start], [0, 10, 10]);
+});
+
+test("couper deux fois fusionne les retraits qui se touchent", () => {
+  const d = doc();
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  M.applyCuts(d, v, [[0, 1]]);
+  const [p] = on(d, "tv1");
+  M.applyCuts(d, p, [[1, 2]]);
+  assert.deepEqual(M.removedPassages(d).map((x) => [x.s, x.e]), [[0, 2]]);
+});
+
+test("sous-titres : restaurer un blanc fait revenir ses mots", () => {
+  const { d, v, cap } = captioned();
+  const cuts = M.clipCuts(v, { words: WORDS, maxGap: 0.5, pad: 0.08, fillers: true });
+  M.applyCuts(d, v, cuts);
+  M.reflowCaptions(d);
+  assert.ok(cap.words.find((w) => w.text === "euh").cut);
+  M.restoreAll(d);
+  M.reflowCaptions(d);
+  assert.ok(!cap.words.some((w) => w.cut));
+});

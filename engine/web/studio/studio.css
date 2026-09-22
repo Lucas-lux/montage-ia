@@ -266,6 +266,14 @@ input[type=checkbox]:checked::after {
   position: absolute; inset: 0;
 }
 .stage .caplayer, .stage .ghosts, .stage .handles { pointer-events: none; }
+/* Chaque calque a son propre empilement : sans z-index, celui des vidéos
+   (une par piste) s'appliquerait à toute la scène et passerait par-dessus
+   les textes. Ordre : vidéos < cadre de sélection < fantômes < textes. */
+.stage > .vlayer { z-index: 0; }
+.stage > .handles { z-index: 1; }
+.stage > .ghosts { z-index: 2; }
+.stage > .caplayer { z-index: 3; }
+.stage > .empty { z-index: 5; }
 .stage .vitem { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; pointer-events: none; }
 .stage .vitem video, .stage .vitem img { display: block; width: 100%; height: 100%; }
 .stage .empty {
@@ -502,3 +510,46 @@ input[type=checkbox]:checked::after {
 .trow:hover .tbadge { opacity: 1; }
 .tbadge:hover { background: var(--ink); }
 .tbadge.on { opacity: 1; background: var(--accent); border-color: #fff; }
+
+/* repère d'un passage retiré (suppression des blancs) */
+.cutmk {
+  position: absolute; top: 0; width: 15px; height: 15px; margin-left: -7px; z-index: 5; cursor: pointer;
+  background: var(--accent); color: #fff; border-radius: 0 0 4px 4px; display: grid; place-items: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .5);
+}
+.cutmk::after {
+  content: ""; position: absolute; left: 7px; top: 15px; width: 1px; height: 40px;
+  background: linear-gradient(var(--accent), transparent); pointer-events: none;
+}
+.cutmk:hover { transform: scale(1.15); }
+.cutpop {
+  position: fixed; z-index: 75; width: 270px; background: var(--panel-2); border: 1px solid var(--line-2);
+  border-radius: 10px; box-shadow: var(--shadow); padding: 12px;
+}
+.cutpop .ttl { display: flex; align-items: center; gap: 6px; font-weight: 620; color: var(--accent); }
+.cutpop .said {
+  margin-top: 8px; padding: 6px 8px; border-radius: 6px; background: var(--panel-3); font-size: 12px;
+}
+
+/* cartes de style (sous-titres) : l'aperçu du rendu, cliquable */
+.stylegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.stylecard {
+  display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; text-align: left;
+  background: var(--panel-3); border: 1.5px solid transparent;
+}
+.stylecard:hover { border-color: var(--line-2); }
+.stylecard.on { border-color: var(--accent); }
+.stylecard .sn { padding: 5px 7px 6px; display: flex; flex-direction: column; gap: 1px; }
+.stylecard .sn b { font-size: 12px; font-weight: 600; }
+.stylecard .sn .meta { font-size: 10.5px; line-height: 1.3; }
+.stylepv {
+  display: grid; place-items: center; padding: 0 6px; text-align: center; overflow: hidden;
+  background: linear-gradient(135deg, #3b4a63 0%, #1f2a3a 55%, #463357 100%);
+}
+
+/* clip tenu pendant un glisser : il suit la souris au-dessus des pistes */
+.clip.floating {
+  z-index: 30; cursor: grabbing; opacity: .93; border: 2px solid #fff;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .6); transform: translateY(-3px);
+}
+.clip .floatpaint { position: absolute; left: 0; top: 0; pointer-events: none; border-radius: 4px; }

@@ -271,6 +271,14 @@ def normalize_clip(c: dict, track: dict, media: dict | None) -> dict | None:
                 out["trans"] = {"type": tr["type"],
                                 "dur": round(_num(tr.get("dur"), 0.5, 0.1, MAX_TRANSITION), 3)}
         if kind in ("video", "audio"):
+            # passages retirés par la suppression des blancs (temps source) :
+            # l'éditeur les affiche et peut les restaurer
+            for key in ("gap", "tail"):
+                r = c.get(key)
+                if isinstance(r, dict):
+                    a, b = _num(r.get("s"), -1.0, -1.0), _num(r.get("e"), -1.0, -1.0)
+                    if b > a >= 0:
+                        out[key] = {"s": _t(a), "e": _t(b)}
             fx = c.get("audio_fx")
             if isinstance(fx, dict):
                 clean = {k: True for k in ("denoise", "voice") if _bool(fx.get(k))}

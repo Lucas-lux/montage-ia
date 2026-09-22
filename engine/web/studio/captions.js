@@ -93,7 +93,9 @@ export function buildCap(c, wordIdx, ghost) {
     s.textContent = c.upper ? w.text.toUpperCase() : w.text;
     const lit = c.mode === "word" ? i === wordIdx : c.mode === "sweep" ? (wordIdx >= 0 && i <= wordIdx) : false;
     s.style.color = lit ? c.hl : c.color;
-    if (lit && c.pop && c.mode === "word") s.style.transform = "scale(1.12)";
+    // mot actif agrandi comme libass (le mot prend vraiment plus de place :
+    // il ne recouvre pas les espaces voisins, la ligne s'élargit un peu)
+    if (lit && c.pop && c.mode === "word") s.style.fontSize = "1.12em";
     inner.appendChild(s);
     if (i < words.length - 1) inner.appendChild(document.createTextNode(" "));
   });
@@ -265,6 +267,37 @@ export function setText(c, text) {
     at += d;
     return w;
   });
+}
+
+/** Aperçu miniature d'un style (mêmes règles que sur la vidéo) : la carte
+ *  qu'on clique pour le choisir. */
+export function stylePreview(look, { words = ["Ton", "texte", "ici"], height = 58 } = {}) {
+  const px = clamp((look.size || 86) * 0.2, 12, 19);
+  const k = px / (look.size || 86);
+  const inner = h("span.txt", { style: { display: "inline-block", lineHeight: 1.15 } });
+  if (look.box) {
+    inner.style.background = hexA(look.outline_col, 1 - (look.box_alpha || 0));
+    inner.style.padding = `${Math.max(1, look.outline * k * 0.55)}px ${Math.max(2, look.outline * k * 1.1)}px`;
+    inner.style.borderRadius = Math.max(2, look.outline * k * 0.5) + "px";
+  } else if (look.outline > 0) {
+    inner.style.webkitTextStroke = Math.max(1, look.outline * k * 2) + "px " + look.outline_col;
+    inner.style.paintOrder = "stroke fill";
+  }
+  if (look.shadow > 0) inner.style.textShadow = `1px 1px 2px rgba(0,0,0,.8)`;
+  words.forEach((w, i) => {
+    const lit = look.mode === "word" ? i === 1 : look.mode === "sweep" ? i <= 1 : false;
+    const el = document.createElement("w");
+    el.textContent = look.upper ? w.toUpperCase() : w;
+    el.style.color = lit ? look.hl : look.color;
+    el.style.display = "inline-block";
+    if (lit && look.pop && look.mode === "word") el.style.fontSize = "1.12em";
+    inner.appendChild(el);
+    if (i < words.length - 1) inner.appendChild(document.createTextNode(" "));
+  });
+  return h("div.stylepv", {
+    style: { height: height + "px", fontFamily: `"${look.font}", Arial, sans-serif`, fontSize: px + "px",
+             fontWeight: look.bold === false ? 400 : 700 },
+  }, inner);
 }
 
 on("select", () => renderCaptions(S.t, true));

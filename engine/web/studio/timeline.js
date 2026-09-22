@@ -10,7 +10,13 @@
 
    Un geste (glisser, rogner) repart à chaque mouvement de l'état d'origine
    et y rejoue l'opération : pas de dérive, et un mouvement impossible
-   laisse simplement le dernier état valide. */
+   laisse simplement le dernier état valide.
+
+   Mouvement, comme dans CapCut : les clips ne sautent jamais d'une place à
+   l'autre, leur position affichée glisse vers leur place réelle (`disp` vers
+   `targets`). Pendant un glisser, le clip tenu se détache et suit la souris
+   (« flottant »), les autres s'écartent pour lui faire de la place et un
+   emplacement en pointillés montre où il va se poser. */
 
 import * as A from "./actions.js";
 import { bytes } from "./api.js";
@@ -34,8 +40,16 @@ export const T = {
   waves: new Map(),     // media id -> Uint8Array | "loading"
   cutPreview: [],       // [{ tid, a, b }] : ce que les outils automatiques vont retirer
   gesture: null,
-  dropGhost: null,
+  dropGhost: null,       // dépôt depuis les médias
+  landing: [],           // où les clips glissés vont se poser [{ tid, t, dur }]
+  disp: new Map(),       // id -> { x, w } affichés (glissent vers targets)
+  targets: new Map(),    // id -> { x, w } réels
+  anim: 0,
+  instant: false,        // rognage, zoom : pas d'animation
+  float: null,           // { ids, items } clips tenus qui suivent la souris
 };
+
+const floating = (id) => !!T.float && T.float.ids.has(id);
 
 let scroll, inner, rulerCanvas, playhead, snapLine;
 
@@ -144,7 +158,9 @@ export function setZoom(pps, anchorT, anchorX) {
   }
   T.pps = pps;
   try { localStorage.setItem("studio.pps", pps); } catch (e) { /* stockage indisponible */ }
+  T.instant = true;
   render();
+  T.instant = false;
   scroll.scrollLeft = Math.max(0, anchorT * pps - anchorX);
   draw();
   placePlayhead();
@@ -187,14 +203,16 @@ export function render() {
     rowsBox.appendChild(h("div.trow.newtrack", {},
       h("div.thead", {}, h("span.meta", {}, "")),
       h("div.lane", {})));
-    T.clipEls.clear();
+    // les clips tenus (hors des pistes) survivent à la reconstruction
+    for (const id of [...T.clipEls.keys()]) if (!floating(id)) T.clipEls.delete(id);
   }
   const w = contentW();
   inner.style.width = HEAD_W + w + "px";
   T.rows.forEach((r) => { r.lane.style.width = w + "px"; });
 
-  // clips : réconciliation par id
+  // clips : réconciliation par id ; la position affichée glisse vers la vraie
   const seen = new Set();
+  T.targets.clear();
   for (const c of S.doc.clips) {
     const row = T.rows.find((r) => r.tid === c.track);
     if (!row) continue;
@@ -204,13 +222,19 @@ export function render() {
       el = buildClip(c);
       T.clipEls.set(c.id, el);
     }
-    if (el.parentNode !== row.lane) row.lane.appendChild(el);
+    const tg = { x: c.start * T.pps, w: Math.max(3, c.dur * T.pps) };
+    T.targets.set(c.id, tg);
+    if (!T.disp.has(c.id) || T.instant) T.disp.set(c.id, { ...tg });
+    if (!floating(c.id) && el.parentNode !== row.lane) row.lane.appendChild(el);
     updateClip(el, c);
   }
   for (const [id, el] of T.clipEls) {
     if (!seen.has(id)) { el.remove(); T.clipEls.delete(id); }
   }
+  for (const id of [...T.disp.keys()]) if (!seen.has(id)) T.disp.delete(id);
+  kick();
   renderTransitionBadges();
+  renderCutMarks();
   const empty = !S.doc.clips.length;
   const hint = $("tlHint");
   if (hint) {
@@ -285,10 +309,13 @@ function clipLabel(c) {
 const esc = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 
 function updateClip(el, c) {
-  el.style.left = c.start * T.pps + "px";
-  el.style.width = Math.max(3, c.dur * T.pps) + "px";
+  if (!floating(c.id)) {
+    const d = T.disp.get(c.id) || { x: c.start * T.pps, w: Math.max(3, c.dur * T.pps) };
+    el.style.left = d.x + "px";
+    el.style.width = d.w + "px";
+  }
   const cls = "clip " + c.kind + (S.sel.has(c.id) ? " sel" : "") + (c.gone ? " gone" : "") +
-              (T.gesture && T.gesture.ids && T.gesture.ids.has(c.id) && T.gesture.moved ? " dragging" : "");
+              (floating(c.id) ? " floating" : "");
   if (el.className !== cls) el.className = cls;
   const label = clipLabel(c);
   const cl = el.firstChild;
@@ -299,6 +326,24 @@ function updateClip(el, c) {
   if (c.fade_in > 0) el.appendChild(h("div.fade", { style: { left: 0, width: c.fade_in * T.pps + "px" } }));
   if (c.fade_out > 0) el.appendChild(h("div.fade.out", { style: { right: 0, width: c.fade_out * T.pps + "px" } }));
   el.style.display = c.gone ? "none" : "";
+}
+
+/** Un repère rouge à chaque passage retiré par la suppression des blancs. */
+function renderCutMarks() {
+  inner.querySelectorAll(".cutmk").forEach((b) => b.remove());
+  for (const p of M.removedPassages(S.doc)) {
+    const row = T.rows.find((r) => r.tid === p.track);
+    if (!row) continue;
+    const mk = h("div.cutmk", { title: `−${p.dur.toFixed(2).replace(".", ",")} s retirés — clic pour voir ou restaurer`,
+                                style: { left: p.t * T.pps + "px" }, html: svg("cut", 10) });
+    mk.onpointerdown = (e) => e.stopPropagation();
+    mk.onclick = (e) => {
+      e.stopPropagation();
+      const b = mk.getBoundingClientRect();
+      emit("passage", { entry: p, x: b.left + b.width / 2, y: b.top });
+    };
+    row.lane.appendChild(mk);
+  }
 }
 
 /** Un losange à chaque coupe (deux clips vidéo qui se touchent) : clic pour
@@ -355,6 +400,33 @@ function updateClipClasses() {
   for (const [id, el] of T.clipEls) el.classList.toggle("sel", S.sel.has(id));
 }
 
+/* ------------------------------------------------------------ animation */
+
+/** Fait glisser les positions affichées vers les vraies (≈ 150 ms). */
+function kick() {
+  if (!T.anim) T.anim = requestAnimationFrame(step);
+}
+function step() {
+  T.anim = 0;
+  let moving = false;
+  for (const [id, tg] of T.targets) {
+    const d = T.disp.get(id);
+    if (!d) continue;
+    const dx = tg.x - d.x, dw = tg.w - d.w;
+    if (Math.abs(dx) < 0.5 && Math.abs(dw) < 0.5) {
+      if (d.x === tg.x && d.w === tg.w) continue;
+      d.x = tg.x; d.w = tg.w;
+    } else {
+      d.x += dx * 0.32; d.w += dw * 0.32;
+      moving = true;
+    }
+    const el = T.clipEls.get(id);
+    if (el && !floating(id)) { el.style.left = d.x + "px"; el.style.width = d.w + "px"; }
+  }
+  drawNow();
+  if (moving) kick();
+}
+
 /* ---------------------------------------------------------------- dessin */
 
 const draw = rafThrottle(drawNow);
@@ -377,10 +449,26 @@ function drawNow() {
     ctx.clearRect(0, 0, vw, row.h);
     const tr = M.track(S.doc, row.tid);
     for (const c of S.doc.clips) {
-      if (c.track !== row.tid || c.gone) continue;
-      const x = c.start * T.pps - sl, w = c.dur * T.pps;
+      if (c.track !== row.tid || c.gone || floating(c.id)) continue;
+      const d = T.disp.get(c.id);
+      const x = (d ? d.x : c.start * T.pps) - sl, w = d ? d.w : c.dur * T.pps;
       if (x > vw || x + w < 0) continue;
       drawClip(ctx, c, x, 3, w, row.h - 6, vw, tr);
+    }
+    // emplacement où les clips glissés vont se poser
+    for (const g of T.landing) {
+      if (g.tid !== row.tid) continue;
+      const x = g.t * T.pps - sl, w = Math.max(4, g.dur * T.pps);
+      if (x > vw || x + w < 0) continue;
+      ctx.fillStyle = "rgba(255, 255, 255, .07)";
+      roundRect(ctx, x + 0.5, 3.5, w - 1, row.h - 7, 5);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255, 255, 255, .85)";
+      ctx.setLineDash([5, 4]);
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
     }
     for (const p of T.cutPreview) {
       if (p.tid !== row.tid) continue;
@@ -599,13 +687,13 @@ function rulerMenu(e) {
 /* ================================================================ aimantation */
 
 /** Points d'accroche : 0, tête de lecture, bords des clips, marqueurs. */
-function snapPoints(exclude) {
+function snapPoints(exclude, doc = S.doc) {
   const pts = [0, S.t];
-  for (const c of S.doc.clips) {
+  for (const c of doc.clips) {
     if (exclude && exclude.has(c.id)) continue;
     pts.push(c.start, M.clipEnd(c));
   }
-  (S.doc.markers || []).forEach((m) => pts.push(m.t));
+  (doc.markers || []).forEach((m) => pts.push(m.t));
   return pts;
 }
 
@@ -624,10 +712,10 @@ function snapTime(t, exclude, bypass) {
 }
 
 /** Aimante un déplacement : le début OU la fin des clips déplacés. */
-function snapDelta(dt, clips, exclude, bypass) {
+function snapDelta(dt, clips, exclude, bypass, doc = S.doc) {
   snapLine.classList.add("hidden");
   if (!T.snap || bypass) return dt;
-  const pts = snapPoints(exclude);
+  const pts = snapPoints(exclude, doc);
   let best = null, bestD = SNAP_PX / T.pps, at = 0;
   for (const c of clips) {
     for (const edgeT of [c.start + dt, M.clipEnd(c) + dt]) {
@@ -690,6 +778,7 @@ function startTrim(e, clip, side) {
   const x0 = e.clientX;
   let moved = false;
   T.gesture = { kind: "trim", ids: new Set([id]) };
+  T.instant = true;                  // le bord suit la souris sans retard
   begin();
   const move = (ev) => {
     if (!moved && Math.abs(ev.clientX - x0) < 2) return;
@@ -708,6 +797,7 @@ function startTrim(e, clip, side) {
     window.removeEventListener("pointerup", up);
     snapLine.classList.add("hidden");
     T.gesture = null;
+    T.instant = false;
     emit("trimpreview", { id: null });
     if (moved) end("trim"); else cancelBegin();
   };
@@ -736,13 +826,19 @@ function startMove(e, clip, { collapseTo } = {}) {
   const move = (ev) => {
     const dx = ev.clientX - x0, dy = ev.clientY - y0;
     if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
-    if (!moved) { moved = true; T.gesture.moved = true; }
+    if (!moved) { moved = true; T.gesture.moved = true; liftClips(ids); }
     autoScroll(ev);
     const doc = JSON.parse(orig);
     const lead = doc.clips.find((c) => c.id === leadId);
     const mainId = M.mainTrack(doc).id;
     let dt = (dx + scrollDelta()) / T.pps;
-    dt = snapDelta(dt, movingClips, ids, ev.shiftKey);
+    // sur la principale, l'insertion se décide au milieu des clips : pas
+    // d'aimant (les voisins bougent pour faire de la place) ; ailleurs, on
+    // s'aimante aux clips tels qu'ils étaient au début du geste
+    const overMain = (rowAt(ev.clientY) || {}).tid === mainId || (lead0.track === mainId && tracksOf.size === 1 &&
+                     !(rowAt(ev.clientY) || {}).tid);
+    if (!overMain) dt = snapDelta(dt, movingClips, ids, ev.shiftKey, origDoc);
+    else snapLine.classList.add("hidden");
 
     // piste visée (même genre que le clip tenu)
     const row = rowAt(ev.clientY);
@@ -783,6 +879,9 @@ function startMove(e, clip, { collapseTo } = {}) {
     } else {
       S.doc = JSON.parse(lastValid);
     }
+    // le clip tenu suit la souris (aimanté) ; sa place d'arrivée en pointillés
+    moveFloat(dt * T.pps, dy);
+    T.landing = S.doc.clips.filter((c) => ids.has(c.id)).map((c) => ({ tid: c.track, t: c.start, dur: c.dur }));
     changed({ light: true, reason: "move" });
   };
   const up = () => {
@@ -791,6 +890,8 @@ function startMove(e, clip, { collapseTo } = {}) {
     stopAutoScroll();
     snapLine.classList.add("hidden");
     T.gesture = null;
+    T.landing = [];
+    dropFloat();
     if (moved) {
       end("move");
     } else {
@@ -801,6 +902,55 @@ function startMove(e, clip, { collapseTo } = {}) {
   };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
+}
+
+/* ------------------------------------------------------- clips « flottants » */
+
+/** Détache les clips tenus de leur piste : ils suivent la souris au-dessus de
+ *  la timeline, avec leurs vignettes, pendant que les autres s'écartent. */
+function liftClips(ids) {
+  const ir = inner.getBoundingClientRect();
+  const items = [];
+  for (const id of ids) {
+    const el = T.clipEls.get(id);
+    const c = S.doc.clips.find((x) => x.id === id);
+    if (!el || !c || !el.isConnected) continue;
+    const r = el.getBoundingClientRect();
+    const item = { id, el, left: r.left - ir.left, top: r.top - ir.top };
+    items.push(item);
+    Object.assign(el.style, { left: item.left + "px", top: item.top + "px", width: r.width + "px",
+                              height: r.height + "px", bottom: "auto" });
+    // son contenu (vignettes, forme d'onde) dessiné une fois, dans le clip lui-même
+    const w = Math.min(Math.round(r.width), 4000), hh = Math.round(r.height);
+    const cv = h("canvas.floatpaint", { width: w, height: hh, style: { width: w + "px", height: hh + "px" } });
+    const ctx = cv.getContext("2d");
+    drawClip(ctx, c, 0, 0, w, hh, w, M.track(S.doc, c.track));
+    el.prepend(cv);
+  }
+  T.float = { ids: new Set(items.map((i) => i.id)), items };
+  items.forEach((i) => { inner.appendChild(i.el); i.el.classList.add("floating"); });
+  draw();
+}
+
+function moveFloat(dxContent, dy) {
+  if (!T.float) return;
+  for (const it of T.float.items) {
+    it.el.style.left = it.left + dxContent + "px";
+    it.el.style.top = it.top + dy + "px";
+  }
+}
+
+/** Repose les clips : ils glissent de là où on les a lâchés vers leur place. */
+function dropFloat() {
+  if (!T.float) return;
+  for (const it of T.float.items) {
+    const d = T.disp.get(it.id);
+    if (d) d.x = parseFloat(it.el.style.left) - HEAD_W;
+    it.el.classList.remove("floating");
+    it.el.querySelectorAll(".floatpaint").forEach((cv) => cv.remove());
+    Object.assign(it.el.style, { top: "", height: "", bottom: "" });
+  }
+  T.float = null;
 }
 
 /* défilement automatique quand on glisse près d'un bord */

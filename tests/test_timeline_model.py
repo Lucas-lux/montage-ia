@@ -169,3 +169,8 @@ def test_transition_et_effets_audio():
     assert c["trans"] == {"type": "fade", "dur": 3.0} and c["audio_fx"] == {"denoise": True}
     [c] = norm(clip(trans={"type": "explosion"}))
     assert "trans" not in c and "audio_fx" not in c
+
+
+def test_passages_retires_conserves():
+    [c] = norm(clip(gap={"s": 1.0, "e": 2.5}, tail={"s": 3, "e": 2}))
+    assert c["gap"] == {"s": 1.0, "e": 2.5} and "tail" not in c

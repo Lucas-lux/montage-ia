@@ -10,7 +10,7 @@ import { api } from "./api.js";
 import * as M from "./model.js";
 import { PRESETS } from "./main.js";
 import { S, begin, changed, edit, emit, end, on } from "./store.js";
-import { emojiGeometry, setText } from "./captions.js";
+import { emojiGeometry, setText, stylePreview } from "./captions.js";
 import { $, clamp, fmt, h, put, svg, tc, toast } from "./util.js";
 
 const FONTS = ["Arial", "Arial Black", "Impact", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Segoe UI"];
@@ -343,10 +343,11 @@ function textPanel(texts) {
   }
 
   if (I.presets.length) {
+    const same = (p) => LOOK.every((f) => p[f] === undefined || p[f] === t[f]);
     out.push(section("Style", "sliders",
-      h("div.field", {}, h("div.chips", {}, I.presets.map((p) => h("button.chip", {
+      h("div.stylegrid", {}, I.presets.map((p) => h("button.stylecard" + (same(p) ? ".on" : ""), {
         title: p.hint, onclick: () => edit((doc) => each(doc, (c) => applyLook(c, p)), "inspector"),
-      }, p.label))))));
+      }, stylePreview(p, { height: 48 }), h("span.sn", {}, h("b", {}, p.label)))))));
   }
   out.push(section("Apparence", "text",
     h("div.g2", {},

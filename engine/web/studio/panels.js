@@ -8,15 +8,15 @@
 
 import { api, post } from "./api.js";
 import { startPolling } from "./bin.js";
-import { emojiGeometry } from "./captions.js";
+import { emojiGeometry, stylePreview } from "./captions.js";
 import { I as Insp, applyLook } from "./inspector.js";
 import { showTab } from "./main.js";
 import * as M from "./model.js";
 import { S, changed, edit, emit, on, select, setMedia, setTime } from "./store.js";
-import { $, fmt, h, put, sec, svg, toast } from "./util.js";
+import { $, clamp, fmt, h, put, sec, svg, toast } from "./util.js";
+import { textBetween, wordsOf } from "./words.js";
 
 const X = {
-  words: new Map(),        // media id -> mots (temps source)
   preview: null,           // [{ id, cuts }] : coupes proposées, pas encore appliquées
   scope: "main",
   method: "voice",
@@ -46,6 +46,8 @@ export function init() {
   on("select", renderCapList);
   on("tab", ({ name }) => { if (name === "auto") renderAuto(); if (name === "captions") renderCapList(); });
   on("presets", renderCapGen);
+  on("passage", ({ entry, x, y }) => openPassage(entry, x, y));
+  on("doc", () => renderPassages());
   // Arrivée depuis « Short automatique » : la première vidéo prête lance tout.
   if (new URLSearchParams(location.hash.slice(1)).get("auto") === "1") {
     X.autoArmed = true;
@@ -172,16 +174,6 @@ async function ensureTranscripts(ids, status) {
   return true;
 }
 
-async function wordsOf(mid) {
-  if (X.words.has(mid)) return X.words.get(mid);
-  const res = await api(`/api/timeline/${S.pid}/media/${mid}/words`);
-  X.words.set(mid, res.words);
-  return res.words;
-}
-on("media", () => {
-  // une retranscription remplace les mots en cache
-  for (const mid of [...X.words.keys()]) if (trStatus(mid) !== "done") X.words.delete(mid);
-});
 
 /* ==================================================================== texte */
 
@@ -285,11 +277,23 @@ function renderCapGen() {
   box.innerHTML = "";
   put(box, 
     h("div.label", { style: { marginBottom: "8px" } }, "Style"),
-    h("div.chips", { id: "capStyles", style: { marginBottom: "12px" } },
-      (Insp.presets.length ? Insp.presets : [{ name: "hype", label: "Hype" }]).map((p) =>
-        h("button.chip" + (p.name === X.capStyle ? ".on" : ""), { title: p.hint || "", onclick: () => {
-          X.capStyle = p.name; setS("style", p.name); renderCapGen();
-        } }, p.label))),
+    h("div.stylegrid", { id: "capStyles", style: { marginBottom: "12px" } },
+      Insp.presets.map((p) => h("button.stylecard" + (p.name === X.capStyle ? ".on" : ""), {
+        title: p.hint || "", onclick: () => { X.capStyle = p.name; setS("style", p.name); renderCapGen(); },
+      }, stylePreview(p), h("span.sn", {}, h("b", {}, p.label), h("span.meta", {}, p.hint || ""))))),
+    X.capStyle && S.doc.clips.some((c) => c.kind === "text" && c.auto) ? h("button.btn.sm.wide", {
+      style: { marginBottom: "12px" }, html: svg("refresh", 12) + "Appliquer ce style aux sous-titres existants",
+      onclick: () => {
+        const look = Insp.presets.find((p) => p.name === X.capStyle);
+        if (!look) return;
+        edit((doc) => doc.clips.forEach((c) => {
+          if (c.kind !== "text" || !c.auto) return;
+          applyLook(c, look);
+          if (!c.moved) { c.x = look.x; c.y = look.y; }
+        }), "style");
+        toast(`Style « ${look.label} » appliqué aux sous-titres.`);
+      },
+    }) : null,
     h("div.field", {}, h("div.head", {}, h("span.label", {}, "Mots par ligne"), wplV), wpl),
     h("div.field", {}, h("div.head", {}, h("span.label", {}, "Caractères max par ligne"), mcV), mc),
     h("label.check", { style: { marginBottom: "8px" } }, emo, "Émojis sur les mots importants"),
@@ -488,14 +492,86 @@ function buildAuto() {
       h("button.btn.primary.wide", { html: svg("wand", 14) + "Short automatique en un clic", onclick: autoShort }),
       h("div.meta", { style: { marginTop: "6px" } },
         "Coupe les blancs de la piste principale puis pose les sous-titres. Chaque étape reste annulable (Ctrl+Z).")),
-    h("div.sep"), h("div", { id: "autoSil" }), h("div.sep"), h("div", { id: "autoTr" }));
+    h("div.sep"), h("div", { id: "autoSil" }), h("div", { id: "autoPass" }), h("div.sep"), h("div", { id: "autoTr" }));
   renderAuto();
 }
 
 function renderAuto() {
   renderSilence();
+  renderPassages();
   renderTranscripts();
 }
+
+/* ------------------------------------------------- passages supprimés */
+
+function passageLabel(p) {
+  return `${fmt(p.t)} · −${sec(p.dur)}`;
+}
+
+/** Liste des passages retirés, chacun restaurable (et « tout restaurer »). */
+function renderPassages() {
+  const box = $("autoPass");
+  if (!box) return;
+  const list = M.removedPassages(S.doc);
+  box.innerHTML = "";
+  if (!list.length) return;
+  const total = list.reduce((a, p) => a + p.dur, 0);
+  const rows = h("div", { style: { maxHeight: "220px", overflow: "auto", margin: "6px 0 8px" } });
+  list.forEach((p) => {
+    const said = h("span.meta.ell", { style: { flex: 1, minWidth: 0 } }, "");
+    textBetween(p.media, p.s, p.e).then((t) => { said.textContent = t ? "« " + t + " »" : "blanc"; });
+    rows.appendChild(h("div.row", { style: { padding: "3px 0", cursor: "pointer" },
+                                    onclick: () => setTime(Math.max(0, p.t - 1), { from: "list" }) },
+      h("span.num", { style: { fontSize: "12px", minWidth: "92px", color: "var(--accent)" } }, passageLabel(p)),
+      said,
+      h("button.btn.sm.quiet", { title: "Remettre ce passage dans le montage", html: svg("undo", 12),
+        onclick: (e) => { e.stopPropagation(); restorePassage(p); } })));
+  });
+  put(box,
+    h("div.sep"),
+    h("div.row", {},
+      h("span.label.grow", {}, `Passages supprimés · ${list.length} · −${sec(total)}`),
+      h("button.btn.sm", { html: svg("undo", 12) + "Tout restaurer", onclick: () => {
+        const n = edit((doc) => { const r = M.restoreAll(doc); M.reflowCaptions(doc); return r; }, "restore");
+        toast(`Tous les passages sont revenus (+${sec(n)}).`);
+      } })),
+    rows,
+    h("div.hint", {}, "Repères rouges sur la timeline : clic pour voir ce qui a été coupé et le restaurer."));
+}
+
+function restorePassage(p) {
+  const g = edit((doc) => { const r = M.restoreGap(doc, p.id, p.side); M.reflowCaptions(doc); return r; }, "restore");
+  closePassage();
+  toast(`Passage restauré (+${sec(g)}).`);
+}
+
+/** Fenêtre ouverte sur un repère de coupe : durée, paroles coupées, restaurer. */
+async function openPassage(p, x, y) {
+  closePassage();
+  const said = h("div.said", {}, "…");
+  const pop = h("div.cutpop", { id: "cutpop" },
+    h("div.ttl", { html: svg("cut", 13) + `<span>−${sec(p.dur)} retirés ici</span>` }),
+    h("div.meta", { style: { marginTop: "4px" } }, `Dans la source : ${fmt(p.s)} → ${fmt(p.e)}`),
+    said,
+    h("div.actions", { style: { marginTop: "10px" } },
+      h("button.btn.sm", { onclick: () => { setTime(Math.max(0, p.t - 1.5), { from: "list" }); closePassage(); } },
+        "Écouter la coupe"),
+      h("button.btn.sm.primary", { onclick: () => restorePassage(p) }, "Restaurer")));
+  document.body.appendChild(pop);
+  const r = pop.getBoundingClientRect();
+  pop.style.left = clamp(x - r.width / 2, 8, innerWidth - r.width - 8) + "px";
+  pop.style.top = Math.max(8, y - r.height - 10) + "px";
+  setTimeout(() => document.addEventListener("pointerdown", outside, true), 0);
+  const t = await textBetween(p.media, p.s, p.e);
+  said.textContent = t ? "« " + t + " »" : "Silence (aucune parole)";
+}
+function outside(e) { if (!e.target.closest("#cutpop")) closePassage(); }
+function closePassage() {
+  document.removeEventListener("pointerdown", outside, true);
+  const el = document.getElementById("cutpop");
+  if (el) el.remove();
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePassage(); });
 
 function renderSilence() {
   const box = $("autoSil");
@@ -654,7 +730,7 @@ async function applyCutsNow() {
   }, "silence");
   X.preview = null;
   emit("cutpreview", { ranges: [] });
-  toast(`Blancs supprimés : −${sec(removed)}. Ctrl+Z pour annuler.`);
+  toast(`Blancs supprimés : −${sec(removed)}. Chaque coupe a son repère rouge sur la timeline (clic pour restaurer).`, 5000);
   const m = $("silMsg");
   if (m) m.textContent = `−${sec(removed)} retirés.`;
 }

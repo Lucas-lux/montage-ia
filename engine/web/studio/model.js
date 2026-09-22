@@ -658,7 +658,11 @@ function keepRanges(a, b, cuts) {
 /** Applique des coupes (temps source du clip) : le clip et ses partenaires
  *  liés sont remplacés par les morceaux gardés, recollés à partir de son
  *  début. Sur la piste principale, la suite se recolle aussi. Renvoie le temps
- *  retiré (timeline) et les nouveaux clips. */
+ *  retiré (timeline) et les nouveaux clips.
+ *
+ *  Chaque morceau retient ce qui a été retiré juste avant lui (`gap`, en temps
+ *  source) et le dernier ce qui l'a été après lui (`tail`) : c'est ce qui
+ *  permet d'afficher chaque coupe et de la restaurer (`restoreGap`). */
 export function applyCuts(doc, clip, cuts) {
   if (!cuts.length) return { removed: 0, pieces: [clip] };
   const speed = clip.speed || 1;
@@ -674,6 +678,18 @@ export function applyCuts(doc, clip, cuts) {
     const link = group.length > 1 ? deriveLink(clip.link || clip.id, "k" + i) : "";
     // instant (timeline d'origine) où le clip lisait `x`
     const at = clip.start + (x - clip.in) / speed;
+    // ce qui a été retiré juste avant ce morceau (et après le dernier)
+    const before = i === 0 ? clip.in : keep[i - 1][1];
+    let gap = x - before > EPS ? { s: r4(before), e: r4(x) } : null;
+    if (i === 0 && clip.gap && Math.abs(clip.gap.e - clip.in) < 1e-3) {
+      gap = { s: clip.gap.s, e: gap ? gap.e : clip.gap.e };        // coupes qui se touchent : une seule
+    }
+    let tail = null;
+    if (i === keep.length - 1) {
+      const end = srcEnd(clip);
+      tail = end - y > EPS ? { s: r4(y), e: r4(end) } : null;
+      if (clip.tail && Math.abs(clip.tail.s - end) < 1e-3) tail = { s: tail ? tail.s : clip.tail.s, e: clip.tail.e };
+    }
     for (const g of group) {
       // chaque partenaire garde ce qu'il jouait à ce même instant
       const p = JSON.parse(JSON.stringify(g));
@@ -687,6 +703,12 @@ export function applyCuts(doc, clip, cuts) {
         p.fade_out = i === keep.length - 1 ? g.fade_out || 0 : 0;
       }
       if (i > 0) delete p.trans;
+      // le retrait, dans la source de ce partenaire (même décalage que le clip)
+      const shift = (g.in || 0) - clip.in;
+      delete p.gap;
+      delete p.tail;
+      if (gap) p.gap = { s: r4(gap.s + shift), e: r4(gap.e + shift) };
+      if (tail) p.tail = { s: r4(tail.s + shift), e: r4(tail.e + shift) };
       doc.clips.push(p);
       if (g === clip) pieces.push(p);
     }
@@ -750,4 +772,105 @@ export function extensions(doc, c) {
   const next = doc.clips.find((o) => o !== c && o.track === c.track && Math.abs(o.start - clipEnd(c)) < 1e-3);
   const tout = next ? transIn(doc, next) : null;
   return { pre: tin ? tin.d / 2 : 0, post: tout ? tout.d / 2 : 0, tin, tout, next };
+}
+
+/* ------------------------------------------------- passages supprimés */
+
+/** Les passages retirés par la suppression des blancs, un par coupe (le son
+ *  séparé d'une vidéo n'en fait pas une deuxième). `t` situe la coupe sur la
+ *  timeline, `dur` est la durée retirée. */
+export function removedPassages(doc) {
+  const out = [];
+  const seen = new Set();
+  const main = mainTrack(doc);
+  for (const c of doc.clips) {
+    if (!c.gap && !c.tail) continue;
+    const group = [c, ...partners(doc, c)];
+    const lead = group.find((g) => main && g.track === main.id) || group.find((g) => g.kind === "video") || c;
+    if (lead !== c) continue;
+    for (const side of ["gap", "tail"]) {
+      const r = c[side];
+      if (!r || r.e - r.s < MIN_DUR) continue;
+      const key = c.id + side;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ id: c.id, side, media: c.media, track: c.track, s: r.s, e: r.e,
+                 t: side === "gap" ? c.start : clipEnd(c), dur: r4((r.e - r.s) / (c.speed || 1)) });
+    }
+  }
+  return out.sort((a, b) => a.t - b.t);
+}
+
+/** Deux morceaux qui se suivent dans la source ET sur la timeline redeviennent
+ *  un seul clip (partenaires liés compris). */
+function mergeInto(doc, a, b) {
+  if (!a || !b || a.media !== b.media || a.track !== b.track || a.kind !== b.kind) return false;
+  if ((a.speed || 1) !== (b.speed || 1)) return false;
+  if (Math.abs(clipEnd(a) - b.start) > 1e-3 || Math.abs(srcEnd(a) - (b.in || 0)) > 1e-3) return false;
+  a.dur = r4(a.dur + b.dur);
+  if (b.tail) a.tail = b.tail; else delete a.tail;
+  if ("fade_out" in b) a.fade_out = b.fade_out;
+  doc.clips = doc.clips.filter((c) => c !== b);
+  return true;
+}
+
+function mergePair(doc, a, b) {
+  if (!a || !b) return;
+  const pa = partners(doc, a), pb = partners(doc, b);
+  if (!mergeInto(doc, a, b)) return;
+  for (const q of pb) {
+    const mate = pa.find((x) => x.track === q.track && x.media === q.media);
+    if (mate && mergeInto(doc, mate, q)) continue;
+    q.link = a.link;                       // partenaire orphelin : il suit le clip fusionné
+  }
+}
+
+/** Remet dans le montage un passage retiré (`side` : "gap" avant le clip,
+ *  "tail" après). Le clip s'allonge d'autant, la suite recule, et les deux
+ *  morceaux redeviennent un seul clip si rien ne les sépare plus. Renvoie la
+ *  durée remise (timeline). */
+export function restoreGap(doc, id, side = "gap") {
+  const p = doc.clips.find((c) => c.id === id);
+  const r = p && p[side];
+  if (!r) return 0;
+  const speed = p.speed || 1;
+  const len = r.e - r.s, g = len / speed;
+  const group = [p, ...partners(doc, p)];
+  const onMain = group.some((m) => isMain(doc, m.track));
+  if (!onMain) {
+    // hors piste magnétique : ce qui suit sur les pistes du groupe recule
+    for (const m of group) {
+      const from = side === "gap" ? m.start : clipEnd(m);
+      doc.clips.forEach((o) => {
+        if (!group.includes(o) && o.track === m.track && o.start >= from - EPS) o.start = r4(o.start + g);
+      });
+    }
+  }
+  for (const m of group) {
+    if (side === "gap") m.in = r4(Math.max(0, (m.in || 0) - len));
+    m.dur = r4(m.dur + g);
+    delete m[side];
+  }
+  if (onMain) packMain(doc);
+  else fixOverlaps(doc);
+  // les deux morceaux ne font plus qu'un
+  if (side === "gap") {
+    const prev = doc.clips.find((c) => c !== p && c.track === p.track && Math.abs(clipEnd(c) - p.start) < 1e-3);
+    if (prev) mergePair(doc, prev, p);
+  } else {
+    const next = doc.clips.find((c) => c !== p && c.track === p.track && Math.abs(c.start - clipEnd(p)) < 1e-3);
+    if (next) mergePair(doc, p, next);
+  }
+  return r4(g);
+}
+
+/** Restaure tous les passages retirés (d'un clip, ou de tout le montage). */
+export function restoreAll(doc, ids) {
+  let total = 0;
+  for (let guard = 0; guard < 2000; guard++) {
+    const next = removedPassages(doc).filter((x) => !ids || ids.has(x.id)).pop();
+    if (!next) break;
+    total += restoreGap(doc, next.id, next.side);
+  }
+  return r4(total);
 }
