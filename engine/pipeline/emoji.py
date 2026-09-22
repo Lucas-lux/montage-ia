@@ -6,6 +6,7 @@ recherche tente le mot exact puis sa forme au singulier (-s).
 """
 from __future__ import annotations
 
+import re
 import unicodedata
 
 # Clés DÉJÀ normalisées (sans accent). Plusieurs synonymes -> même émoji.
@@ -69,8 +70,12 @@ def _norm(s: str) -> str:
     return "".join(c for c in s if c.isalnum())
 
 
+# Élisions françaises : « l'argent » cherche « argent ».
+_ELISION = re.compile(r"^(?:[cdjlmnst]|qu|jusqu|lorsqu|puisqu)['’]", re.IGNORECASE)
+
+
 def emoji_for(word: str) -> str | None:
-    n = _norm(word)
+    n = _norm(_ELISION.sub("", word.strip()))
     if not n:
         return None
     if n in EMOJI_MAP:

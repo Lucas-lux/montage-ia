@@ -14,6 +14,9 @@ from typing import Callable
 from fastapi import APIRouter, Body, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 
+from engine.pipeline.translate import available as translate_available
+from engine.pipeline.translate import translate_captions
+from engine.timeline import ai
 from engine.timeline import media as mediatools
 from engine.timeline import model
 from engine.timeline.project import TimelineProject
@@ -210,6 +213,136 @@ def media_relink(pid: str, mid: str, body: dict = Body(...)) -> dict:
     return {"ok": True}
 
 
+# --------------------------------------------------------- outils automatiques
+
+@router.post("/api/timeline/{pid}/transcribe")
+def transcribe_media(pid: str, body: dict = Body(default={})) -> dict:
+    """Met des médias en file de transcription (Whisper, un à la fois)."""
+    proj = get(pid)
+    ids = body.get("media") or [m["id"] for m in proj.state["media"]]
+    queued, skipped = [], []
+    for mid in ids:
+        (queued if ai.queue_transcription(proj, str(mid), bool(body.get("force"))) else skipped).append(mid)
+    return {"queued": queued, "skipped": skipped, "media": proj.media_views()}
+
+
+@router.get("/api/timeline/{pid}/media/{mid}/words")
+def media_words(pid: str, mid: str) -> dict:
+    proj = get(pid)
+    m = proj.media(mid)
+    if m is None:
+        raise HTTPException(404, "Média introuvable.")
+    if (m.get("transcript") or {}).get("status") != "done":
+        raise HTTPException(409, "Ce média n'est pas encore transcrit.")
+    return {"words": ai.load_words(proj, mid), "language": (m.get("transcript") or {}).get("language", "")}
+
+
+@router.get("/api/timeline/{pid}/media/{mid}/silences")
+def media_silences(pid: str, mid: str, noise: float = Query(-35.0),
+                   min_dur: float = Query(0.4, alias="min")) -> dict:
+    """Silences mesurés au volume (pour les passages sans parole)."""
+    proj = get(pid)
+    if proj.media(mid) is None:
+        raise HTTPException(404, "Média introuvable.")
+    try:
+        return {"silences": ai.silences(proj, mid, max(-90.0, min(noise, -5.0)),
+                                        max(0.05, min(min_dur, 10.0)))}
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+def _voice_input(clips: list, media: dict) -> list[dict]:
+    """Clips envoyés par l'éditeur, réduits à ce qu'il faut pour sous-titrer.
+
+    Pas de validation par piste : l'éditeur a pu créer une piste qui n'est pas
+    encore sauvegardée.
+    """
+    out = []
+    for c in clips:
+        if not isinstance(c, dict) or c.get("media") not in media or c.get("kind") not in ("video", "audio"):
+            continue
+        try:
+            out.append({"id": str(c.get("id") or ""), "kind": c["kind"], "media": c["media"],
+                        "track": str(c.get("track") or ""), "start": max(0.0, float(c["start"])),
+                        "dur": max(0.0, float(c["dur"])), "in": max(0.0, float(c.get("in") or 0)),
+                        "speed": min(16.0, max(0.1, float(c.get("speed") or 1))),
+                        "muted": bool(c.get("muted")), "detached": bool(c.get("detached"))})
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+@router.post("/api/timeline/{pid}/captions")
+def make_captions(pid: str, body: dict = Body(...)) -> dict:
+    """Sous-titres automatiques pour les clips envoyés (ceux de la timeline).
+
+    Les médias qui portent la voix doivent être transcrits : sinon 409, avec
+    la liste de ceux qui manquent (l'éditeur lance leur transcription).
+    """
+    proj = get(pid)
+    clips = body.get("clips")
+    if not isinstance(clips, list):
+        raise HTTPException(400, "`clips` doit être une liste.")
+    media = {m["id"]: m for m in proj.state["media"]}
+    clips = _voice_input(clips, media)
+    voice = ai._voice_clips(clips, media)
+    missing = sorted({c["media"] for c in voice
+                      if (media[c["media"]].get("transcript") or {}).get("status") != "done"})
+    if missing:
+        raise HTTPException(409, {"message": "Transcription nécessaire.", "missing": missing})
+    cache: dict[str, list] = {}
+
+    def words_of(mid: str) -> list:
+        if mid not in cache:
+            cache[mid] = ai.load_words(proj, mid)
+        return cache[mid]
+
+    settings = {**proj.state.get("settings", {}), **(body.get("settings") or {})}
+    caps = ai.build_captions(clips, media, words_of, settings)
+    return {"captions": caps, "language": ai.language_of(proj, sorted({c["media"] for c in voice}))}
+
+
+@router.post("/api/timeline/{pid}/translate")
+def translate(pid: str, body: dict = Body(...)) -> dict:
+    """Traduit des textes sur la machine (Opus-MT), sans rien enregistrer."""
+    proj = get(pid)
+    captions = body.get("captions")
+    if not isinstance(captions, list):
+        raise HTTPException(400, "`captions` doit être une liste.")
+    mids = sorted({w.get("m") for c in captions for w in (c.get("words") or []) if w.get("m")})
+    source = str(body.get("source") or ai.language_of(proj, mids) or "fr")
+    target = str(body.get("target") or "en")
+    if source == target:
+        raise HTTPException(400, "Les textes sont déjà dans cette langue.")
+    if not translate_available(source, target):
+        raise HTTPException(400, f"Pas de modèle de traduction {source} → {target} installé.")
+    # Les clips de la timeline ont `start`/`dur` ; la traduction attend `end`,
+    # et ne doit pas voir les mots dont le passage a été coupé.
+    caps = []
+    for c in captions:
+        if not isinstance(c, dict):
+            continue
+        c = dict(c)
+        c["end"] = float(c.get("start") or 0) + float(c.get("dur") or 0)
+        c["words"] = [w for w in c.get("words") or [] if not w.get("cut")]
+        caps.append(c)
+    try:
+        out = translate_captions(caps, source, target)
+        for c in out:
+            c.pop("end", None)
+        return {"captions": out, "source": source}
+    except Exception as exc:  # noqa: BLE001 - message remonté tel quel
+        raise HTTPException(500, f"Traduction impossible : {exc}") from exc
+
+
+@router.get("/api/timeline/{pid}/translate/available")
+def translate_ready(pid: str, target: str = Query("en")) -> dict:
+    proj = get(pid)
+    source = ai.language_of(proj, [m["id"] for m in proj.state["media"]])
+    return {"source": source, "target": target, "available": translate_available(source, target)}
+
+
+# Route générique en DERNIER : elle avalerait /words et /silences.
 _FILES = {
     "thumbs": ("thumbs.jpg", "image/jpeg"),
     "poster": ("poster.jpg", "image/jpeg"),

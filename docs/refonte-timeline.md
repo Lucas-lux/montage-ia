@@ -106,15 +106,15 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
       rotation, opacité, remplir ou adapter, miroir.
 
 ### 6. Outils automatiques dans la timeline
-- [ ] Transcription par média (file d'attente, GPU puis processeur).
-- [ ] Supprimer les blancs sur la sélection ou toute la piste principale :
+- [x] Transcription par média (file d'attente, GPU puis processeur).
+- [x] Supprimer les blancs sur la sélection ou toute la piste principale :
       par la voix (transcription) ou par le volume sonore, avec aperçu de ce
       qui sera retiré.
-- [ ] Supprimer les tics de langage.
-- [ ] Sous-titres automatiques sur une piste texte, liés à la voix.
-- [ ] Édition des sous-titres : styles, position, taille, texte, émojis,
+- [x] Supprimer les tics de langage.
+- [x] Sous-titres automatiques sur une piste texte, liés à la voix.
+- [x] Édition des sous-titres : styles, position, taille, texte, émojis,
       fusion, division, traduction.
-- [ ] Textes libres (titres).
+- [x] Textes libres (titres).
 
 ### 7. Export
 - [ ] Rendu ffmpeg de la timeline complète : pistes vidéo superposées,

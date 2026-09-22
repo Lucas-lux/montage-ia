@@ -162,6 +162,13 @@ class TimelineProject:
                     todo.append(m["id"])
         for mid in todo:
             self.queue_media(mid)
+        # transcriptions interrompues par l'arrêt : on les relance
+        from engine.timeline import ai
+        for m in self.state["media"]:
+            if (m.get("transcript") or {}).get("status") in ("queued", "running"):
+                m["transcript"] = {"status": "none"}
+                if m.get("status") == "ready":
+                    ai.queue_transcription(self, m["id"])
 
     @property
     def media_busy(self) -> bool:

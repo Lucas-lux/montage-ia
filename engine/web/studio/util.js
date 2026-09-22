@@ -232,3 +232,10 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(
 /** Tri « humain » des noms de fichiers : clip2 avant clip10. */
 export const naturalCompare = (a, b) =>
   a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" });
+
+/** Ajoute des enfants en ignorant les absents (null, false) — `append` les
+ *  écrirait en toutes lettres. */
+export function put(el, ...kids) {
+  el.append(...kids.flat().filter((k) => k != null && k !== false));
+  return el;
+}

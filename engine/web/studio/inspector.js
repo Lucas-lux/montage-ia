@@ -9,9 +9,9 @@ import * as A from "./actions.js";
 import { api } from "./api.js";
 import * as M from "./model.js";
 import { PRESETS } from "./main.js";
-import { S, begin, changed, edit, end, on } from "./store.js";
+import { S, begin, changed, edit, emit, end, on } from "./store.js";
 import { emojiGeometry, setText } from "./captions.js";
-import { $, clamp, fmt, h, svg, tc, toast } from "./util.js";
+import { $, clamp, fmt, h, put, svg, tc, toast } from "./util.js";
 
 const FONTS = ["Arial", "Arial Black", "Impact", "Verdana", "Tahoma", "Trebuchet MS", "Georgia", "Segoe UI"];
 const EMOJIS = ["", "🔥", "💡", "💰", "🎯", "🚀", "🧠", "❤️", "😂", "😱", "✅", "❌", "⚡", "🤯", "👀", "🙌",
@@ -30,6 +30,7 @@ export async function init() {
   render();
   try { I.presets = (await api("/api/styles")).styles; } catch (e) { I.presets = []; }
   render();
+  emit("presets");
 }
 
 /* ------------------------------------------------------------ geste direct */
@@ -115,19 +116,19 @@ function render() {
   if (I.live) return;                     // pas de reconstruction au milieu d'un geste
   box.innerHTML = "";
   const clips = S.doc.clips.filter((c) => S.sel.has(c.id));
-  if (!clips.length) { $("inspTitle").textContent = "Projet"; box.append(...projectPanel()); return; }
+  if (!clips.length) { $("inspTitle").textContent = "Projet"; put(box, ...projectPanel()); return; }
   const texts = clips.filter((c) => c.kind === "text");
   const media = clips.filter((c) => c.kind !== "text");
   if (texts.length && !media.length) {
     $("inspTitle").textContent = texts.length > 1 ? `${texts.length} textes` : texts[0].auto ? "Sous-titre" : "Texte";
-    box.append(...textPanel(texts));
+    put(box, ...textPanel(texts));
     return;
   }
   const lead = media[0];
   const m = S.media.get(lead.media);
   $("inspTitle").textContent = media.length > 1 ? `${media.length} clips`
     : { video: "Vidéo", audio: "Audio", image: "Image" }[lead.kind];
-  box.append(...clipPanel(media, lead, m));
+  put(box, ...clipPanel(media, lead, m));
 }
 
 /* -------------------------------------------------------------- projet */
