@@ -76,11 +76,11 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [x] Page « Studio » (squelette : médias, lecteur, inspecteur, timeline).
 
 ### 2. Médias
-- [ ] Import de fichiers, d'un dossier entier (glisser-déposer compris) ou
+- [x] Import de fichiers, d'un dossier entier (glisser-déposer compris) ou
       par chemin local, sans copie.
-- [ ] Vidéo, audio, image : sonde, proxy, bande de vignettes, forme d'onde,
+- [x] Vidéo, audio, image : sonde, proxy, bande de vignettes, forme d'onde,
       avec une file de tâches et la progression par média.
-- [ ] Panneau Médias : vignettes, durées, état, ajout à la timeline.
+- [x] Panneau Médias : vignettes, durées, état, ajout à la timeline.
 
 ### 3. Timeline
 - [ ] Règle, zoom (Ctrl + molette), défilement, tête de lecture.

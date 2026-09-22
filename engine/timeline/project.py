@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import copy
 import os
+import shutil
 import threading
+import time
 import uuid
 
 from engine import store
-from engine.timeline import model
+from engine.timeline import jobs, media as mediatools, model
 
 
 class TimelineProject:
@@ -53,7 +55,9 @@ class TimelineProject:
         state = store.read_state(work_dir, pid)
         if not state or state.get("kind") != "timeline":
             return None
-        return cls(work_dir, upgrade(state))
+        proj = cls(work_dir, upgrade(state))
+        proj.resume()
+        return proj
 
     # ---------------------------------------------------------- persistance
 
@@ -81,6 +85,88 @@ class TimelineProject:
     def is_busy(self) -> bool:
         return self.task.get("status") == "running"
 
+    # ----------------------------------------------------------------- médias
+
+    def add_media(self, path: str, name: str = "", copied: bool = False,
+                  mid: str | None = None) -> dict:
+        """Ajoute un média au projet et met sa préparation en file."""
+        path = os.path.abspath(path)
+        entry = {
+            "id": mid or model.new_id("m"),
+            "name": (name or os.path.basename(path))[:200],
+            "path": path,
+            "copied": copied,
+            "kind": mediatools.kind_of(path) or "video",
+            "duration": 0.0, "w": 0, "h": 0, "fps": 0.0, "has_audio": False,
+            "status": "pending", "progress": 0, "error": "", "rev": 0,
+            "proxy_file": "", "poster": "", "thumbs": None, "waveform": None,
+            "transcript": {"status": "none"},
+            "added": store.now(),
+        }
+        with self.lock:
+            self.state["media"].append(entry)
+            self.save()
+        self.queue_media(entry["id"])
+        return entry
+
+    def queue_media(self, mid: str) -> None:
+        jobs.MEDIA.submit((self.id, mid), process_media, self, mid)
+
+    def update_media(self, mid: str, save: bool = True, **fields) -> dict | None:
+        with self.lock:
+            m = self.media(mid)
+            if m is None:
+                return None
+            m.update(fields)
+            if save:
+                self.save()
+            return m
+
+    def remove_media(self, mid: str) -> bool:
+        """Retire un média, les clips qui l'utilisent et ses fichiers."""
+        with self.lock:
+            m = self.media(mid)
+            if m is None:
+                return False
+            self.state["media"] = [x for x in self.state["media"] if x["id"] != mid]
+            self.state["clips"] = [c for c in self.state["clips"] if c.get("media") != mid]
+            self.save()
+        shutil.rmtree(self.media_folder(mid), ignore_errors=True)
+        return True
+
+    def media_folder(self, mid: str) -> str:
+        return os.path.join(self.media_dir, mid)
+
+    def resume(self) -> None:
+        """Après un redémarrage : relance ce qui n'avait pas abouti.
+
+        Un média en cours de préparation à l'arrêt repart de zéro ; un média
+        prêt dont le proxy a disparu est refait ; un fichier lu sur place qui
+        n'est plus là est signalé (on pourra le relier).
+        """
+        todo = []
+        with self.lock:
+            for m in self.state["media"]:
+                if m.get("status") in ("pending", "processing"):
+                    m.update(status="pending", progress=0)
+                    todo.append(m["id"])
+                elif m.get("status") == "ready":
+                    proxy = os.path.join(self.media_folder(m["id"]), m.get("proxy_file") or "-")
+                    if not os.path.isfile(m["path"]) and not m.get("copied"):
+                        m.update(status="missing", error="Fichier introuvable : " + m["path"])
+                    elif not os.path.isfile(proxy):
+                        m.update(status="pending", progress=0)
+                        todo.append(m["id"])
+                elif m.get("status") == "missing" and os.path.isfile(m["path"]):
+                    m.update(status="pending", progress=0, error="")
+                    todo.append(m["id"])
+        for mid in todo:
+            self.queue_media(mid)
+
+    @property
+    def media_busy(self) -> bool:
+        return any(m.get("status") in ("pending", "processing") for m in self.state["media"])
+
     # -------------------------------------------------------- sérialisation
 
     def to_dict(self) -> dict:
@@ -91,11 +177,15 @@ class TimelineProject:
             data["media"] = [self._media_view(m) for m in data["media"]]
             return data
 
+    def media_views(self) -> list[dict]:
+        with self.lock:
+            return [self._media_view(copy.deepcopy(m)) for m in self.state["media"]]
+
     def _media_view(self, m: dict) -> dict:
         """Média tel que l'éditeur le voit : chemins disque remplacés par des URL."""
         base = f"/api/timeline/{self.id}/media/{m['id']}"
         v = int(m.get("rev") or 0)
-        view = {k: v2 for k, v2 in m.items() if k not in ("proxy_file", "source_file")}
+        view = {k: v2 for k, v2 in m.items() if k != "proxy_file"}
         view["urls"] = {
             "proxy": f"{base}/proxy?v={v}" if m.get("proxy_file") else "",
             "thumbs": f"{base}/thumbs?v={v}" if (m.get("thumbs") or {}).get("count") else "",
@@ -103,6 +193,75 @@ class TimelineProject:
             "poster": f"{base}/poster?v={v}" if m.get("poster") else "",
         }
         return view
+
+
+def process_media(proj: TimelineProject, mid: str) -> None:
+    """Sonde puis fabrique proxy, affiche, vignettes et forme d'onde d'un média.
+
+    Tourne dans la file `jobs.MEDIA`. Chaque étape vérifie que le média existe
+    encore : il a pu être retiré (ou le projet supprimé) entre-temps.
+    """
+    m = proj.media(mid)
+    if m is None or proj.deleted:
+        return
+    folder = proj.media_folder(mid)
+    os.makedirs(folder, exist_ok=True)
+    src = m["path"]
+    last = [0.0]
+
+    def progress(frac: float, lo: float, hi: float) -> None:
+        # En mémoire seulement : l'éditeur la lit en interrogeant le moteur.
+        now = time.monotonic()
+        if now - last[0] > 0.25:
+            last[0] = now
+            proj.update_media(mid, save=False, progress=round(lo + (hi - lo) * frac, 1))
+
+    try:
+        proj.update_media(mid, status="processing", progress=1, error="")
+        if not os.path.isfile(src):
+            raise ValueError("Fichier introuvable : " + src)
+        info = mediatools.probe_media(src)
+        if proj.update_media(mid, progress=5, **info) is None:
+            return
+
+        name = mediatools.proxy_name(info["kind"])
+        proxy = os.path.join(folder, name)
+        tmp = os.path.join(folder, "tmp_" + name)
+        mediatools.make_proxy(src, tmp, info, on_progress=lambda f: progress(f, 5, 85))
+        os.replace(tmp, proxy)
+        if proj.update_media(mid, progress=85, proxy_file=name) is None:
+            return
+
+        extra: dict = {}
+        if info["kind"] in ("video", "image"):
+            mediatools.make_poster(proxy, os.path.join(folder, "poster.jpg"), info)
+            extra["poster"] = "poster.jpg"
+            proj.update_media(mid, save=False, progress=90)
+            extra["thumbs"] = mediatools.make_thumbs(proxy, os.path.join(folder, "thumbs.jpg"),
+                                                     info)
+            proj.update_media(mid, save=False, progress=95)
+        if info["kind"] != "image" and info["has_audio"]:
+            extra["waveform"] = mediatools.make_waveform(proxy, os.path.join(folder, "wave.bin"))
+        with proj.lock:
+            m = proj.media(mid)
+            if m is None:
+                return
+            m.update(status="ready", progress=100, rev=int(m.get("rev") or 0) + 1, **extra)
+            proj.save()
+        if extra.get("poster"):
+            _project_thumb(proj, os.path.join(folder, "poster.jpg"))
+    except Exception as exc:  # noqa: BLE001 - rangé dans le média, affiché par l'éditeur
+        proj.update_media(mid, status="error", error=str(exc)[:400])
+
+
+def _project_thumb(proj: TimelineProject, poster: str) -> None:
+    """Première affiche venue = vignette du projet sur l'écran d'accueil."""
+    thumb = os.path.join(proj.dir, "thumb.jpg")
+    if not os.path.isfile(thumb):
+        try:
+            shutil.copyfile(poster, thumb)
+        except OSError:
+            pass
 
 
 def upgrade(state: dict) -> dict:

@@ -7,7 +7,7 @@
 
 import { api } from "./api.js";
 import { S, emit, on, loadDoc, undo, redo, saveNow, changed, snapshot } from "./store.js";
-import { $, h, svg, toast, typing, tc } from "./util.js";
+import { $, fmt, h, svg, toast, typing, tc } from "./util.js";
 
 export const PRESETS = [];      // formats proposés (9:16, 16:9…), chargés au démarrage
 
@@ -52,7 +52,8 @@ function initTopbar() {
 
 function renderStats() {
   const d = docDuration();
-  $("stDur").innerHTML = `Durée <b>${tc(d, S.doc.canvas.fps)}</b>`;
+  $("stDur").innerHTML = `Durée <b>${fmt(d)}</b>`;
+  $("stDur").title = tc(d, S.doc.canvas.fps) + " (min:s:image)";
   const c = S.doc.canvas;
   $("stFormat").innerHTML = `<b>${c.w}×${c.h}</b> · ${c.fps} i/s`;
 }

@@ -159,3 +159,70 @@ export function rafThrottle(fn) {
     requestAnimationFrame(() => { queued = false; fn(...lastArgs); });
   };
 }
+
+/* ------------------------------------------------------ fenêtre modale */
+
+/** modal({ title, body: élément, actions: [{ label, primary, onclick }] }).
+ *  Une action qui renvoie `false` garde la fenêtre ouverte. Échap ferme. */
+export function modal({ title, body, actions = [], width = 460, onclose } = {}) {
+  const close = () => {
+    ov.remove();
+    document.removeEventListener("keydown", onKey, true);
+    if (onclose) onclose();
+  };
+  const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); close(); } };
+  const foot = h("div.mf", {}, actions.map((a) => h("button.btn" + (a.primary ? ".primary" : ""), {
+    onclick: async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try { if ((await a.onclick?.()) !== false) close(); }
+      finally { btn.disabled = false; }
+    },
+  }, a.label)));
+  const ov = h("div.overlay", { onpointerdown: (e) => { if (e.target === ov) close(); } },
+    h("div.modal", { style: { maxWidth: width + "px" } },
+      h("div.mh", {}, h("h2", {}, title || ""),
+        h("button.btn.sm.icon.quiet", { title: "Fermer", onclick: close, html: svg("close", 14) })),
+      h("div.mb", {}, body || ""),
+      actions.length ? foot : null));
+  document.body.appendChild(ov);
+  document.addEventListener("keydown", onKey, true);
+  const first = ov.querySelector("input, textarea, select");
+  if (first) setTimeout(() => first.focus(), 0);
+  return { close, el: ov };
+}
+
+/* ---------------------------------------------------- menu contextuel */
+
+let openMenu = null;
+export function closeMenu() {
+  if (openMenu) { openMenu.remove(); openMenu = null; }
+}
+/** menu(x, y, [{ label, icon, key, onclick, disabled } | "-"]) */
+export function menu(x, y, items) {
+  closeMenu();
+  const el = h("div.ctx", {}, items.filter(Boolean).map((it) => it === "-" ? h("div.cs") :
+    h("button", {
+      disabled: it.disabled,
+      onclick: () => { closeMenu(); it.onclick?.(); },
+      html: (it.icon ? svg(it.icon, 14) : `<span style="width:14px"></span>`) +
+            `<span>${it.label}</span>` + (it.key ? `<span class="k">${it.key}</span>` : ""),
+    })));
+  document.body.appendChild(el);
+  const r = el.getBoundingClientRect();
+  el.style.left = clamp(x, 6, innerWidth - r.width - 6) + "px";
+  el.style.top = clamp(y, 6, innerHeight - r.height - 6) + "px";
+  openMenu = el;
+  setTimeout(() => {
+    const away = (e) => {
+      if (!el.contains(e.target)) { closeMenu(); document.removeEventListener("pointerdown", away, true); }
+    };
+    document.addEventListener("pointerdown", away, true);
+  }, 0);
+  return el;
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenu(); });
+
+/** Tri « humain » des noms de fichiers : clip2 avant clip10. */
+export const naturalCompare = (a, b) =>
+  a.localeCompare(b, "fr", { numeric: true, sensitivity: "base" });

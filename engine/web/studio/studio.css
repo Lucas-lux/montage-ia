@@ -196,7 +196,9 @@ input[type=checkbox]:checked::after {
 /* ------------------------------------------------------------------- médias */
 .importbar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
 .importbar .btn { flex: 1; }
-.bin { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.bin { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; align-items: start; }
+.binfilters { display: grid; gap: 6px; margin-bottom: 10px; }
+.binfilters .seg { justify-self: start; }
 .tile {
   position: relative; border-radius: 8px; overflow: hidden; background: var(--panel-3);
   cursor: grab; border: 1px solid transparent; transition: border-color .12s;
@@ -205,9 +207,9 @@ input[type=checkbox]:checked::after {
 .tile.sel { border-color: var(--ink); }
 .tile .th {
   aspect-ratio: 16 / 10; background: #0B0C0E center / cover no-repeat; display: grid;
-  place-items: center; color: var(--ink-3); position: relative;
+  place-items: center; color: var(--ink-3); position: relative; overflow: hidden;
 }
-.tile .th img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile .th img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile .dur {
   position: absolute; right: 5px; bottom: 5px; font-size: 10.5px; font-weight: 600;
   background: rgba(0, 0, 0, .7); padding: 1px 5px; border-radius: 4px;
