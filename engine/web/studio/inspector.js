@@ -156,6 +156,7 @@ function projectPanel() {
       select("Images par seconde", FPS.map((f) => [f, f + " i/s"]), c.fps,
              (doc, v) => { doc.canvas.fps = +v; }),
       color("Couleur de fond", c.bg, (doc, v) => { doc.canvas.bg = v; }),
+      check("Arrière-plan flou (derrière la piste principale)", !!c.blur, (doc, v) => { doc.canvas.blur = v; }),
       h("div.hint", {}, "Visible là où aucun clip ne couvre le cadre (clip « adapté », zoom arrière, trou).")),
     section("Montage", "film",
       h("div.kv", {}, h("span", {}, "Durée"), h("b", {}, tc(M.duration(S.doc), c.fps))),
@@ -191,7 +192,8 @@ function clipPanel(clips, lead, m) {
     one ? h("div.kv", {}, h("span", {}, "Durée"), h("b", {}, fmt(lead.dur) + (lead.dur < 60 ? ` (${lead.dur.toFixed(2).replace(".", ",")} s)` : ""))) : null,
     h("div.actions", { style: { marginTop: "8px" } },
       btn("Diviser", "split", A.split), btn("Dupliquer", "copy", A.duplicate),
-      btn("Supprimer", "trash", A.remove), lead.link ? btn("Dissocier", "unlink", A.unlinkSelection) : null)));
+      btn("Supprimer", "trash", A.remove), lead.link ? btn("Dissocier", "unlink", A.unlinkSelection) : null,
+      lead.kind === "video" && one ? btn("Arrêt sur image", "freeze", () => A.freezeFrame()) : null)));
 
   if (visual.length) {
     const v = visual[0];
@@ -222,6 +224,7 @@ function clipPanel(clips, lead, m) {
           Object.assign(c, { x: 0.5, y: 0.5, scale: 1, rotation: 0, opacity: 1, flip_h: false, flip_v: false });
         }), "inspector")))));
 
+    if (one) out.push(transitionSection(v));
     const f = v.filters || {};
     const setF = (key, x) => (doc) => each(doc, (c) => { c.filters = { ...(c.filters || {}), [key]: x / 100 }; });
     out.push(section("Réglages d'image", "sliders",
@@ -231,6 +234,8 @@ function clipPanel(clips, lead, m) {
               apply: (doc, x) => setF("contrast", x)(doc) }),
       range({ label: "Saturation", value: Math.round((f.saturation || 0) * 100), min: -100, max: 100,
               apply: (doc, x) => setF("saturation", x)(doc) }),
+      range({ label: "Température", value: Math.round((f.temperature || 0) * 100), min: -100, max: 100,
+              apply: (doc, x) => setF("temperature", x)(doc) }),
       btn("Remettre à zéro", "refresh", () => edit((doc) => each(doc, (c) => { delete c.filters; }), "inspector"))));
   }
 
@@ -258,7 +263,13 @@ function clipPanel(clips, lead, m) {
               unit: " s", apply: (doc, x) => each(doc, (c) => { c.fade_in = x; }) }),
       range({ label: "Fondu de sortie", value: s.fade_out || 0, min: 0, max: +maxFade.toFixed(1), step: 0.1, decimals: 1,
               unit: " s", apply: (doc, x) => each(doc, (c) => { c.fade_out = x; }) }),
-      check("Couper le son de ce clip", !!s.muted, (doc, v) => each(doc, (c) => { c.muted = v; }))));
+      check("Couper le son de ce clip", !!s.muted, (doc, v) => each(doc, (c) => { c.muted = v; })),
+      check("Réduire le bruit de fond", !!(s.audio_fx || {}).denoise,
+            (doc, v) => each(doc, (c) => { c.audio_fx = { ...(c.audio_fx || {}), denoise: v }; })),
+      check("Voix plus claire (compression, présence)", !!(s.audio_fx || {}).voice,
+            (doc, v) => each(doc, (c) => { c.audio_fx = { ...(c.audio_fx || {}), voice: v }; })),
+      (s.audio_fx || {}).denoise || (s.audio_fx || {}).voice
+        ? h("div.hint", {}, "Effets de voix appliqués à l'export (l'aperçu garde le son d'origine).") : null));
   }
   const videos = clips.filter((c) => c.kind === "video" && (S.media.get(c.media) || {}).has_audio);
   if (videos.length) {
@@ -272,6 +283,26 @@ function clipPanel(clips, lead, m) {
         : "Place le son de la vidéo sur une piste audio, pour le couper, le déplacer ou le régler à part.")));
   }
   return out;
+}
+
+function transitionSection(c) {
+  const tr = M.transIn(S.doc, c);
+  const adjacent = S.doc.clips.some((o) => o !== c && o.track === c.track && Math.abs(M.clipEnd(o) - c.start) < 1e-3);
+  if (!adjacent) {
+    return section("Transition d'entrée", "transition",
+      h("div.hint", {}, "Colle ce clip à celui d'avant (même piste) pour ajouter une transition."));
+  }
+  const cur = c.trans || {};
+  const maxD = Math.max(0.1, Math.min(3, c.dur, ...S.doc.clips.filter((o) => o.track === c.track &&
+    Math.abs(M.clipEnd(o) - c.start) < 1e-3).map((o) => o.dur)));
+  return section("Transition d'entrée", "transition",
+    h("div.chips", { style: { marginBottom: "10px" } },
+      [["", "Aucune"], ...M.TRANSITIONS].map(([k, label]) => h("button.chip" + ((cur.type || "") === k ? ".on" : ""), {
+        onclick: () => A.setTransition([c.id], k, cur.dur || 0.5) }, label))),
+    cur.type ? range({ label: "Durée", value: tr ? tr.d : Math.min(cur.dur || 0.5, maxD), min: 0.1, max: +maxD.toFixed(1),
+                       step: 0.1, decimals: 1, unit: " s",
+                       apply: (doc, x) => { const cc = doc.clips.find((o) => o.id === c.id); if (cc && cc.trans) cc.trans.dur = x; } }) : null,
+    cur.type ? btn("Sur toutes les coupes de la piste", "copy", () => A.transitionEverywhere(c.track, cur.type, cur.dur || 0.5)) : null);
 }
 
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));

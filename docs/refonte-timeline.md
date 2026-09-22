@@ -131,8 +131,8 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [ ] Build de l'application et installation.
 
 ### 9. Finitions (seconde vague)
-- [ ] Transitions entre clips (fondu, fondu au noir, glissement, zoom).
-- [ ] Réglages d'image (luminosité, contraste, saturation, température).
-- [ ] Arrière-plan flou pour les formats qui ne remplissent pas le cadre.
-- [ ] Arrêt sur image, marqueurs.
-- [ ] Son : normalisation du volume, réduction du bruit.
+- [x] Transitions entre clips (fondu, fondu au noir, glissement, zoom).
+- [x] Réglages d'image (luminosité, contraste, saturation, température).
+- [x] Arrière-plan flou pour les formats qui ne remplissent pas le cadre.
+- [x] Arrêt sur image, marqueurs.
+- [x] Son : normalisation du volume, réduction du bruit.

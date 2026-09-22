@@ -12,7 +12,11 @@ Construction du filtergraph :
   * son — un flux par piste (clips + silences), puis un mixage sans
     normalisation, protégé par un limiteur ;
   * textes — le .ass des sous-titres (repère = format du projet, libass le
-    met à l'échelle de l'export) et les émojis en PNG couleur.
+    met à l'échelle de l'export) et les émojis en PNG couleur ;
+  * transitions — entre deux clips qui se touchent, centrées sur la coupe :
+    chaque clip est prolongé d'une demi-transition dans sa source (image figée
+    si la source s'arrête), puis `xfade` les fond. Rien ne se décale : les
+    sous-titres restent calés.
 
 Lecture des sources : une entrée ffmpeg par « série » de clips qui lisent le
 même média en avançant (cas des blancs supprimés). Un clip qui revient en
@@ -92,8 +96,9 @@ class Inputs:
         """
         key = (track_id, media["id"])
         runs = self.runs.setdefault(key, [])
-        a = float(clip["in"])
-        b = a + clip["dur"] * float(clip.get("speed") or 1.0)
+        # plage lue, transitions comprises (voir plan_transitions)
+        a = float(clip.get("_a", clip["in"]))
+        b = float(clip.get("_b", float(clip["in"]) + clip["dur"] * float(clip.get("speed") or 1.0)))
         for run in runs:
             if a >= run["end"] - EPS:
                 run["end"] = b
@@ -109,6 +114,41 @@ class Inputs:
 
     def png(self, path: str) -> int:
         return self.add(["-i", path])
+
+
+def plan_transitions(state: dict, media: dict[str, dict]) -> None:
+    """Repère les transitions valides et la plage de source que chaque clip lit.
+
+    Une transition d'entrée ne vaut que si le clip précédent de la piste se
+    termine exactement là où le clip commence. Sa durée ne dépasse pas la
+    moitié… de rien : elle est bornée par les deux clips. Chaque clip reçoit
+    `_pre`/`_post` (prolongations, en secondes de timeline) et `_a`/`_b` (plage
+    de source réellement lue, bornée par le média).
+    """
+    for t in state["tracks"]:
+        if t["kind"] != "video":
+            continue
+        row = sorted((c for c in state["clips"] if c["track"] == t["id"] and c["kind"] in ("video", "image")),
+                     key=lambda c: c["start"])
+        for a, b in zip(row, row[1:]):
+            tr = b.get("trans")
+            if not tr or abs(a["start"] + a["dur"] - b["start"]) > 1e-3:
+                continue
+            d = min(float(tr.get("dur") or 0.5), float(a["dur"]), float(b["dur"]))
+            if d < 0.05:
+                continue
+            b["_tr"] = (str(tr.get("type") or "fade"), d)
+            b["_pre"] = d / 2
+            a["_post"] = d / 2
+    for c in state["clips"]:
+        if c["kind"] != "video":
+            continue
+        m = media.get(c.get("media")) or {}
+        speed = float(c.get("speed") or 1.0)
+        a = float(c["in"]) - float(c.get("_pre", 0.0)) * speed
+        b = float(c["in"]) + (float(c["dur"]) + float(c.get("_post", 0.0))) * speed
+        c["_a"] = max(0.0, a)
+        c["_b"] = min(float(m.get("duration") or b), b) if m.get("duration") else b
 
 
 def plan_runs(state: dict, media: dict[str, dict]) -> Inputs:
@@ -151,19 +191,41 @@ def _eq(c: dict) -> str:
     return ",".join(chain)
 
 
-def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int, label: str) -> list[str]:
-    """Chaîne d'un clip visuel : [src] -> image du cadre (transparente autour), durée exacte."""
-    dur = float(c["dur"])
+def _read(c: dict, dur: float, fps: int) -> list[str]:
+    """Lecture de la source d'un clip, transitions comprises, durée `dur` exacte.
+
+    `tpad` vient APRÈS `fps` : avant, la cadence n'est pas encore connue et
+    il n'ajoute aucune image."""
+    pre, post = float(c.get("_pre", 0.0)), float(c.get("_post", 0.0))
+    if c["kind"] != "video":
+        return ["setpts=PTS-STARTPTS", f"fps={fps}"]
+    speed = float(c.get("speed") or 1.0)
+    origin = float(c.get("_origin", c["in"]))
+    a = float(c.get("_a", c["in"]))
+    b = float(c.get("_b", float(c["in"]) + float(c["dur"]) * speed))
+    chain = [f"trim=start={_f(a - origin)}:end={_f(b - origin)},setpts=(PTS-STARTPTS)/{_f(speed)}",
+             f"fps={fps}"]
+    # ce que la source n'a pas (début ou fin du rush) : image figée
+    miss_a = pre - (float(c["in"]) - a) / speed
+    miss_b = post - (b - float(c["in"]) - float(c["dur"]) * speed) / speed
+    pads = []
+    if miss_a > 0.01:
+        pads.append(f"start_duration={_f(miss_a)}:start_mode=clone")
+    if miss_b > 0.01:
+        pads.append(f"stop_duration={_f(miss_b)}:stop_mode=clone")
+    if pads:
+        chain.append("tpad=" + ":".join(pads))
+    return chain
+
+
+def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int, label: str,
+                  blur: bool = False) -> list[str]:
+    """Chaîne d'un clip visuel : [src] -> image du cadre (transparente autour),
+    durée exacte (prolongations de transition comprises). Avec `blur`, le
+    fond est l'image du clip elle-même, agrandie et floutée."""
+    dur = float(c["dur"]) + float(c.get("_pre", 0.0)) + float(c.get("_post", 0.0))
     g = _placement(c, m, W / f, H / f, f)
-    chain: list[str] = []
-    if c["kind"] == "video":
-        a = float(c["in"]) - float(c.get("_origin", c["in"]))
-        speed = float(c.get("speed") or 1.0)
-        b = a + dur * speed
-        chain.append(f"trim=start={_f(a)}:end={_f(b)},setpts=(PTS-STARTPTS)/{_f(speed)}")
-    else:
-        chain.append("setpts=PTS-STARTPTS")
-    chain.append(f"fps={fps}")
+    chain: list[str] = _read(c, dur, fps)
 
     rot = g["rot"] % 360
     if abs(rot) < 0.01:
@@ -211,10 +273,19 @@ def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int
     if op < 0.999:
         chain.append(f"colorchannelmixer=aa={_f(op)}")
     chain.append("setsar=1")
+    if blur:
+        # arrière-plan flou : l'image en « remplir », réduite, floutée, agrandie
+        bw, bh = _even(W / 6), _even(H / 6)
+        base = (f"{src}{','.join(_read(c, dur, fps))},"
+                f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=5:2,"
+                f"scale={W}:{H},eq=brightness=-0.06,format=yuva420p,setsar=1[{label}b]")
+    else:
+        base = f"color=c=black@0:s={W}x{H}:r={fps}:d={_f(dur)},format=yuva420p[{label}b]"
     return [
         f"{src}{','.join(chain)}[{label}c]",
-        f"color=c=black@0:s={W}x{H}:r={fps}:d={_f(dur)},format=yuva420p[{label}b]",
-        f"[{label}b][{label}c]overlay=x={px}:y={py}:eof_action=repeat:format=auto,setsar=1[{label}]",
+        base,
+        f"[{label}b][{label}c]overlay=x={px}:y={py}:eof_action=repeat:format=auto,setsar=1,"
+        f"trim=duration={_f(dur)}[{label}]",
     ]
 
 
@@ -223,35 +294,60 @@ def _transparent(W: int, H: int, fps: int, dur: float, label: str) -> list[str]:
 
 
 def video_track(t: dict, clips: list[dict], media: dict, inp: Inputs, W: int, H: int, f: float,
-                fps: int, total: float, n: int) -> tuple[list[str], str | None]:
-    """Une piste vidéo : clips et trous transparents bout à bout, durée `total`."""
+                fps: int, total: float, n: int, blur: bool = False) -> tuple[list[str], str | None]:
+    """Une piste vidéo : clips (fondus par leurs transitions) et trous
+    transparents bout à bout, durée `total`."""
     parts: list[str] = []
     labels: list[str] = []
     cursor = 0.0
     k = 0
-    for c in sorted(clips, key=lambda c: c["start"]):
-        m = media.get(c.get("media"))
-        if not m or c["kind"] not in ("video", "image"):
-            continue
+    items = [c for c in sorted(clips, key=lambda c: c["start"])
+             if media.get(c.get("media")) and c["kind"] in ("video", "image")]
+    group: list[tuple[str, float, dict]] = []   # (étiquette, longueur, clip) reliés par transitions
+
+    def close_group() -> None:
+        nonlocal k
+        if not group:
+            return
+        lab, length, _ = group[0]
+        for i, (nxt, nlen, c) in enumerate(group[1:], start=1):
+            kind, d = c["_tr"]
+            out = f"t{n}x{k}_{i}"
+            parts.append(f"[{lab}][{nxt}]xfade=transition={kind}:duration={_f(d)}:offset={_f(length - d)}[{out}]")
+            lab, length = out, length + nlen - d
+        labels.append(lab)
+        group.clear()
+        k += 1
+
+    for c in items:
+        m = media[c["media"]]
         start = max(cursor, float(c["start"]))
-        if start - cursor > EPS:
-            lab = f"t{n}g{k}"
-            parts += _transparent(W, H, fps, start - cursor, lab)
-            labels.append(lab)
-            k += 1
+        linked = "_tr" in c and group and abs(start - cursor) < 1e-3
+        if not linked:
+            close_group()
+            if start - cursor > EPS:
+                lab = f"t{n}g{k}"
+                parts += _transparent(W, H, fps, start - cursor, lab)
+                labels.append(lab)
+                k += 1
         dur = min(float(c["dur"]), total - start)
         if dur < EPS:
             continue
         cc = dict(c, dur=dur)
+        if not linked and "_pre" in cc:
+            # transition impossible (clip précédent absent) : lecture normale
+            cc.pop("_pre")
+            cc["_a"] = cc.get("in", 0.0)
+        length = dur + float(cc.get("_pre", 0.0)) + float(cc.get("_post", 0.0))
         if c["kind"] == "image":
-            src = f"[{inp.image(m, dur, fps)}:v]"
+            src = f"[{inp.image(m, length, fps)}:v]"
         else:
             src = f"[{c['_input']}:v]"
-        lab = f"t{n}s{k}"
-        parts += video_segment(cc, m, src, W, H, f, fps, lab)
-        labels.append(lab)
-        k += 1
+        lab = f"t{n}s{k}_{len(group)}"
+        parts += video_segment(cc, m, src, W, H, f, fps, lab, blur=blur)
+        group.append((lab, length, cc))
         cursor = start + dur
+    close_group()
     if not labels:
         return [], None
     if total - cursor > EPS:
@@ -288,6 +384,13 @@ def audio_segment(c: dict, src: str, label: str) -> list[str]:
     a = float(c["in"]) - float(c.get("_origin", c["in"]))
     chain = [f"atrim=start={_f(a)}:end={_f(a + dur * speed)}", "asetpts=PTS-STARTPTS", *_atempo(speed),
              f"aresample={SR}", "aformat=sample_fmts=fltp:channel_layouts=stereo"]
+    fx = c.get("audio_fx") or {}
+    if fx.get("denoise"):
+        chain.append("afftdn=nr=18:nf=-30:tn=1")
+    if fx.get("voice"):
+        # voix plus claire : coupe les graves parasites, compresse, présence vers 3 kHz
+        chain += ["highpass=f=85", "acompressor=threshold=-20dB:ratio=3:attack=8:release=120:makeup=2",
+                  "equalizer=f=3200:t=q:w=1.2:g=3"]
     vol = float(c.get("volume", 1.0))
     if abs(vol - 1.0) > 1e-3:
         chain.append(f"volume={_f(vol)}")
@@ -346,14 +449,19 @@ def audio_track(t: dict, clips: list[dict], media: dict, total: float, n: int) -
     return parts, out
 
 
-def mix(labels: list[str], total: float) -> tuple[list[str], str]:
+def mix(labels: list[str], total: float, loudness: bool = False) -> tuple[list[str], str]:
+    """Mixage des pistes, sans normalisation, protégé par un limiteur. Avec
+    `loudness`, le tout est ramené à -14 LUFS (niveau des réseaux sociaux)."""
+    tail = f"alimiter=limit=0.98:level=0,atrim=duration={_f(total)}"
+    if loudness:
+        # loudnorm travaille à 192 kHz : on revient à 48 kHz derrière
+        tail += f",loudnorm=I=-14:TP=-1.5:LRA=11,aresample={SR},atrim=duration={_f(total)}"
     if not labels:
         return [_silence(total, "amix")], "amix"
     if len(labels) == 1:
-        return [f"[{labels[0]}]alimiter=limit=0.98:level=0[amix]"], "amix"
+        return [f"[{labels[0]}]{tail}[amix]"], "amix"
     return [("".join(f"[{x}]" for x in labels) +
-             f"amix=inputs={len(labels)}:normalize=0:duration=longest,"
-             f"alimiter=limit=0.98:level=0,atrim=duration={_f(total)}[amix]")], "amix"
+             f"amix=inputs={len(labels)}:normalize=0:duration=longest,{tail}[amix]")], "amix"
 
 
 # ----------------------------------------------------------------- textes
@@ -385,7 +493,7 @@ def captions_of(state: dict, total: float) -> list[dict]:
 # ----------------------------------------------------------------- graphe
 
 def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int, workdir: str,
-          audio_only: bool = False) -> dict:
+          audio_only: bool = False, loudness: bool = False) -> dict:
     """Entrées, filtergraph et étiquettes de sortie de l'export."""
     state = {**state, "clips": [dict(c) for c in state["clips"]]}
     total = duration(state)
@@ -393,6 +501,7 @@ def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int,
         raise ValueError("Le montage est vide : rien à exporter.")
     canvas = state["canvas"]
     f = out_w / float(canvas["w"])
+    plan_transitions(state, media)
     inp = plan_runs(state, media)
     parts: list[str] = []
 
@@ -404,7 +513,7 @@ def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int,
         tracks = [t for t in reversed(state["tracks"]) if t["kind"] == "video" and not t.get("hidden")]
         for n, t in enumerate(tracks):
             p, lab = video_track(t, [c for c in state["clips"] if c["track"] == t["id"]], media, inp,
-                                 out_w, out_h, f, fps, total, n)
+                                 out_w, out_h, f, fps, total, n, blur=bool(canvas.get("blur") and t.get("main")))
             if not lab:
                 continue
             parts += p
@@ -428,7 +537,7 @@ def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int,
         parts += p
         if lab:
             labels.append(lab)
-    p, aout = mix(labels, total)
+    p, aout = mix(labels, total, loudness)
     parts += p
     return {"inputs": inp.args, "graph": ";".join(parts), "vout": vout, "aout": aout,
             "duration": total, "count": inp.count}
@@ -521,7 +630,7 @@ def run(args: list[str], graph: str, duration: float, cwd: str, on_progress=None
 def export(state: dict, media_list: list[dict], out_path: str, *, resolution: str | None = None,
            fps: int | None = None, quality: str = "standard", codec: str = "h264", encoder: str = "auto",
            audio_only: bool = False, audio_args: list[str] | None = None, on_progress=None,
-           cancel: threading.Event | None = None) -> dict:
+           cancel: threading.Event | None = None, loudness: bool = False) -> dict:
     """Rend le montage dans `out_path`. Renvoie durée, définition, taille."""
     media = {m["id"]: m for m in media_list if m.get("status") == "ready"}
     missing = sorted({c["media"] for c in state["clips"] if c.get("media") and c["media"] not in media})
@@ -535,7 +644,7 @@ def export(state: dict, media_list: list[dict], out_path: str, *, resolution: st
     out_w, out_h = export_size(state["canvas"], resolution)
     work = tempfile.mkdtemp(prefix="montage_export_")
     try:
-        g = build(state, media, out_w, out_h, fps, work, audio_only=audio_only)
+        g = build(state, media, out_w, out_h, fps, work, audio_only=audio_only, loudness=loudness)
         out = os.path.abspath(out_path)
         os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
         tmp_out = os.path.join(os.path.dirname(out), "_part_" + os.path.basename(out))

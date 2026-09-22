@@ -266,3 +266,64 @@ def test_api_export(server_module, media, tmp_path, monkeypatch, exports_dir):
             break
         time.sleep(0.05)
     assert st["export"]["output"].endswith(".wav") and st["export"]["audio_only"]
+
+
+# ---------------------------------------------------------------- finitions
+
+def test_transition_centree_sur_la_coupe(tmp_path):
+    a = vclip(id="a", dur=2.0)
+    b = vclip(id="b", start=2.0, dur=2.0, **{"in": 2.0}, trans={"type": "fadeblack", "dur": 0.5})
+    g = render.build(state([a, b]), {"mr": RED}, 360, 640, 25, str(tmp_path))
+    assert "xfade=transition=fadeblack:duration=0.5:offset=1.75" in g["graph"]
+    assert g["duration"] == 4.0
+    # une transition sans clip juste avant est ignorée
+    lone = vclip(id="c", start=5.0, trans={"type": "fade", "dur": 1})
+    g = render.build(state([a, lone]), {"mr": RED}, 360, 640, 25, str(tmp_path))
+    assert "xfade" not in g["graph"]
+
+
+def test_effets_son_et_normalisation(tmp_path):
+    st = state([vclip(audio_fx={"denoise": True, "voice": True})])
+    g = render.build(st, {"mr": RED}, 360, 640, 25, str(tmp_path), loudness=True)
+    assert "afftdn" in g["graph"] and "acompressor" in g["graph"]
+    assert "loudnorm=I=-14" in g["graph"] and "aresample=48000,atrim" in g["graph"]
+
+
+@pytest.mark.ffmpeg
+def test_rendu_fondu_et_fond_flou(media, tmp_path):
+    if not render._encoder_works("libx264"):
+        pytest.skip("ffmpeg sans libx264")
+    clips = [vclip(id="r", dur=2.0),
+             {"id": "b", "track": "tv1", "kind": "image", "media": "mb", "start": 2.0, "dur": 1.5,
+              "x": 0.5, "y": 0.5, "scale": 1, "fit": "contain", "rotation": 0, "opacity": 1,
+              "trans": {"type": "fade", "dur": 1.0}}]
+    st = state(clips, canvas={"w": 360, "h": 640, "fps": 25, "bg": "#FFFFFF", "blur": True})
+    out = tmp_path / "fondu.mp4"
+    render.export(st, list(media.values()), str(out), encoder="cpu")
+    assert float(probe(out)["format"]["duration"]) == pytest.approx(3.5, abs=0.1)
+    assert close(pixel(out, 1.0, 180, 320), (255, 0, 0))            # avant le fondu : rouge
+    mid = pixel(out, 2.02, 180, 320)
+    assert mid[0] > 70 and mid[2] > 70                              # au milieu : rouge et bleu mêlés
+    assert close(pixel(out, 3.3, 180, 320), (0, 0, 255))            # après : bleu
+    top = pixel(out, 3.3, 180, 20)                                  # fond flou (bleu), pas le blanc du projet
+    assert top[2] > 120 and top[0] < 120
+
+
+@pytest.mark.ffmpeg
+def test_transition_prolonge_les_deux_clips(media, tmp_path):
+    """Chaque clip est prolongé d'une demi-transition (image figée si la source
+    s'arrête) : sans ça, tout ce qui suit la coupe glisse plus tôt."""
+    if not render._encoder_works("libx264"):
+        pytest.skip("ffmpeg sans libx264")
+    a = vclip(id="a", dur=4.0)                                    # tout le rush rouge (4 s)
+    b = {"id": "b", "track": "tv1", "kind": "video", "media": "mg", "start": 4.0, "dur": 2.0, "in": 0,
+         "speed": 1, "x": 0.5, "y": 0.5, "scale": 1, "fit": "cover", "rotation": 0, "opacity": 1,
+         "trans": {"type": "slideleft", "dur": 1.0}}
+    c = {"id": "c", "track": "tv1", "kind": "image", "media": "mb", "start": 6.0, "dur": 1.0,
+         "x": 0.5, "y": 0.5, "scale": 1, "fit": "cover", "rotation": 0, "opacity": 1}
+    out = tmp_path / "prolonge.mp4"
+    render.export(state([a, b, c]), list(media.values()), str(out), encoder="cpu")
+    assert float(probe(out)["format"]["duration"]) == pytest.approx(7.0, abs=0.05)
+    assert close(pixel(out, 3.4, 180, 320), (255, 0, 0))          # avant la transition
+    assert close(pixel(out, 5.0, 180, 320), (0, 255, 0))          # après
+    assert close(pixel(out, 6.5, 180, 320), (0, 0, 255))          # l'image suivante, à sa place

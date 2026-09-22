@@ -204,7 +204,8 @@ class TimelineProject:
                                 fps=opts.get("fps"), quality=str(opts.get("quality") or "standard"),
                                 codec=str(opts.get("codec") or "h264"),
                                 encoder=str(opts.get("encoder") or "auto"), audio_only=audio_only,
-                                audio_args=audio_args, on_progress=progress, cancel=self._cancel)
+                                audio_args=audio_args, on_progress=progress, cancel=self._cancel,
+                                loudness=bool(opts.get("loudness")))
             res.update(at=store.now(), audio_only=audio_only, signature=str(opts.get("signature") or ""))
             with self.lock:
                 self.state["export"] = res

@@ -335,3 +335,20 @@ test("vitesse hors principale : rognée si elle déborde sur le voisin", () => {
   M.setSpeed(d, s, 0.5);                 // voudrait 8 s, n'en a que 6
   assert.equal(s.dur, 6);
 });
+
+
+test("transitions : valides seulement entre deux clips qui se touchent", () => {
+  const d = doc();
+  const [a] = M.appendMedia(d, VIDEO, 0);
+  const [b] = M.appendMedia(d, VIDEO2, 10);
+  b.trans = { type: "fade", dur: 9 };
+  const t = M.transIn(d, b);
+  assert.equal(t.prev, a);
+  assert.equal(t.d, 6);                                 // bornée par le clip le plus court
+  assert.deepEqual([M.extensions(d, a).post, M.extensions(d, b).pre], [3, 3]);
+  const right = M.splitClip(d, b, 13);
+  assert.equal(right.trans, undefined);                // la transition reste au début
+  assert.ok(b.trans);
+  a.trans = { type: "fade", dur: 1 };
+  assert.equal(M.transIn(d, a), null);                 // rien avant le premier clip
+});

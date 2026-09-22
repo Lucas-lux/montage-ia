@@ -279,6 +279,7 @@ export function splitClip(doc, clip, t) {
   clip.dur = r4(left);
   if (hasSource(clip)) right.in = r4(clip.in + left * (clip.speed || 1));
   if ("fade_out" in clip) { right.fade_in = 0; clip.fade_out = 0; }   // fondus aux bouts d'origine
+  delete right.trans;                  // la transition d'entrée reste au début du clip
   if (clip.kind === "text") {
     const words = clip.words || [];
     clip.words = words.filter((w) => w.start < t);
@@ -685,6 +686,7 @@ export function applyCuts(doc, clip, cuts) {
         p.fade_in = i === 0 ? g.fade_in || 0 : 0;
         p.fade_out = i === keep.length - 1 ? g.fade_out || 0 : 0;
       }
+      if (i > 0) delete p.trans;
       doc.clips.push(p);
       if (g === clip) pieces.push(p);
     }
@@ -721,4 +723,31 @@ export function setSpeed(doc, clip, speed) {
     }
   }
   if (group.some((g) => isMain(doc, g.track))) packMain(doc);
+}
+
+/* -------------------------------------------------------------- transitions */
+
+export const TRANSITIONS = [
+  ["fade", "Fondu enchaîné"], ["fadeblack", "Fondu au noir"], ["fadewhite", "Fondu au blanc"],
+  ["dissolve", "Dissolution"], ["slideleft", "Glissement ←"], ["slideright", "Glissement →"],
+  ["wipeleft", "Volet"], ["circleopen", "Cercle"], ["zoomin", "Zoom"],
+];
+
+/** Transition d'entrée effective d'un clip : le clip précédent de sa piste doit
+ *  se terminer exactement à son début. Durée bornée par les deux clips. */
+export function transIn(doc, c) {
+  if (!c.trans || (c.kind !== "video" && c.kind !== "image")) return null;
+  const prev = doc.clips.find((o) => o !== c && o.track === c.track && (o.kind === "video" || o.kind === "image") &&
+                                     Math.abs(clipEnd(o) - c.start) < 1e-3);
+  if (!prev) return null;
+  const d = Math.min(c.trans.dur || 0.5, prev.dur, c.dur);
+  return d >= 0.05 ? { prev, type: c.trans.type, d } : null;
+}
+
+/** Prolongations de lecture d'un clip dues aux transitions (secondes). */
+export function extensions(doc, c) {
+  const tin = transIn(doc, c);
+  const next = doc.clips.find((o) => o !== c && o.track === c.track && Math.abs(o.start - clipEnd(c)) < 1e-3);
+  const tout = next ? transIn(doc, next) : null;
+  return { pre: tin ? tin.d / 2 : 0, post: tout ? tout.d / 2 : 0, tin, tout, next };
 }

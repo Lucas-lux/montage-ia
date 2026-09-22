@@ -16,7 +16,7 @@ const Q_FACTOR = { low: 0.55, standard: 1, high: 1.7 };
 
 const E = {
   opts: { kind: "video", resolution: "1080p", fps: 30, quality: "standard", codec: "h264",
-          audio_format: "mp3", audio_quality: null, folder: "" },
+          audio_format: "mp3", audio_quality: null, folder: "", loudness: false },
   formats: null, poll: 0, modal: null, last: null, folder: "",
 };
 
@@ -112,6 +112,11 @@ async function settings() {
         ? "HEVC : fichier environ deux fois plus léger, lu par les téléphones récents et les réseaux sociaux."
         : "H.264 : lisible partout (réseaux sociaux, montage, vieux appareils)."))
     : audioSettings(o),
+    (() => {
+      const box = h("input", { type: "checkbox", checked: !!o.loudness });
+      box.onchange = () => { o.loudness = box.checked; saveOpts(); };
+      return h("label.check", { style: { margin: "10px 0 4px" } }, box, "Normaliser le volume (−14 LUFS, niveau des réseaux sociaux)");
+    })(),
     h("div.field", { style: { marginTop: "10px" } }, h("div.head", {}, h("span.label", {}, "Dossier")), folder),
     h("div.kv", {}, h("span", {}, "Durée"), h("b", {}, fmt(d))),
     o.kind === "video" ? h("div.kv", {}, h("span", {}, "Taille estimée"), h("b", {}, "≈ " + mo(estimate(d)))) : null,
@@ -148,8 +153,10 @@ async function start() {
   await saveNow();
   const o = E.opts;
   const body = o.kind === "audio"
-    ? { audio_only: true, audio_format: o.audio_format, audio_quality: o.audio_quality, folder: o.folder, signature: signature() }
-    : { resolution: o.resolution, fps: o.fps, quality: o.quality, codec: o.codec, folder: o.folder, signature: signature() };
+    ? { audio_only: true, audio_format: o.audio_format, audio_quality: o.audio_quality, folder: o.folder,
+        loudness: o.loudness, signature: signature() }
+    : { resolution: o.resolution, fps: o.fps, quality: o.quality, codec: o.codec, folder: o.folder,
+        loudness: o.loudness, signature: signature() };
   try {
     await post(`/api/timeline/${S.pid}/export`, body);
   } catch (e) { failed(e.message); return; }

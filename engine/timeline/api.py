@@ -458,3 +458,28 @@ def from_short(pid: str) -> dict:
         raise HTTPException(400, str(exc)) from exc
     TIMELINES[tl.id] = tl
     return {"id": tl.id}
+
+
+@router.post("/api/timeline/{pid}/freeze")
+def freeze_frame(pid: str, body: dict = Body(...)) -> dict:
+    """Arrêt sur image : l'image exacte d'un média à l'instant `at`, en nouveau média."""
+    import subprocess
+    proj = get(pid)
+    m = proj.media(str(body.get("media") or ""))
+    if m is None or m.get("kind") != "video" or m.get("status") != "ready":
+        raise HTTPException(400, "Choisis un clip vidéo prêt.")
+    try:
+        at = max(0.0, min(float(body.get("at") or 0.0), float(m.get("duration") or 0.0) - 0.04))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(400, "Instant invalide.") from exc
+    mid = model.new_id("m")
+    folder = proj.media_folder(mid)
+    os.makedirs(folder, exist_ok=True)
+    out = os.path.join(folder, "source.jpg")
+    res = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-ss", f"{at:.3f}",
+                          "-i", m["path"], "-frames:v", "1", "-q:v", "2", out], capture_output=True)
+    if res.returncode != 0 or not os.path.isfile(out):
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(500, "Image impossible à extraire.")
+    base = os.path.splitext(m["name"])[0]
+    return _view(proj, proj.add_media(out, name=f"{base} — arrêt {at:.2f} s.jpg", copied=True, mid=mid))

@@ -255,3 +255,14 @@ def test_api_supprimer_relancer_relier(client, files, tmp_path):
     assert client.delete(base).json()["ok"]
     assert client.delete(base).status_code == 404
     assert client.get(f"/api/timeline/{client.pid}/media").json()["media"] == []
+
+
+def test_api_arret_sur_image(client, files):
+    [m] = client.post(f"/api/timeline/{client.pid}/media/paths", json={"paths": [str(files["video"])]}).json()["added"]
+    jobs.MEDIA.join()
+    r = client.post(f"/api/timeline/{client.pid}/freeze", json={"media": m["id"], "at": 1.5}).json()
+    assert r["kind"] == "image" and r["copied"] and "arrêt 1.50 s" in r["name"]
+    jobs.MEDIA.join()
+    media = {x["id"]: x for x in client.get(f"/api/timeline/{client.pid}/media").json()["media"]}
+    assert media[r["id"]]["status"] == "ready" and media[r["id"]]["w"] == 640
+    assert client.post(f"/api/timeline/{client.pid}/freeze", json={"media": "nope", "at": 1}).status_code == 400

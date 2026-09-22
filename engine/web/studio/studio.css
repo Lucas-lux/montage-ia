@@ -492,3 +492,13 @@ input[type=checkbox]:checked::after {
   .work { grid-template-columns: minmax(220px, 250px) minmax(300px, 1fr) minmax(240px, 270px); }
   .titlein { width: 180px; }
 }
+
+/* losange de transition entre deux clips */
+.tbadge {
+  position: absolute; top: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%) rotate(45deg);
+  background: var(--panel-2); border: 1px solid var(--ink-3); border-radius: 3px; z-index: 4; cursor: pointer;
+  opacity: 0; transition: opacity .12s, background .12s;
+}
+.trow:hover .tbadge { opacity: 1; }
+.tbadge:hover { background: var(--ink); }
+.tbadge.on { opacity: 1; background: var(--accent); border-color: #fff; }

@@ -196,29 +196,36 @@ export function sync(t, { layout = false } = {}) {
   const order = visualOrder();
   const z = new Map(order.map((tr, i) => [tr.id, i + 1]));
 
+  const blurSrc = [];
   for (const c of S.doc.clips) {
     if (!c.media || c.gone) continue;
     const m = S.media.get(c.media);
     if (!m || m.status !== "ready" || !m.urls || !m.urls.proxy) continue;
     const end = M.clipEnd(c);
-    const active = t >= c.start && t < end;
-    const soon = !active && c.start > t && c.start - t < PRELOAD;
-    if (!active && !soon) continue;
-    const tr = M.track(S.doc, c.track);
     const visual = c.kind === "video" || c.kind === "image";
+    // une transition prolonge l'image d'un clip d'une demi-durée de chaque côté
+    const ext = visual ? M.extensions(S.doc, c) : { pre: 0, post: 0 };
+    const seen = t >= c.start - ext.pre && t < end + ext.post;       // image visible
+    const active = t >= c.start && t < end;                          // son audible
+    const soon = !seen && c.start - ext.pre > t && c.start - ext.pre - t < PRELOAD;
+    if (!seen && !soon) continue;
+    const tr = M.track(S.doc, c.track);
     if (!visual && !audible(c)) continue;
     wanted.add(c.id);
     const it = item(c, m);
     it.last = now;
-    const show = active && visual && !(tr && tr.hidden);
+    const show = seen && visual && !(tr && tr.hidden);
     if (visual) {
-      it.wrap.style.visibility = show ? "visible" : "hidden";
-      it.wrap.style.zIndex = z.get(c.track) || 1;
-      if (show || layout || !it.placed) place(it, c, m);
+      const fx = show ? transitionFx(c, ext, t) : null;
+      it.wrap.style.visibility = show && !(fx && fx.hide) ? "visible" : "hidden";
+      it.wrap.style.zIndex = (z.get(c.track) || 1) * 2 + (fx && fx.top ? 1 : 0);
+      if (show || layout || !it.placed) place(it, c, m, fx);
+      if (show && tr && tr.main && S.doc.canvas.blur && !(fx && fx.hide)) blurSrc.push({ it, c, m });
     }
     if (c.kind === "image") continue;
     const el = it.el;
-    const target = active ? c.in + (t - c.start) * (c.speed || 1) : c.in;
+    const dur = m.duration || Infinity;
+    const target = seen ? clamp(c.in + (t - c.start) * (c.speed || 1), 0, Math.max(0, dur - 0.04)) : c.in - ext.pre * (c.speed || 1);
     const hearMe = active && audible(c) && P.playing;
     const g = hearMe ? gainAt(c, t, tr) : 0;
     if (it.gain) {
@@ -228,7 +235,7 @@ export function sync(t, { layout = false } = {}) {
       el.volume = clamp(g, 0, 1);
       el.muted = g === 0;
     }
-    if (active && P.playing) {
+    if (seen && P.playing) {
       if (P.ctx && hearMe) route(it);
       const speed = c.speed || 1;
       if (el.paused) {
@@ -250,7 +257,7 @@ export function sync(t, { layout = false } = {}) {
       }
     } else {
       if (!el.paused) el.pause();
-      const tol = active ? 0.5 / (S.doc.canvas.fps || 30) : 0.05;
+      const tol = seen ? 0.5 / (S.doc.canvas.fps || 30) : 0.05;
       if (Math.abs(el.currentTime - target) > tol && el.readyState >= 1) {
         if (!it.seeking) {
           it.seeking = true;
@@ -269,7 +276,85 @@ export function sync(t, { layout = false } = {}) {
     if (it.wrap) it.wrap.style.visibility = "hidden";
     if (now - it.last > KEEP * 1000 || P.items.size > MAX_ELEMS) destroy(id, it);
   }
+  drawBlur(blurSrc);
   renderCaptions(t);
+}
+
+/* ------------------------------------------------------------ transitions */
+
+/** Effet d'une transition sur un clip à l'instant t (null : aucun).
+ *  Rôle « in » : le clip arrive ; « out » : il part vers le suivant. */
+function transitionFx(c, ext, t) {
+  let role = null, p = 0, type = "";
+  if (ext.tin && t < c.start + ext.tin.d / 2) {
+    role = "in"; type = ext.tin.type;
+    p = (t - (c.start - ext.tin.d / 2)) / ext.tin.d;
+  } else if (ext.tout && t >= M.clipEnd(c) - ext.tout.d / 2) {
+    role = "out"; type = ext.tout.type;
+    p = (t - (M.clipEnd(c) - ext.tout.d / 2)) / ext.tout.d;
+  }
+  if (!role) return null;
+  p = clamp(p, 0, 1);
+  const W = S.doc.canvas.w * (S.k || 1);
+  const fx = { top: role === "in" };
+  switch (type) {
+    case "fadeblack":
+      if (role === "out") { if (p < 0.5) fx.bright = 1 - 2 * p; else fx.hide = true; }
+      else if (p < 0.5) fx.hide = true; else fx.bright = 2 * p - 1;
+      break;
+    case "fadewhite":
+      if (role === "out") { if (p < 0.5) fx.white = 2 * p; else fx.hide = true; }
+      else if (p < 0.5) fx.hide = true; else fx.white = 2 - 2 * p;
+      break;
+    case "slideleft":
+      fx.tx = role === "in" ? (1 - p) * W : -p * W;
+      break;
+    case "slideright":
+      fx.tx = role === "in" ? -(1 - p) * W : p * W;
+      break;
+    case "wipeleft":
+      if (role === "in") fx.clip = `inset(0 0 0 ${((1 - p) * 100).toFixed(2)}%)`;
+      break;
+    case "circleopen":
+      if (role === "in") fx.clip = `circle(${(p * 75).toFixed(2)}% at 50% 50%)`;
+      break;
+    case "zoomin":
+      if (role === "out") { fx.zoom = 1 + p * 0.6; fx.op = 1 - p; } else fx.op = p;
+      break;
+    default:                            // fondu enchaîné, dissolution
+      if (role === "in") fx.op = p;
+  }
+  return fx;
+}
+
+/* ----------------------------------------------------- arrière-plan flou */
+
+let blurCanvas = null;
+/** Derrière la piste principale : sa propre image, agrandie et floutée. Tracée
+ *  depuis l'élément déjà décodé (pas de second décodage). */
+function drawBlur(list) {
+  if (!S.doc.canvas.blur) {
+    if (blurCanvas) blurCanvas.style.display = "none";
+    return;
+  }
+  if (!blurCanvas) {
+    blurCanvas = h("canvas", { style: { position: "absolute", inset: "0", width: "100%", height: "100%",
+                                        filter: "blur(14px) brightness(0.94)", transform: "scale(1.08)",
+                                        zIndex: 0, pointerEvents: "none" } });
+    vlayer.prepend(blurCanvas);
+  }
+  blurCanvas.style.display = "";
+  const cw = Math.max(16, Math.round(S.doc.canvas.w / 10)), ch = Math.max(16, Math.round(S.doc.canvas.h / 10));
+  if (blurCanvas.width !== cw || blurCanvas.height !== ch) { blurCanvas.width = cw; blurCanvas.height = ch; }
+  const ctx = blurCanvas.getContext("2d");
+  ctx.clearRect(0, 0, cw, ch);
+  for (const { it, m } of list) {
+    const el = it.el;
+    const iw = el.videoWidth || el.naturalWidth || m.w, ih = el.videoHeight || el.naturalHeight || m.h;
+    if (!iw || !ih || (el.readyState !== undefined && el.readyState < 2 && el.tagName === "VIDEO")) continue;
+    const k = Math.max(cw / iw, ch / ih);
+    try { ctx.drawImage(el, (cw - iw * k) / 2, (ch - ih * k) / 2, iw * k, ih * k); } catch (e) { /* image pas prête */ }
+  }
 }
 
 function item(c, m) {
@@ -303,6 +388,8 @@ function item(c, m) {
       }
     });
     el.addEventListener("loadedmetadata", () => sync(S.t));
+    // l'arrière-plan flou se redessine quand l'image demandée est là
+    el.addEventListener("seeked", () => { if (S.doc.canvas.blur && !P.playing) sync(S.t); });
   }
   P.items.set(c.id, it);
   return it;
@@ -327,7 +414,7 @@ export function geometry(c, m, W, H) {
   return { w: w * s, h: hh * s, cx: (c.x ?? 0.5) * W, cy: (c.y ?? 0.5) * H };
 }
 
-function place(it, c, m) {
+function place(it, c, m, fx) {
   const k = S.k || 1;
   const { w: W, h: H } = S.doc.canvas;
   const g = geometry(c, m, W, H);
@@ -336,9 +423,15 @@ function place(it, c, m) {
   st.height = g.h * k + "px";
   st.left = (g.cx - g.w / 2) * k + "px";
   st.top = (g.cy - g.h / 2) * k + "px";
-  st.opacity = c.opacity ?? 1;
-  st.transform = `rotate(${c.rotation || 0}deg) scale(${c.flip_h ? -1 : 1}, ${c.flip_v ? -1 : 1})`;
-  st.filter = cssFilter(c);
+  st.opacity = (c.opacity ?? 1) * (fx && fx.op !== undefined ? fx.op : 1);
+  const move = fx && fx.tx ? `translateX(${fx.tx.toFixed(1)}px) ` : "";
+  const zoom = fx && fx.zoom ? ` scale(${fx.zoom.toFixed(3)})` : "";
+  st.transform = `${move}rotate(${c.rotation || 0}deg)${zoom} scale(${c.flip_h ? -1 : 1}, ${c.flip_v ? -1 : 1})`;
+  let filter = cssFilter(c);
+  if (fx && fx.bright !== undefined) filter += ` brightness(${fx.bright.toFixed(3)})`;
+  if (fx && fx.white) filter += ` brightness(${(1 + 3 * fx.white).toFixed(3)}) saturate(${(1 - fx.white).toFixed(3)})`;
+  st.filter = filter.trim();
+  st.clipPath = fx && fx.clip ? fx.clip : "";
   it.placed = true;
 }
 
@@ -347,9 +440,12 @@ function cssFilter(c) {
   const f = c.filters;
   if (!f) return "";
   const parts = [];
-  if (f.brightness) parts.push(`brightness(${1 + f.brightness})`);
+  if (f.brightness) parts.push(`brightness(${1 + f.brightness * 0.6})`);
   if (f.contrast) parts.push(`contrast(${1 + f.contrast})`);
-  if (f.saturation) parts.push(`saturate(${1 + f.saturation})`);
+  if (f.saturation) parts.push(`saturate(${Math.max(0, 1 + f.saturation)})`);
+  // température : chaud = sépia léger, froid = teinte vers le bleu
+  if (f.temperature > 0) parts.push(`sepia(${(f.temperature * 0.35).toFixed(3)})`);
+  if (f.temperature < 0) parts.push(`hue-rotate(${(f.temperature * 18).toFixed(1)}deg) saturate(1.05)`);
   return parts.join(" ");
 }
 

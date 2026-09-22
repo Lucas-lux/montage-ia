@@ -30,7 +30,7 @@ def norm(*clips):
 def test_etat_neuf():
     s = model.new_state("p1", "  Mon film ", "16:9", now=12.0)
     assert s["kind"] == "timeline" and s["name"] == "Mon film"
-    assert s["canvas"] == {"w": 1920, "h": 1080, "fps": 30, "bg": "#000000"}
+    assert s["canvas"] == {"w": 1920, "h": 1080, "fps": 30, "bg": "#000000", "blur": False}
     assert [t["kind"] for t in s["tracks"]] == ["video", "audio"]
     assert s["tracks"][0]["main"]
 
@@ -41,7 +41,7 @@ def test_format_inconnu_retombe_sur_9_16():
 
 def test_canvas_borne_pair_et_fps_proposes():
     c = model.normalize_canvas({"w": 1081, "h": 99999, "fps": 29, "bg": "red"})
-    assert c == {"w": 1080, "h": 4096, "fps": 30, "bg": "#000000"}
+    assert c == {"w": 1080, "h": 4096, "fps": 30, "bg": "#000000", "blur": False}
     assert model.normalize_canvas({"bg": "#abc"})["bg"] == "#AABBCC"
 
 
@@ -162,3 +162,10 @@ def test_reglages_image_et_mots_coupes_conserves():
          "words": [{"text": "a", "start": 0, "end": 1, "cut": True}, {"text": "b", "start": 1, "end": 2}]}
     [c] = norm(t)
     assert c["gone"] and c["words"][0]["cut"] and "cut" not in c["words"][1]
+
+
+def test_transition_et_effets_audio():
+    [c] = norm(clip(trans={"type": "fade", "dur": 9}, audio_fx={"denoise": 1, "bidon": True}))
+    assert c["trans"] == {"type": "fade", "dur": 3.0} and c["audio_fx"] == {"denoise": True}
+    [c] = norm(clip(trans={"type": "explosion"}))
+    assert "trans" not in c and "audio_fx" not in c

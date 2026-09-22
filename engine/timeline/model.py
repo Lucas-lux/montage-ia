@@ -67,6 +67,10 @@ _TEXT_EXTRA = {"emoji": "", "emoji_size": 0.0, "emoji_dx": 0.0, "emoji_dy": 0.0,
                "gone": False, "lang": "", "tr_hidden": False}
 # Réglages d'image d'un clip vidéo ou image.
 FILTERS = ("brightness", "contrast", "saturation", "temperature")
+# Transitions d'entrée (noms des transitions `xfade` de ffmpeg).
+TRANSITIONS = ("fade", "fadeblack", "fadewhite", "slideleft", "slideright", "wipeleft", "circleopen",
+               "zoomin", "dissolve")
+MAX_TRANSITION = 3.0
 
 
 def new_id(prefix: str) -> str:
@@ -125,7 +129,7 @@ def _t(v: float) -> float:
 
 def canvas_for(preset: str | None) -> dict:
     w, h = CANVAS_PRESETS.get(preset or "", CANVAS_PRESETS[DEFAULT_CANVAS])
-    return {"w": w, "h": h, "fps": 30, "bg": "#000000"}
+    return {"w": w, "h": h, "fps": 30, "bg": "#000000", "blur": False}
 
 
 def default_tracks() -> list[dict]:
@@ -167,7 +171,9 @@ def normalize_canvas(c) -> dict:
     if fps not in FPS_CHOICES:
         fps = min(FPS_CHOICES, key=lambda f: abs(f - fps))
     # Les encodeurs H.264/HEVC veulent des dimensions paires.
-    return {"w": w - w % 2, "h": h - h % 2, "fps": fps, "bg": _color(c.get("bg"), "#000000")}
+    return {"w": w - w % 2, "h": h - h % 2, "fps": fps, "bg": _color(c.get("bg"), "#000000"),
+            # « arrière-plan flou » : derrière la piste principale, sa propre image floutée
+            "blur": _bool(c.get("blur"))}
 
 
 def normalize_tracks(tracks) -> list[dict]:
@@ -260,6 +266,16 @@ def normalize_clip(c: dict, track: dict, media: dict | None) -> dict | None:
             out["detached"] = _bool(c.get("detached"))
         if kind in ("video", "image"):
             out.update(_transform(c))
+            tr = c.get("trans")
+            if isinstance(tr, dict) and tr.get("type") in TRANSITIONS:
+                out["trans"] = {"type": tr["type"],
+                                "dur": round(_num(tr.get("dur"), 0.5, 0.1, MAX_TRANSITION), 3)}
+        if kind in ("video", "audio"):
+            fx = c.get("audio_fx")
+            if isinstance(fx, dict):
+                clean = {k: True for k in ("denoise", "voice") if _bool(fx.get(k))}
+                if clean:
+                    out["audio_fx"] = clean
         out["link"] = _str(c.get("link"), "", 40)
     else:
         out.update(_text_fields(c))

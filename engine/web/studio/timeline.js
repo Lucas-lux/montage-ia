@@ -107,6 +107,7 @@ function buildTools() {
                                onclick: () => A.toggleDetach() }),
     iconBtn("unlink", "Dissocier les clips liés", () => A.unlinkSelection()),
     iconBtn("flag", "Ajouter un marqueur (M)", () => A.addMarker()),
+    iconBtn("freeze", "Arrêt sur image (F)", () => A.freezeFrame()),
     h("span.vsep"),
     h("button.btn.sm.quiet", { title: "Supprimer les blancs (outils IA)", html: svg("silence", 15) + "Blancs",
                                onclick: () => emit("tool", { name: "silence" }) }),
@@ -209,6 +210,7 @@ export function render() {
   for (const [id, el] of T.clipEls) {
     if (!seen.has(id)) { el.remove(); T.clipEls.delete(id); }
   }
+  renderTransitionBadges();
   const empty = !S.doc.clips.length;
   const hint = $("tlHint");
   if (hint) {
@@ -297,6 +299,45 @@ function updateClip(el, c) {
   if (c.fade_in > 0) el.appendChild(h("div.fade", { style: { left: 0, width: c.fade_in * T.pps + "px" } }));
   if (c.fade_out > 0) el.appendChild(h("div.fade.out", { style: { right: 0, width: c.fade_out * T.pps + "px" } }));
   el.style.display = c.gone ? "none" : "";
+}
+
+/** Un losange à chaque coupe (deux clips vidéo qui se touchent) : clic pour
+ *  choisir la transition. Plein quand une transition est posée. */
+function renderTransitionBadges() {
+  inner.querySelectorAll(".tbadge").forEach((b) => b.remove());
+  for (const row of T.rows) {
+    if (row.kind !== "video") continue;
+    const clips = M.trackClips(S.doc, row.tid).filter((c) => c.kind === "video" || c.kind === "image");
+    for (let i = 1; i < clips.length; i++) {
+      const a = clips[i - 1], b = clips[i];
+      if (Math.abs(M.clipEnd(a) - b.start) > 1e-3) continue;
+      const tr = M.transIn(S.doc, b);
+      const label = tr ? (M.TRANSITIONS.find((x) => x[0] === tr.type) || [0, tr.type])[1] + ` · ${tr.d.toFixed(1).replace(".", ",")} s` : "Ajouter une transition";
+      const badge = h("div.tbadge" + (tr ? ".on" : ""), { title: label, style: { left: b.start * T.pps + "px" } });
+      badge.onpointerdown = (e) => e.stopPropagation();
+      badge.onclick = (e) => { e.stopPropagation(); transitionMenu(e, b); };
+      if (tr) badge.style.width = badge.style.height = Math.max(12, Math.min(18, tr.d * T.pps * 0.5)) + "px";
+      row.lane.appendChild(badge);
+    }
+  }
+}
+
+function transitionMenu(e, clip) {
+  const cur = clip.trans || {};
+  const d = cur.dur || 0.5;
+  menu(e.clientX, e.clientY, [
+    ...M.TRANSITIONS.map(([k, label]) => ({
+      label: (cur.type === k ? "✓ " : "") + label, icon: "transition",
+      onclick: () => A.setTransition([clip.id], k, d) })),
+    "-",
+    ...[0.3, 0.5, 1, 1.5, 2].map((x) => ({
+      label: (cur.type && Math.abs(d - x) < 1e-3 ? "✓ " : "") + `Durée ${String(x).replace(".", ",")} s`,
+      disabled: !cur.type, onclick: () => A.setTransition([clip.id], cur.type, x) })),
+    "-",
+    { label: "Même transition sur toutes les coupes de la piste", icon: "copy", disabled: !cur.type,
+      onclick: () => A.transitionEverywhere(clip.track, cur.type, d) },
+    { label: "Aucune transition", icon: "close", disabled: !cur.type, onclick: () => A.setTransition([clip.id], "") },
+  ]);
 }
 
 function clipTitle(c) {
@@ -903,6 +944,8 @@ function clipMenu(e, id) {
     clip.kind === "video" || clip.kind === "audio" ? {
       label: "Supprimer les blancs de ce clip", icon: "silence",
       onclick: () => emit("tool", { name: "silence", scope: "selection" }) } : null,
+    clip.kind === "video" ? { label: "Arrêt sur image (2 s)", icon: "freeze", disabled: !under,
+                              onclick: () => A.freezeFrame() } : null,
     "-",
     { label: "Supprimer", icon: "trash", key: "Suppr", onclick: A.remove },
   ]);
@@ -987,6 +1030,7 @@ function initKeys() {
     else if (!mod && e.shiftKey && k === "z") fit();
     else if (!mod && k === "m") A.addMarker();
     else if (!mod && k === "n") toggleSnap();
+    else if (!mod && k === "f") A.freezeFrame();
     else used = false;
     if (used) e.preventDefault();
   });

@@ -1,8 +1,10 @@
 /* Commandes de montage, partagées par la barre d'outils, le clavier, les
    menus contextuels et l'inspecteur. Chacune est un pas d'annulation. */
 
+import { post } from "./api.js";
+import { startPolling } from "./bin.js";
 import * as M from "./model.js";
-import { S, edit, emit, select, selectNone, selected, setTime } from "./store.js";
+import { S, edit, emit, select, selectNone, selected, setMedia, setTime } from "./store.js";
 import { toast } from "./util.js";
 
 const A = { clipboard: [] };
@@ -140,4 +142,73 @@ export function addMarker() {
 
 export function removeMarker(id) {
   edit((doc) => { doc.markers = (doc.markers || []).filter((m) => m.id !== id); }, "marker");
+}
+
+/* ------------------------------------------------------------ arrêt sur image */
+
+/** Fige l'image sous la tête de lecture : le clip vidéo est coupé et une image
+ *  fixe de 2 s (extraite de l'original, pleine définition) s'intercale. */
+export async function freezeFrame(dur = 2) {
+  const sel = selected().filter((c) => c.kind === "video");
+  const c = sel.find((x) => x.start < S.t && M.clipEnd(x) > S.t) ||
+            S.doc.clips.find((x) => x.kind === "video" && M.isMain(S.doc, x.track) && x.start <= S.t && M.clipEnd(x) > S.t);
+  if (!c) { toast("Place la tête de lecture sur un clip vidéo."); return; }
+  const at = c.in + (S.t - c.start) * (c.speed || 1);
+  let view;
+  try { view = await post(`/api/timeline/${S.pid}/freeze`, { media: c.media, at }); }
+  catch (e) { toast("Arrêt sur image impossible : " + e.message); return; }
+  setMedia([...S.media.values(), view]);
+  emit("media");
+  startPolling();
+  toast("Arrêt sur image…");
+  const t = S.t;
+  const ready = await new Promise((resolve) => {
+    const tick = (n = 0) => {
+      const m = S.media.get(view.id);
+      if (m && m.status === "ready") return resolve(m);
+      if (!m || m.status === "error" || n > 100) return resolve(null);
+      setTimeout(() => tick(n + 1), 300);
+    };
+    tick();
+  });
+  if (!ready) { toast("Arrêt sur image impossible."); return; }
+  const img = edit((doc) => {
+    const clip = doc.clips.find((x) => x.id === c.id);
+    if (!clip) return null;
+    const cut = t > clip.start + M.MIN_DUR && t < M.clipEnd(clip) - M.MIN_DUR;
+    const piece = M.newMediaClip(ready, { dur });
+    Object.assign(piece, { x: clip.x, y: clip.y, scale: clip.scale, rotation: clip.rotation, fit: clip.fit,
+                           flip_h: clip.flip_h, flip_v: clip.flip_v, opacity: clip.opacity });
+    if (M.isMain(doc, clip.track)) {
+      if (cut) M.splitAt(doc, t, new Set([clip.id]));
+      M.insertMain(doc, [piece], t);
+    } else {
+      piece.start = M.r4(t);
+      piece.track = M.freeTrack(doc, "video", t, dur, { skipMain: true }).id;
+      doc.clips.push(piece);
+    }
+    M.reflowCaptions(doc);
+    return piece;
+  }, "freeze");
+  if (img) { select([img.id]); toast("Arrêt sur image ajouté (2 s)."); }
+}
+
+/* -------------------------------------------------------------- transitions */
+
+/** Pose (ou retire, type vide) la transition d'entrée des clips donnés. */
+export function setTransition(ids, type, dur) {
+  edit((doc) => doc.clips.forEach((c) => {
+    if (!ids.includes(c.id) || (c.kind !== "video" && c.kind !== "image")) return;
+    if (!type) delete c.trans;
+    else c.trans = { type, dur: M.r4(dur ?? (c.trans && c.trans.dur) ?? 0.5) };
+  }), "transition");
+}
+
+/** Même transition sur toutes les coupes (clips qui se touchent) d'une piste. */
+export function transitionEverywhere(trackId, type, dur) {
+  const ids = S.doc.clips.filter((c) => c.track === trackId && S.doc.clips.some((o) =>
+    o !== c && o.track === trackId && Math.abs(M.clipEnd(o) - c.start) < 1e-3)).map((c) => c.id);
+  if (!ids.length) { toast("Aucune coupe sur cette piste."); return; }
+  setTransition(ids, type, dur);
+  toast(type ? `Transition posée sur ${ids.length} coupe${ids.length > 1 ? "s" : ""}.` : "Transitions retirées.");
 }
