@@ -37,11 +37,16 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 90
     env:
-      MONTAGE_IA_VERSION: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '0.1.0' }}
+      MONTAGE_IA_VERSION: ${{ inputs.version || '0.1.0' }}
       # les secrets ne se lisent pas dans un « if » : on en garde la présence ici
       HAS_CERT: ${{ secrets.MAC_CERT_P12 != '' }}
     steps:
       - uses: actions/checkout@v4
+
+      # tag v1.2.3 -> version 1.2.3 (même nom de .dmg que les builds locaux)
+      - name: Version du tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "MONTAGE_IA_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - uses: actions/setup-python@v5
         with:

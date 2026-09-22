@@ -3,9 +3,9 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.0] - 2026-09-22
 
-First public release.
+First public release: Windows installer and macOS app (Apple Silicon).
 
 ### Added
 - Local transcription with faster-whisper (large-v3-turbo), word timestamps.
