@@ -695,3 +695,30 @@ export function applyCuts(doc, clip, cuts) {
   else fixOverlaps(doc);
   return { removed: r4(removed), pieces };
 }
+
+/* ------------------------------------------------------------------ vitesse */
+
+/** Change la vitesse d'un clip (et de ses partenaires) en gardant la même
+ *  plage de source : la durée sur la timeline s'allonge ou raccourcit. Sur la
+ *  principale, la suite se recolle ; ailleurs, un clip qui déborderait sur son
+ *  voisin est rogné à la place disponible. */
+export function setSpeed(doc, clip, speed) {
+  speed = Math.min(16, Math.max(0.1, speed));
+  const group = [clip, ...partners(doc, clip)].filter(hasSource);
+  for (const g of group) {
+    const src = g.dur * (g.speed || 1);
+    g.speed = r4(speed);
+    let dur = src / speed;
+    if (!isMain(doc, g.track)) {
+      const next = Math.min(Infinity, ...trackClips(doc, g.track)
+        .filter((c) => c !== g && !group.includes(c) && c.start >= clipEnd(g) - EPS).map((c) => c.start));
+      dur = Math.min(dur, next - g.start);
+    }
+    g.dur = r4(Math.max(MIN_DUR, dur));
+    if ("fade_in" in g) {
+      g.fade_in = Math.min(g.fade_in || 0, g.dur);
+      g.fade_out = Math.min(g.fade_out || 0, g.dur);
+    }
+  }
+  if (group.some((g) => isMain(doc, g.track))) packMain(doc);
+}

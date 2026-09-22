@@ -151,3 +151,14 @@ def test_supprimer_une_piste_emporte_ses_clips():
 def test_duree():
     assert model.duration([]) == 0
     assert model.duration([{"start": 1, "dur": 2}, {"start": 0.5, "dur": 4}]) == 4.5
+
+
+def test_reglages_image_et_mots_coupes_conserves():
+    [c] = norm(clip(filters={"brightness": 0.3, "contrast": 0, "saturation": 5, "bidon": 1}))
+    assert c["filters"] == {"brightness": 0.3, "saturation": 1.0}
+    [n] = norm(clip(filters={"brightness": 0}))
+    assert "filters" not in n
+    t = {"id": "t", "track": "tt1", "kind": "text", "start": 0, "dur": 2, "gone": True,
+         "words": [{"text": "a", "start": 0, "end": 1, "cut": True}, {"text": "b", "start": 1, "end": 2}]}
+    [c] = norm(t)
+    assert c["gone"] and c["words"][0]["cut"] and "cut" not in c["words"][1]

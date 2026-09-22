@@ -265,7 +265,7 @@ input[type=checkbox]:checked::after {
 .stage > .vlayer, .stage > .caplayer, .stage > .ghosts, .stage > .handles {
   position: absolute; inset: 0;
 }
-.stage .caplayer, .stage .ghosts { pointer-events: none; }
+.stage .caplayer, .stage .ghosts, .stage .handles { pointer-events: none; }
 .stage .vitem { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; pointer-events: none; }
 .stage .vitem video, .stage .vitem img { display: block; width: 100%; height: 100%; }
 .stage .empty {

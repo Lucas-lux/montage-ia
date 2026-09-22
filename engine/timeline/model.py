@@ -64,7 +64,9 @@ SETTINGS_DEFAULTS: dict = {
 _TEXT_LOOK = dict(CAPTION_BASE)
 _TEXT_EXTRA = {"emoji": "", "emoji_size": 0.0, "emoji_dx": 0.0, "emoji_dy": 0.0,
                "emoji_moved": False, "moved": False, "hidden": False, "auto": False,
-               "lang": "", "tr_hidden": False}
+               "gone": False, "lang": "", "tr_hidden": False}
+# Réglages d'image d'un clip vidéo ou image.
+FILTERS = ("brightness", "contrast", "saturation", "temperature")
 
 
 def new_id(prefix: str) -> str:
@@ -273,7 +275,7 @@ def normalize_clip(c: dict, track: dict, media: dict | None) -> dict | None:
 
 
 def _transform(c: dict) -> dict:
-    return {
+    out = {
         "x": round(_num(c.get("x"), 0.5, -2.0, 3.0), 4),
         "y": round(_num(c.get("y"), 0.5, -2.0, 3.0), 4),
         "scale": round(_num(c.get("scale"), 1.0, 0.05, 20.0), 4),
@@ -283,6 +285,14 @@ def _transform(c: dict) -> dict:
         "flip_h": _bool(c.get("flip_h")),
         "flip_v": _bool(c.get("flip_v")),
     }
+    # Réglages d'image (-1..1, 0 = neutre) : seuls les réglages actifs sont gardés.
+    f = c.get("filters")
+    if isinstance(f, dict):
+        flt = {k: round(_num(f.get(k), 0.0, -1.0, 1.0), 3) for k in FILTERS}
+        flt = {k: v for k, v in flt.items() if v}
+        if flt:
+            out["filters"] = flt
+    return out
 
 
 def _text_fields(c: dict) -> dict:
@@ -325,6 +335,8 @@ def _words(words) -> list[dict]:
         start = _num(w.get("start"), 0.0, 0.0)
         end = max(start, _num(w.get("end"), start, 0.0))
         word = {"text": text, "start": _t(start), "end": _t(end)}
+        if _bool(w.get("cut")):
+            word["cut"] = True       # passage coupé : ni affiché ni exporté
         # Mot lié à la voix : sa place dans le média source.
         if w.get("m"):
             word["m"] = _str(w.get("m"), "", 40)

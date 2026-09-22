@@ -99,10 +99,10 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [x] Format du projet (9:16, 16:9, 1:1, 4:5…), couleur de fond.
 
 ### 5. Son et clips
-- [ ] Séparer le son d'une vidéo en un clic (clip audio lié).
-- [ ] Plusieurs pistes audio : musique, voix off, bruitages.
-- [ ] Volume (jusqu'à 200 %), fondus d'entrée et de sortie, muet, vitesse.
-- [ ] Transformations à la souris sur l'aperçu : position, échelle,
+- [x] Séparer le son d'une vidéo en un clic (clip audio lié).
+- [x] Plusieurs pistes audio : musique, voix off, bruitages.
+- [x] Volume (jusqu'à 200 %), fondus d'entrée et de sortie, muet, vitesse.
+- [x] Transformations à la souris sur l'aperçu : position, échelle,
       rotation, opacité, remplir ou adapter, miroir.
 
 ### 6. Outils automatiques dans la timeline

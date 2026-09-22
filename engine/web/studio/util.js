@@ -142,11 +142,17 @@ export function toast(msg, ms = 2600) {
   toastTimer = setTimeout(() => el.classList.remove("on"), ms);
 }
 
-/** Vrai si la frappe clavier vise un champ de saisie (raccourcis à ignorer). */
+/** Vrai si la frappe clavier vise un champ de saisie (raccourcis à ignorer).
+ *  Un curseur, une case ou un sélecteur de couleur ne gardent que leurs
+ *  propres touches : Ctrl+Z ou Espace restent des raccourcis du studio. */
 export function typing(e) {
   const t = e.target;
+  if (t.isContentEditable) return true;
   const tag = (t.tagName || "").toLowerCase();
-  return t.isContentEditable || tag === "input" || tag === "textarea" || tag === "select";
+  if (tag === "textarea" || tag === "select") return true;
+  if (tag !== "input") return false;
+  if (t.type === "range") return /^(Arrow|Home$|End$|Page)/.test(e.key);
+  return !["checkbox", "radio", "color", "button"].includes(t.type);
 }
 
 /** Débit limité à une exécution par image (rAF). */

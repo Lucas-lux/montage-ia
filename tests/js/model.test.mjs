@@ -311,3 +311,27 @@ test("sous-titres : suivent un déplacement et la suppression des blancs", () =>
   M.reflowCaptions(d);
   assert.ok(cap.gone);
 });
+
+test("vitesse : même plage de source, la durée suit, la suite se recolle", () => {
+  const d = doc();
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  const [next] = M.appendMedia(d, VIDEO2, 10);
+  const a = M.detachAudio(d, v);
+  M.setSpeed(d, v, 2);
+  assert.deepEqual([v.dur, v.speed, a.dur, a.speed], [5, 2, 5, 2]);
+  assert.equal(next.start, 5);
+  assert.equal(M.srcEnd(v), 10);
+  M.setSpeed(d, v, 0.5);
+  assert.deepEqual([v.dur, next.start], [20, 20]);
+});
+
+test("vitesse hors principale : rognée si elle déborde sur le voisin", () => {
+  const d = doc();
+  const [s] = M.appendMedia(d, SONG, 0);
+  s.dur = 4;
+  const b = M.newMediaClip(SONG, { track: "ta1", start: 6 });
+  b.dur = 2;
+  d.clips.push(b);
+  M.setSpeed(d, s, 0.5);                 // voudrait 8 s, n'en a que 6
+  assert.equal(s.dur, 6);
+});
