@@ -34,7 +34,7 @@ import tempfile
 import threading
 
 from engine.pipeline.ass_edit import build_ass_edited
-from engine.pipeline.render import _encoder_works, hw_encoder
+from engine.pipeline.render import NO_LIBASS, _encoder_works, has_filter, hw_encoder
 
 EPS = 1e-3
 SR = 48000
@@ -560,6 +560,8 @@ def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int,
             parts.append(f"[{prev}][{lab}]overlay=0:0:eof_action=pass:format=auto[o{n}]")
             prev = f"o{n}"
         caps = captions_of(state, total)
+        if caps and not has_filter("subtitles"):
+            raise RuntimeError(NO_LIBASS)
         if caps:
             ass = os.path.join(workdir, "captions.ass")
             emojis = build_ass_edited(caps, ass, int(canvas["w"]), int(canvas["h"]))

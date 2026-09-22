@@ -151,6 +151,23 @@ def _encoder_works(encoder: str, size: str = "320x240") -> bool:
         return False
 
 
+@functools.lru_cache(maxsize=None)
+def has_filter(name: str) -> bool:
+    """Vrai si ce ffmpeg connaît le filtre `name` (le ffmpeg de Homebrew, par
+    exemple, n'a pas `subtitles` : il est compilé sans libass)."""
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True,
+                             timeout=30).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return True                    # on laissera ffmpeg dire ce qui ne va pas
+    return f" {name} " in out
+
+
+NO_LIBASS = ("Ce ffmpeg ne sait pas incruster de sous-titres (compilé sans libass). "
+             "Sur Mac, installe un ffmpeg complet : brew install homebrew-ffmpeg/ffmpeg/ffmpeg, "
+             "ou utilise l'application (son ffmpeg est complet).")
+
+
 def _bitrate(width: int, height: int) -> str:
     """8 Mb/s pour du 1080x1920, proportionnel au nombre de pixels au-delà."""
     mbps = 8 * max(1.0, (width * height) / (1080 * 1920))

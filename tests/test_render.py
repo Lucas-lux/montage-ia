@@ -1,6 +1,8 @@
 """Construction des commandes ffmpeg (sans lancer ffmpeg)."""
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from engine.edl import KeepSegment
@@ -42,10 +44,18 @@ def test_hevc_marque_pour_apple(encoder_works):
     assert _video_codec_args("hevc_nvenc", 1080, 1920)[-2:] == ["-tag:v", "hvc1"]
 
 
-def test_auto_prend_nvenc(encoder_works):
+def test_auto_prend_nvenc(encoder_works, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
     probed = encoder_works(True)
     assert _video_codec_args("auto", 1080, 1920)[1] == "h264_nvenc"
     assert probed == [("h264_nvenc", "320x240")]
+
+
+def test_auto_prend_videotoolbox_sur_mac(encoder_works, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    encoder_works(True)
+    assert _video_codec_args("auto", 1080, 1920)[1] == "h264_videotoolbox"
+    assert _video_codec_args("auto", 7680, 4320)[1] == "hevc_videotoolbox"
 
 
 def test_encodeur_materiel_indisponible_repli_x264(encoder_works, capsys):
@@ -60,7 +70,8 @@ def test_auto_sans_gpu_repli_silencieux(encoder_works, capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_8k_passe_en_hevc_teste_a_la_vraie_taille(encoder_works):
+def test_8k_passe_en_hevc_teste_a_la_vraie_taille(encoder_works, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
     probed = encoder_works(True)
     args = _video_codec_args("auto", 7680, 4320)
     assert args[:2] == ["-c:v", "hevc_nvenc"]

@@ -50,7 +50,7 @@ function remember() {
 export async function open() {
   if (V.open) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    toast("Ce navigateur ne donne pas accès au micro.");
+    toast("Ce navigateur ne donne pas accès au micro : ouvre Montage IA dans Chrome, Edge, Firefox ou Safari à jour.", 6000);
     return;
   }
   V.open = true;
@@ -211,7 +211,8 @@ async function start() {
 }
 
 function mimeType() {
-  const list = ["audio/webm;codecs=pcm", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+  // Chrome/Edge : PCM ou Opus en webm ; Firefox : Opus en ogg ; Safari : AAC en mp4
+  const list = ["audio/webm;codecs=pcm", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4"];
   return list.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
 }
 

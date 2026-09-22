@@ -39,6 +39,7 @@ APP = os.path.join(ROOT, "dist", "Montage IA.app")
 CACHE = os.path.join(HERE, "_mac")
 FFMPEG_URL = "https://ffmpeg.martin-riedl.de/redirect/latest/macos/{arch}/release/{tool}.zip"
 VERSION = os.environ.get("MONTAGE_IA_VERSION", "0.1.0")
+UA = "montage-ia-build/1.0 (+https://github.com/Lucas-lux/montage-ia)"
 # bibliothèques qu'un binaire embarqué ne doit pas réclamer (absentes chez l'utilisateur)
 FOREIGN = ("/opt/homebrew/", "/usr/local/opt/", "/usr/local/Cellar/", "/usr/local/lib/")
 
@@ -96,7 +97,9 @@ def fetch_ffmpeg() -> list[str]:
             url = FFMPEG_URL.format(arch=arch(), tool=tool)
             say(f"{tool} : téléchargement ({url})…")
             archive = path + ".zip"
-            urllib.request.urlretrieve(url, archive)
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=300) as r, open(archive, "wb") as f:
+                shutil.copyfileobj(r, f)
             with zipfile.ZipFile(archive) as z:
                 member = next(n for n in z.namelist() if os.path.basename(n) == tool)
                 with z.open(member) as src, open(path, "wb") as dst:
