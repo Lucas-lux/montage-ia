@@ -13,6 +13,29 @@ export const PRESETS = [];      // formats proposés (9:16, 16:9…), chargés a
 
 /* ------------------------------------------------------------------ barre */
 
+/* ------------------------------------------------------------------ thème */
+
+export function currentTheme() {
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+}
+
+export function setTheme(name) {
+  if (name === "light") document.documentElement.dataset.theme = "light";
+  else delete document.documentElement.dataset.theme;
+  try { localStorage.setItem("montage.theme", name); } catch (e) { /* stockage indisponible */ }
+  const btn = $("navTheme");
+  if (btn) {
+    btn.innerHTML = svg(name === "light" ? "moon" : "sun", 18);
+    btn.title = name === "light" ? "Passer en sombre" : "Passer en clair";
+  }
+  emit("theme", { name });
+}
+
+function initTheme() {
+  setTheme(currentTheme());
+  $("navTheme").onclick = () => setTheme(currentTheme() === "light" ? "dark" : "light");
+}
+
 function initTopbar() {
   $("navProjects").innerHTML = svg("grid", 18);
   $("navStudio").innerHTML = svg("film", 18);
@@ -65,9 +88,12 @@ export function docDuration() {
 /* ------------------------------------------------------------ mise en page */
 
 function initLayout() {
-  // Onglets du panneau de gauche.
+  // Onglets du panneau de gauche : icône + libellé.
   const tabs = [...$("leftTabs").children];
-  tabs.forEach((t) => t.onclick = () => showTab(t.dataset.tab));
+  tabs.forEach((t) => {
+    t.prepend(h("i", { html: svg(t.dataset.icon, 17) }));
+    t.onclick = () => showTab(t.dataset.tab);
+  });
 
   // Séparateur timeline / zone du haut.
   const split = $("splitter");
@@ -182,6 +208,7 @@ async function boot() {
 
   $("name").value = S.doc.name;
   document.title = S.doc.name + " · Montage IA";
+  initTheme();
   initTopbar();
   initLayout();
   initFormat();

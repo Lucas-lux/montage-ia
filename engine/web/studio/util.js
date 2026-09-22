@@ -87,6 +87,12 @@ export const P = {
   sliders: "M4 5.5h7M14 5.5h2M4 10h2M9 10h7M4 14.5h9M16 14.5h0M12.5 4v3M7.5 8.5v3M14.5 13v3",
   transition: "M3 5h6v10H3zM11 5h6v10h-6zM8 10h4",
   refresh: "M16 10a6 6 0 1 1-1.9-4.4M16 3v3.5h-3.5",
+  chev: "M6 8l4 4 4-4",
+  sun: "M10 13.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM10 2.5v1.8M10 15.7v1.8M2.5 10h1.8M15.7 10h1.8M4.7 4.7l1.3 1.3M14 14l1.3 1.3M4.7 15.3 6 14M14 6l1.3-1.3",
+  moon: "M16.5 12.2A6.5 6.5 0 0 1 7.8 3.5a6.5 6.5 0 1 0 8.7 8.7z",
+  search: "M8.5 14a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM12.5 12.5 17 17",
+  upload: "M10 13V4M6.5 7.5 10 4l3.5 3.5M4 16.5h12",
+  caret: "M6 8l4 4 4-4",
 };
 
 export function svg(name, size = 16, extra = "") {
@@ -237,5 +243,47 @@ export const naturalCompare = (a, b) =>
  *  écrirait en toutes lettres. */
 export function put(el, ...kids) {
   el.append(...kids.flat().filter((k) => k != null && k !== false));
+  return el;
+}
+
+/* ------------------------------------------------------ section repliable */
+
+let collapsedSet = null;
+function collapsed() {
+  if (!collapsedSet) {
+    try { collapsedSet = new Set(JSON.parse(localStorage.getItem("studio.collapsed") || "[]")); }
+    catch (e) { collapsedSet = new Set(); }
+  }
+  return collapsedSet;
+}
+function rememberCollapsed() {
+  try { localStorage.setItem("studio.collapsed", JSON.stringify([...collapsed()])); } catch (e) { /* rien */ }
+}
+
+/** Section à titre, repliable d'un clic, dont l'état est mémorisé par `key`.
+ *  `open: false` la replie la première fois. `count` s'affiche à côté du titre. */
+export function section({ title, icon, key, open = true, count, extra }, ...kids) {
+  // état mémorisé : « key » replié si présent ; pour une section repliée par
+  // défaut, « key:o » ouverte si présent
+  const set = collapsed();
+  const off = key ? (open ? set.has(key) : !set.has(key + ":o")) : !open;
+  const body = h("div.sbody", {}, ...kids.flat().filter((k) => k != null && k !== false));
+  const el = h("div.sect" + (off ? ".collapsed" : ""), {});
+  const head = h("button.stitle", {
+    type: "button", "aria-expanded": off ? "false" : "true",
+    onclick: () => {
+      const now = el.classList.toggle("collapsed");
+      head.setAttribute("aria-expanded", now ? "false" : "true");
+      if (!key) return;
+      if (open) { if (now) set.add(key); else set.delete(key); }
+      else if (now) set.delete(key + ":o"); else set.add(key + ":o");
+      rememberCollapsed();
+    },
+  }, icon ? h("i", { html: svg(icon, 14), style: { color: "var(--ink-2)" } }) : null,
+     h("span", {}, title),
+     count != null ? h("span.cnt", {}, String(count)) : null,
+     extra || null,
+     h("i.chev", { html: svg("chev", 14) }));
+  el.append(head, body);
   return el;
 }

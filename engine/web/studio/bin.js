@@ -155,7 +155,7 @@ function init() {
   fileIn.onchange = () => { importFiles(fileIn.files); fileIn.value = ""; };
   dirIn.onchange = () => { importFiles(dirIn.files); dirIn.value = ""; };
 
-  const search = h("input", { type: "text", placeholder: "Rechercher un média…",
+  const search = h("input", { type: "text", placeholder: "Rechercher…", "aria-label": "Rechercher un média",
                               oninput: (e) => { B.query = e.target.value.trim().toLowerCase(); renderGrid(); } });
   const chips = h("div.seg", { id: "binKinds" },
     [["all", "Tout"], ["video", "Vidéo"], ["audio", "Audio"], ["image", "Image"]].map(([k, label]) =>
@@ -164,19 +164,26 @@ function init() {
 
   root.append(
     h("div.importbar", {},
-      h("button.btn.primary", { onclick: () => fileIn.click(), title: "Vidéos, sons, images (copiés dans le projet)",
-                                html: svg("plus", 14) + "Importer" }),
-      h("button.btn", { onclick: () => dirIn.click(), title: "Tout un dossier (copié dans le projet)",
-                        html: svg("folder", 14) + "Dossier" }),
-      h("button.btn", { onclick: pathDialog, title: "Lire des fichiers ou dossiers sur place, sans copie",
-                        html: svg("pathin", 14) + "Par chemin" })),
+      h("div.split", {},
+        h("button.btn.primary", { onclick: () => fileIn.click(), title: "Vidéos, sons, images (copiés dans le projet)",
+                                  html: svg("plus", 14) + "Importer" }),
+        h("button.btn.primary", { title: "Autres façons d'importer", "aria-label": "Autres façons d'importer",
+          html: svg("caret", 14), onclick: (e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            menu(r.right - 220, r.bottom + 4, [
+              { label: "Fichiers…", icon: "file", onclick: () => fileIn.click() },
+              { label: "Un dossier entier…", icon: "folder", onclick: () => dirIn.click() },
+              { label: "Par chemin (sans copie)…", icon: "pathin", onclick: pathDialog },
+            ]);
+          } })),
+      h("button.btn.icon", { onclick: pathDialog, title: "Par chemin : lire des fichiers ou dossiers sur place, sans copie",
+                             html: svg("pathin", 15) })),
     h("div.binfilters", {}, search, chips),
     h("div.bin", { id: "bin" }),
     h("div.dropzone", { id: "binEmpty" },
       h("b", {}, "Dépose tes rushs ici"),
-      "fichiers ou dossier entier — vidéos, sons, images",
-      h("div.meta", { style: { marginTop: "8px" } },
-        "Gros fichiers : « Par chemin » les lit sur place, sans les copier.")),
+      "fichiers ou dossier entier",
+      h("div.hint", { style: { marginTop: "8px" } }, "Gros fichiers : « Par chemin » les lit sur place.")),
     fileIn, dirIn);
 
   initDrop();

@@ -6,6 +6,10 @@
 <title>Studio · Montage IA</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%23F23A52%22/%3E%3Cpath d=%22M11 9v14l11-7z%22 fill=%22%23fff%22/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="/web/studio/studio.css" />
+<script>
+  // Thème choisi (sombre par défaut), posé avant le premier rendu : pas de flash.
+  try { if (localStorage.getItem("montage.theme") === "light") document.documentElement.dataset.theme = "light"; } catch (e) {}
+</script>
 </head>
 <body>
 <div class="app">
@@ -16,6 +20,8 @@
     <a class="rbtn" id="navProjects" href="/" title="Projets"></a>
     <a class="rbtn on" id="navStudio" title="Montage"></a>
     <a class="rbtn" id="navTools" href="/#tools" title="Boîte à outils"></a>
+    <div class="spacer"></div>
+    <button class="rbtn" id="navTheme" title="Thème clair / sombre"></button>
   </nav>
 
   <div class="main">
@@ -26,8 +32,10 @@
       <div class="grow"></div>
       <span class="stat" id="stDur"></span>
       <span class="stat" id="stFormat"></span>
+      <span class="vsep"></span>
       <button class="btn icon quiet" id="undo" title="Annuler (Ctrl+Z)"></button>
       <button class="btn icon quiet" id="redo" title="Rétablir (Ctrl+Y)"></button>
+      <span class="vsep"></span>
       <button class="btn primary" id="exportBtn"></button>
     </header>
 
@@ -35,10 +43,10 @@
       <!-- gauche : médias, texte, sous-titres -->
       <section class="panel" id="left">
         <div class="tabs" id="leftTabs">
-          <button class="tab on" data-tab="media">Médias</button>
-          <button class="tab" data-tab="text">Texte</button>
-          <button class="tab" data-tab="captions">Sous-titres</button>
-          <button class="tab" data-tab="auto">Outils IA</button>
+          <button class="tab on" data-tab="media" data-icon="grid"><span>Médias</span></button>
+          <button class="tab" data-tab="text" data-icon="text"><span>Texte</span></button>
+          <button class="tab" data-tab="captions" data-icon="cc"><span>Sous-titres</span></button>
+          <button class="tab" data-tab="auto" data-icon="wand"><span>Outils IA</span></button>
         </div>
         <div class="pb" id="tab-media"></div>
         <div class="pb hidden" id="tab-text"></div>

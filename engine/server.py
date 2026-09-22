@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 
 from engine import store
 from engine.core import Options, default_output
-from engine.pipeline.style_presets import catalog
+from engine.pipeline.style_presets import catalog, groups
 from engine.pipeline.translate import available as translate_available
 from engine.pipeline.translate import translate_captions
 from engine.project import Project
@@ -146,7 +146,7 @@ def studio() -> HTMLResponse:
 
 @app.get("/api/styles")
 def styles() -> dict:
-    return {"styles": catalog()}
+    return {"styles": catalog(), "groups": groups()}
 
 
 # --------------------------------------------------------------------- projets

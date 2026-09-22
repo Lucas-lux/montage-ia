@@ -110,25 +110,22 @@ export function init() {
 function buildTools() {
   const bar = $("tltools");
   bar.innerHTML = "";
-  const zoom = h("input", { type: "range", min: 0, max: 1000, id: "tlZoom", title: "Zoom (Ctrl + molette)" });
+  const zoom = h("input", { type: "range", min: 0, max: 1000, id: "tlZoom", title: "Zoom (Ctrl + molette)",
+                            "aria-label": "Zoom" });
   zoom.oninput = () => setZoom(sliderToPps(+zoom.value));
   bar.append(
     iconBtn("split", "Diviser à la tête de lecture (Ctrl+B)", () => A.split()),
     iconBtn("trash", "Supprimer (Suppr)", () => A.remove()),
     iconBtn("copy", "Dupliquer (Ctrl+D)", () => A.duplicate()),
-    h("span.vsep"),
-    h("button.btn.sm.quiet", { title: "Séparer le son de la vidéo sélectionnée", html: svg("detach", 15) + "Séparer le son",
-                               onclick: () => A.toggleDetach() }),
-    iconBtn("unlink", "Dissocier les clips liés", () => A.unlinkSelection()),
-    iconBtn("flag", "Ajouter un marqueur (M)", () => A.addMarker()),
     iconBtn("freeze", "Arrêt sur image (F)", () => A.freezeFrame()),
     h("span.vsep"),
-    h("button.btn.sm.quiet", { title: "Supprimer les blancs (outils IA)", html: svg("silence", 15) + "Blancs",
-                               onclick: () => emit("tool", { name: "silence" }) }),
-    h("button.btn.sm.quiet", { title: "Sous-titres automatiques", html: svg("cc", 15) + "Sous-titres",
-                               onclick: () => emit("tool", { name: "captions" }) }),
-    h("button.btn.sm.quiet", { title: "Ajouter un texte", html: svg("text", 15) + "Texte",
-                               onclick: () => emit("tool", { name: "text" }) }),
+    iconBtn("detach", "Séparer le son de la vidéo sélectionnée", () => A.toggleDetach()),
+    iconBtn("unlink", "Dissocier les clips liés", () => A.unlinkSelection()),
+    iconBtn("flag", "Ajouter un marqueur (M)", () => A.addMarker()),
+    h("span.vsep"),
+    iconBtn("silence", "Supprimer les blancs", () => emit("tool", { name: "silence" })),
+    iconBtn("cc", "Sous-titres automatiques", () => emit("tool", { name: "captions" })),
+    iconBtn("text", "Ajouter un texte", () => emit("tool", { name: "text" })),
     h("div.grow"),
     h("span.meta.num", { id: "tlInfo", style: { marginRight: "8px" } }),
     h("button.btn.icon.quiet" + (T.snap ? ".on" : ""), { id: "tlSnap", title: "Aimantation (N)",
@@ -460,10 +457,10 @@ function drawNow() {
       if (g.tid !== row.tid) continue;
       const x = g.t * T.pps - sl, w = Math.max(4, g.dur * T.pps);
       if (x > vw || x + w < 0) continue;
-      ctx.fillStyle = "rgba(255, 255, 255, .07)";
+      ctx.fillStyle = "rgba(128, 128, 128, .12)";
       roundRect(ctx, x + 0.5, 3.5, w - 1, row.h - 7, 5);
       ctx.fill();
-      ctx.strokeStyle = "rgba(255, 255, 255, .85)";
+      ctx.strokeStyle = theme().ghost;
       ctx.setLineDash([5, 4]);
       ctx.lineWidth = 1.5;
       ctx.stroke();
@@ -482,7 +479,7 @@ function drawNow() {
     if (T.dropGhost && T.dropGhost.tid === row.tid) {
       const g = T.dropGhost;
       const x = g.t * T.pps - sl;
-      ctx.strokeStyle = "#fff";
+      ctx.strokeStyle = theme().ghost;
       ctx.setLineDash([4, 3]);
       ctx.strokeRect(x + 0.5, 3.5, Math.max(4, g.dur * T.pps) - 1, row.h - 7);
       ctx.setLineDash([]);
@@ -490,10 +487,21 @@ function drawNow() {
   }
 }
 
-const COLORS = {
-  video: ["#2E3B52", "#4A5E82"], image: ["#353F4B", "#56657A"],
-  audio: ["#173F31", "#2C6E55"], text: ["#3E2F61", "#6A52A3"],
-};
+/** Couleurs de dessin lues dans les jetons du thème (recalculées au changement). */
+let themeCache = null;
+function theme() {
+  if (themeCache) return themeCache;
+  const cs = getComputedStyle(document.documentElement);
+  const v = (name, fallback) => (cs.getPropertyValue(name) || "").trim() || fallback;
+  themeCache = {
+    video: v("--clip-video", "#2F3D57"), image: v("--clip-image", "#37424F"),
+    audio: v("--clip-audio", "#1C4636"), text: v("--clip-text", "#3E3161"),
+    wave: v("--wave", "#56D69A"), rulerLine: v("--ruler-line", "#363940"), rulerText: v("--ruler-text", "#8C9099"),
+    ghost: v("--ghost", "rgba(255,255,255,.85)"), accent: v("--accent", "#F23A52"), ink: v("--ink", "#ECEDEF"),
+  };
+  return themeCache;
+}
+on("theme", () => { themeCache = null; draw(); });
 
 function roundRect(ctx, x, y, w, hh, r) {
   ctx.beginPath();
@@ -502,7 +510,7 @@ function roundRect(ctx, x, y, w, hh, r) {
 }
 
 function drawClip(ctx, c, x, y, w, hh, vw, tr) {
-  const [bg] = COLORS[c.kind] || COLORS.video;
+  const bg = theme()[c.kind] || theme().video;
   ctx.save();
   roundRect(ctx, x, y, w, hh, 5);
   ctx.fillStyle = bg;
@@ -516,10 +524,10 @@ function drawClip(ctx, c, x, y, w, hh, vw, tr) {
     if (withWave) {
       ctx.fillStyle = "rgba(0, 0, 0, .55)";
       ctx.fillRect(Math.max(x, 0), y + stripH, Math.min(w, vw), 16);
-      drawWave(ctx, c, m, x, y + stripH + 1, w, 14, vw, "rgba(86, 214, 154, .85)");
+      drawWave(ctx, c, m, x, y + stripH + 1, w, 14, vw, theme().wave);
     }
   } else if (m && c.kind === "audio") {
-    drawWave(ctx, c, m, x, y + 14, w, hh - 16, vw, c.muted ? "rgba(160,160,160,.6)" : "#56D69A");
+    drawWave(ctx, c, m, x, y + 14, w, hh - 16, vw, c.muted ? "rgba(160,160,160,.6)" : theme().wave);
   }
   if (c.muted || (tr && (tr.muted && c.kind === "audio"))) {
     ctx.fillStyle = "rgba(0, 0, 0, .35)";
@@ -607,8 +615,8 @@ function drawRuler(dpr, vw, sl) {
   const major = steps.find((s) => s * T.pps >= 70) || 1200;
   const minor = major / (major >= 1 && major % 5 === 0 ? 5 : 2);
   const t0 = sl / T.pps, t1 = (sl + vw) / T.pps;
-  ctx.strokeStyle = "#3A3D45";
-  ctx.fillStyle = "#8C9099";
+  ctx.strokeStyle = theme().rulerLine;
+  ctx.fillStyle = theme().rulerText;
   ctx.font = "10.5px Segoe UI, system-ui, sans-serif";
   ctx.beginPath();
   for (let t = Math.floor(t0 / minor) * minor; t <= t1 + minor; t += minor) {

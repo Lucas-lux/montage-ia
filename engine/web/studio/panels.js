@@ -8,12 +8,12 @@
 
 import { api, post } from "./api.js";
 import { startPolling } from "./bin.js";
-import { emojiGeometry, stylePreview } from "./captions.js";
-import { I as Insp, applyLook } from "./inspector.js";
+import { emojiGeometry } from "./captions.js";
+import { I as Insp, applyLook, styleGrid } from "./inspector.js";
 import { showTab } from "./main.js";
 import * as M from "./model.js";
 import { S, changed, edit, emit, on, select, setMedia, setTime } from "./store.js";
-import { $, clamp, fmt, h, put, sec, svg, toast } from "./util.js";
+import { $, clamp, fmt, h, put, sec, section, svg, toast } from "./util.js";
 import { textBetween, wordsOf } from "./words.js";
 
 const X = {
@@ -177,19 +177,30 @@ async function ensureTranscripts(ids, status) {
 
 /* ==================================================================== texte */
 
+/* Styles de titre. Même vocabulaire que les sous-titres (police, contour,
+   fond…) mais sans surlignage : un titre est un texte libre. `y` place le
+   texte quand on le crée. */
+const T = (label, hint, look) => ({ label, hint, group: "", mode: "none", pop: false, bold: true, upper: false,
+                                    shadow: 0, box: false, box_alpha: 0.25, hl: look.color || "#FFFFFF", ...look });
 const TITLE_STYLES = [
-  { label: "Titre", hint: "blanc, gras, contour", font: "Arial Black", size: 110, color: "#FFFFFF", hl: "#FFFFFF",
-    outline_col: "#000000", outline: 6, shadow: 2, box: false, upper: false, y: 0.3 },
-  { label: "Bandeau", hint: "texte sur fond", font: "Arial", size: 72, color: "#FFFFFF", hl: "#FFFFFF",
-    outline_col: "#F23A52", outline: 14, shadow: 0, box: true, box_alpha: 0, upper: true, y: 0.72 },
-  { label: "Impact", hint: "énorme, majuscules", font: "Impact", size: 150, color: "#FFE500", hl: "#FFE500",
-    outline_col: "#000000", outline: 9, shadow: 0, box: false, upper: true, y: 0.5 },
-  { label: "Néon", hint: "cyan lumineux", font: "Arial", size: 96, color: "#00FFFF", hl: "#00FFFF",
-    outline_col: "#FF00AA", outline: 4, shadow: 6, box: false, upper: false, y: 0.4 },
-  { label: "Légende", hint: "sobre, petit", font: "Segoe UI", size: 54, color: "#FFFFFF", hl: "#FFFFFF",
-    outline_col: "#000000", outline: 10, shadow: 0, box: true, box_alpha: 0.35, upper: false, y: 0.88 },
-  { label: "Machine à écrire", hint: "Georgia, fond clair", font: "Georgia", size: 70, color: "#17181C", hl: "#17181C",
-    outline_col: "#FFFFFF", outline: 12, shadow: 0, box: true, box_alpha: 0.05, upper: false, y: 0.2 },
+  T("Titre", "blanc, gras, contour", { font: "Arial Black", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 6, shadow: 2, y: 0.3 }),
+  T("Bandeau", "texte sur fond rouge", { font: "Arial", size: 72, color: "#FFFFFF", outline_col: "#F23A52", outline: 14, box: true, box_alpha: 0, upper: true, y: 0.72 }),
+  T("Impact", "énorme, majuscules", { font: "Impact", size: 150, color: "#FFE500", outline_col: "#000000", outline: 9, upper: true, y: 0.5 }),
+  T("Condensé", "haut et serré", { font: "Bahnschrift", size: 130, color: "#FFFFFF", outline_col: "#000000", outline: 5, upper: true, y: 0.35 }),
+  T("Néon", "cyan lumineux", { font: "Arial", size: 96, color: "#00FFFF", outline_col: "#FF00AA", outline: 4, shadow: 6, y: 0.4 }),
+  T("Or", "doré", { font: "Cambria", size: 100, color: "#FFD84D", outline_col: "#3A2800", outline: 5, shadow: 3, y: 0.4 }),
+  T("Rose", "pop", { font: "Arial Black", size: 100, color: "#FFFFFF", outline_col: "#FF3B81", outline: 8, upper: true, y: 0.45 }),
+  T("Glace", "bleu froid", { font: "Bahnschrift", size: 104, color: "#E8F7FF", outline_col: "#0B3D91", outline: 6, shadow: 2, y: 0.4 }),
+  T("Feu", "orange et rouge", { font: "Impact", size: 120, color: "#FFE08A", outline_col: "#B3200A", outline: 7, shadow: 3, upper: true, y: 0.5 }),
+  T("Légende", "sobre, petit", { font: "Segoe UI", size: 54, color: "#FFFFFF", outline_col: "#000000", outline: 10, box: true, box_alpha: 0.35, y: 0.88 }),
+  T("Journal", "fond blanc, texte sombre", { font: "Georgia", size: 70, color: "#17181C", outline_col: "#FFFFFF", outline: 12, box: true, box_alpha: 0.05, y: 0.2 }),
+  T("Alerte", "fond jaune", { font: "Arial Black", size: 76, color: "#17181C", outline_col: "#FFE500", outline: 12, box: true, box_alpha: 0, upper: true, y: 0.2 }),
+  T("Étiquette", "petit, en haut à gauche", { font: "Segoe UI Black", size: 50, color: "#FFFFFF", outline_col: "#17181C", outline: 10, box: true, box_alpha: 0.1, upper: true, x: 0.24, y: 0.1 }),
+  T("Élégant", "serif, léger", { font: "Georgia", size: 84, color: "#FFFFFF", outline_col: "#1A1410", outline: 2, shadow: 3, bold: false, y: 0.4 }),
+  T("Manuscrit", "écrit à la main", { font: "Ink Free", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, shadow: 2, y: 0.35 }),
+  T("Cursive", "calligraphie", { font: "Segoe Script", size: 96, color: "#FFF3D6", outline_col: "#4A1F00", outline: 4, shadow: 3, y: 0.4 }),
+  T("Terminal", "monospace vert", { font: "Consolas", size: 70, color: "#00FF66", outline_col: "#0B0F0B", outline: 10, box: true, box_alpha: 0.1, y: 0.5 }),
+  T("Ombre", "sans contour", { font: "Trebuchet MS", size: 100, color: "#FFFFFF", outline_col: "#000000", outline: 0, shadow: 8, y: 0.4 }),
 ];
 
 export function addText(style, text = "Ton texte") {
@@ -208,6 +219,7 @@ export function addText(style, text = "Ton texte") {
     applyLook(clip, style);
     clip.mode = "none";
     clip.pop = false;
+    clip.x = style.x ?? 0.5;
     clip.y = style.y ?? 0.5;
     doc.clips.push(clip);
     return clip;
@@ -217,41 +229,18 @@ export function addText(style, text = "Ton texte") {
 }
 
 function buildText() {
-  const box = $("tab-text");
-  put(box, 
+  put($("tab-text"),
     h("button.btn.primary.wide", { html: svg("plus", 14) + "Ajouter un texte", onclick: () => addText(TITLE_STYLES[0]) }),
-    h("div.meta", { style: { margin: "8px 0 12px" } },
-      "Posé à la tête de lecture pour 3 s, sur une piste texte. Double-clic sur l'aperçu pour l'écrire, coin pour l'agrandir."),
-    h("div.label", { style: { marginBottom: "8px" } }, "Styles"),
-    h("div", { style: { display: "grid", gap: "6px" } }, TITLE_STYLES.map((st) => h("button.tcstyle", {
-      onclick: () => addText(st),
-      style: { display: "flex", alignItems: "center", gap: "10px", padding: "9px 10px", borderRadius: "8px",
-               background: "var(--panel-3)", textAlign: "left" },
-    },
-      h("span", { style: {
-        width: "64px", height: "40px", borderRadius: "6px", display: "grid", placeItems: "center", flex: "0 0 auto",
-        background: st.box ? st.outline_col : "#0B0C0E", color: st.color, fontFamily: `"${st.font}", Arial`,
-        fontWeight: 800, fontSize: "15px", textTransform: st.upper ? "uppercase" : "none",
-        WebkitTextStroke: st.box ? "" : `1px ${st.outline_col}`, textShadow: st.shadow ? `0 0 6px ${st.outline_col}` : "",
-      } }, "Aa"),
-      h("span.grow", {}, h("b", { style: { display: "block", fontWeight: 600 } }, st.label), h("span.meta", {}, st.hint))))));
+    h("div.hint", { style: { margin: "6px 0 12px" } }, "Posé à la tête de lecture. Double-clic sur l'aperçu pour l'écrire."),
+    styleGrid(TITLE_STYLES, [], { words: ["Ton", "texte"], pick: (st) => addText(st) }));
 }
 
 /* ============================================================== sous-titres */
 
 function buildCaptions() {
-  const box = $("tab-captions");
-  put(box, 
+  put($("tab-captions"),
     h("div", { id: "capGen" }),
-    h("div.sep"),
-    h("div.row", { style: { marginBottom: "8px" } },
-      h("span.label.grow", { id: "capCount" }, "Lignes"),
-      h("button.btn.sm.quiet", { id: "capMerge", title: "Fusionner les lignes sélectionnées (qui se suivent)",
-                                 html: svg("link", 13) + "Fusionner", onclick: mergeSelected }),
-      h("button.btn.sm.quiet", { id: "capHide", title: "Masquer / réafficher la sélection", html: svg("eye", 13),
-                                 onclick: toggleHideSelected })),
-    h("div", { id: "capList" }),
-    h("div.sep"),
+    h("div", { id: "capLines" }),
     h("div", { id: "capTr" }));
   renderCapGen();
 }
@@ -262,53 +251,57 @@ function renderCapGen() {
   const st = S.doc.settings || {};
   X.capStyle = X.capStyle || st.style || "hype";
   const setS = (k, v) => { S.doc.settings = { ...(S.doc.settings || {}), [k]: v }; changed({ reason: "settings" }); };
-  const wpl = h("input", { type: "range", min: 1, max: 8, step: 1, value: st.words_per_line || 4 });
-  const wplV = h("b", {}, String(st.words_per_line || 4));
-  wpl.oninput = () => { wplV.textContent = wpl.value; };
-  wpl.onchange = () => setS("words_per_line", +wpl.value);
-  const mc = h("input", { type: "range", min: 8, max: 40, step: 1, value: st.max_chars || 18 });
-  const mcV = h("b", {}, String(st.max_chars || 18));
-  mc.oninput = () => { mcV.textContent = mc.value; };
-  mc.onchange = () => setS("max_chars", +mc.value);
+  const slider = (label, value, min, max, set) => {
+    const input = h("input", { type: "range", min, max, step: 1, value });
+    const out = h("b", {}, String(value));
+    input.oninput = () => { out.textContent = input.value; };
+    input.onchange = () => set(+input.value);
+    return h("div.field", {}, h("div.head", {}, h("span.label", {}, label), out), input);
+  };
   const emo = h("input", { type: "checkbox", checked: st.emojis !== false });
   emo.onchange = () => setS("emojis", emo.checked);
   const rep = h("input", { type: "checkbox", checked: X.replace });
   rep.onchange = () => { X.replace = rep.checked; };
+  const hasAuto = S.doc.clips.some((c) => c.kind === "text" && c.auto);
+  const current = Insp.presets.find((p) => p.name === X.capStyle);
   box.innerHTML = "";
-  put(box, 
-    h("div.label", { style: { marginBottom: "8px" } }, "Style"),
-    h("div.stylegrid", { id: "capStyles", style: { marginBottom: "12px" } },
-      Insp.presets.map((p) => h("button.stylecard" + (p.name === X.capStyle ? ".on" : ""), {
-        title: p.hint || "", onclick: () => { X.capStyle = p.name; setS("style", p.name); renderCapGen(); },
-      }, stylePreview(p), h("span.sn", {}, h("b", {}, p.label), h("span.meta", {}, p.hint || ""))))),
-    X.capStyle && S.doc.clips.some((c) => c.kind === "text" && c.auto) ? h("button.btn.sm.wide", {
-      style: { marginBottom: "12px" }, html: svg("refresh", 12) + "Appliquer ce style aux sous-titres existants",
-      onclick: () => {
-        const look = Insp.presets.find((p) => p.name === X.capStyle);
-        if (!look) return;
-        edit((doc) => doc.clips.forEach((c) => {
-          if (c.kind !== "text" || !c.auto) return;
-          applyLook(c, look);
-          if (!c.moved) { c.x = look.x; c.y = look.y; }
-        }), "style");
-        toast(`Style « ${look.label} » appliqué aux sous-titres.`);
-      },
-    }) : null,
-    h("div.field", {}, h("div.head", {}, h("span.label", {}, "Mots par ligne"), wplV), wpl),
-    h("div.field", {}, h("div.head", {}, h("span.label", {}, "Caractères max par ligne"), mcV), mc),
-    h("label.check", { style: { marginBottom: "8px" } }, emo, "Émojis sur les mots importants"),
-    h("label.check", { id: "capReplaceRow", style: { marginBottom: "10px" } }, rep, "Remplacer les sous-titres automatiques existants"),
-    h("button.btn.primary.wide", { id: "capGo", html: svg("cc", 14) + "Générer les sous-titres", onclick: generateCaptions }),
-    h("div.meta", { id: "capMsg", style: { marginTop: "8px" } },
-      "D'après la voix des clips de la timeline. Les sous-titres suivent ensuite les coupes et déplacements."));
+  put(box,
+    h("button.btn.primary.wide", { id: "capGo", html: svg("cc", 14) + (hasAuto ? "Régénérer les sous-titres" : "Générer les sous-titres"),
+                                   onclick: generateCaptions }),
+    h("div.hint", { id: "capMsg", style: { margin: "6px 0 10px" } }, "D'après la voix des clips. Ils suivent ensuite les coupes."),
+    section({ title: "Style", key: "cap.style", count: current ? current.label : undefined },
+      styleGrid(Insp.presets, Insp.groups, {
+        same: (p) => p.name === X.capStyle,
+        pick: (p) => { X.capStyle = p.name; setS("style", p.name); renderCapGen(); },
+      }),
+      hasAuto ? h("button.btn.sm.wide", {
+        style: { marginTop: "8px" }, html: svg("refresh", 12) + "Appliquer aux sous-titres existants",
+        onclick: () => {
+          const look = Insp.presets.find((p) => p.name === X.capStyle);
+          if (!look) return;
+          edit((doc) => doc.clips.forEach((c) => {
+            if (c.kind !== "text" || !c.auto) return;
+            applyLook(c, look);
+            if (!c.moved) { c.x = look.x; c.y = look.y; }
+          }), "style");
+          toast(`Style « ${look.label} » appliqué.`);
+        },
+      }) : null),
+    section({ title: "Réglages", key: "cap.settings", open: false },
+      slider("Mots par ligne", st.words_per_line || 4, 1, 8, (v) => setS("words_per_line", v)),
+      slider("Caractères max par ligne", st.max_chars || 18, 8, 40, (v) => setS("max_chars", v)),
+      h("label.check", { style: { marginBottom: "8px" } }, emo, "Émojis sur les mots importants"),
+      hasAuto ? h("label.check", {}, rep, "Remplacer les sous-titres existants") : null));
   renderCapState();
 }
 on("doc", ({ reason }) => { if (reason === "load" || reason === "undo" || reason === "redo") renderCapGen(); });
 
 function renderCapState() {
-  const row = $("capReplaceRow");
-  if (!row) return;
-  row.classList.toggle("hidden", !S.doc.clips.some((c) => c.kind === "text" && c.auto));
+  // le bouton change de libellé quand des sous-titres existent déjà
+  const go = $("capGo");
+  if (!go) return;
+  const hasAuto = S.doc.clips.some((c) => c.kind === "text" && c.auto);
+  go.innerHTML = svg("cc", 14) + (hasAuto ? "Régénérer les sous-titres" : "Générer les sous-titres");
 }
 
 async function generateCaptions() {
@@ -354,20 +347,14 @@ async function generateCaptions() {
 const textClips = () => S.doc.clips.filter((c) => c.kind === "text" && !c.gone).sort((a, b) => a.start - b.start);
 
 function renderCapList() {
-  const list = $("capList");
-  if (!list) return;
+  const box = $("capLines");
+  if (!box) return;
   const caps = textClips();
-  $("capCount").textContent = caps.length ? `${caps.length} ligne${caps.length > 1 ? "s" : ""}` : "Aucune ligne";
-  list.innerHTML = "";
-  if (!caps.length) {
-    list.appendChild(h("div.meta", {}, "Les sous-titres générés et les textes apparaîtront ici."));
-  }
-  const frag = document.createDocumentFragment();
+  box.innerHTML = "";
+  if (!caps.length) return;
+  const rows = h("div", {});
   caps.forEach((c) => {
     const row = h("div.crow" + (S.sel.has(c.id) ? ".sel" : "") + (c.hidden ? ".off" : ""), {
-      style: { display: "flex", gap: "8px", padding: "6px 7px", borderRadius: "6px", cursor: "pointer",
-               border: S.sel.has(c.id) ? "1px solid var(--ink-3)" : "1px solid transparent",
-               opacity: c.hidden ? 0.5 : 1, background: S.sel.has(c.id) ? "var(--panel-3)" : "" },
       onclick: (e) => {
         if (e.ctrlKey || e.metaKey) { S.sel.has(c.id) ? S.sel.delete(c.id) : S.sel.add(c.id); emit("select"); return; }
         select([c.id]);
@@ -375,15 +362,16 @@ function renderCapList() {
       },
       ondblclick: () => emit("editclip", { id: c.id, kind: "text" }),
     },
-      h("span.meta.num", { style: { minWidth: "38px" } }, fmt(c.start)),
-      h("span.grow", { style: { fontSize: "12.5px", wordBreak: "break-word",
-                                textDecoration: c.hidden ? "line-through" : "" } },
-        M.liveWords(c).map((w) => w.text).join(" ")),
+      h("span.tm.num", {}, fmt(c.start)),
+      h("span.tx", {}, M.liveWords(c).map((w) => w.text).join(" ")),
       c.lang ? h("span.badge", {}, c.lang.toUpperCase()) : null,
       c.emoji ? h("span", {}, c.emoji) : null);
-    frag.appendChild(row);
+    rows.appendChild(row);
   });
-  list.appendChild(frag);
+  const tools = h("span.row", { style: { gap: "2px" }, onclick: (e) => e.stopPropagation() },
+    h("button.btn.sm.icon.quiet", { title: "Fusionner les lignes sélectionnées (qui se suivent)", html: svg("link", 13), onclick: mergeSelected }),
+    h("button.btn.sm.icon.quiet", { title: "Masquer / réafficher la sélection", html: svg("eye", 13), onclick: toggleHideSelected }));
+  put(box, section({ title: "Lignes", key: "cap.lines", count: caps.length, extra: tools }, rows));
   renderTranslate();
 }
 
@@ -442,16 +430,15 @@ async function renderTranslate() {
   const info = X.translateOk;
   const target = selectedTexts().length ? selectedTexts() : caps;
   box.innerHTML = "";
-  put(box, 
-    h("div.label", { style: { marginBottom: "6px" } }, "Langue"),
+  put(box, section({ title: "Traduction", key: "cap.tr", open: false },
     h("div.actions", {},
-      h("button.btn.sm", { disabled: !info.available || info.source === "en", html: svg("refresh", 13) + "Traduire en anglais",
+      h("button.btn.sm", { disabled: !info.available || info.source === "en", html: svg("refresh", 13) + "En anglais",
                            onclick: () => translate(target) }),
       h("button.btn.sm", { disabled: !target.some((c) => c.src_words), html: svg("undo", 13) + "Texte original",
                            onclick: () => restore(target) })),
-    h("div.meta", { style: { marginTop: "6px" } }, info.source === "en" ? "Déjà en anglais."
-      : !info.available ? `Modèle de traduction ${info.source} → en absent (python scripts/download_models.py).`
-      : `${selectedTexts().length ? "Sélection" : "Toutes les lignes"} · sur ton PC, sans internet.`));
+    h("div.hint", { style: { marginTop: "6px" } }, info.source === "en" ? "Déjà en anglais."
+      : !info.available ? `Modèle ${info.source} → en absent (python scripts/download_models.py).`
+      : `${selectedTexts().length ? "La sélection" : "Toutes les lignes"}, sur ton PC.`)));
 }
 
 async function translate(list) {
@@ -487,12 +474,10 @@ function restore(list) {
 /* ================================================================ outils IA */
 
 function buildAuto() {
-  $("tab-auto").append(
-    h("div", {},
-      h("button.btn.primary.wide", { html: svg("wand", 14) + "Short automatique en un clic", onclick: autoShort }),
-      h("div.meta", { style: { marginTop: "6px" } },
-        "Coupe les blancs de la piste principale puis pose les sous-titres. Chaque étape reste annulable (Ctrl+Z).")),
-    h("div.sep"), h("div", { id: "autoSil" }), h("div", { id: "autoPass" }), h("div.sep"), h("div", { id: "autoTr" }));
+  put($("tab-auto"),
+    h("button.btn.primary.wide", { html: svg("wand", 14) + "Short automatique", onclick: autoShort }),
+    h("div.hint", { style: { margin: "6px 0 10px" } }, "Coupe les blancs de la piste principale, puis pose les sous-titres."),
+    h("div", { id: "autoSil" }), h("div", { id: "autoPass" }), h("div", { id: "autoTr" }));
   renderAuto();
 }
 
@@ -516,27 +501,25 @@ function renderPassages() {
   box.innerHTML = "";
   if (!list.length) return;
   const total = list.reduce((a, p) => a + p.dur, 0);
-  const rows = h("div", { style: { maxHeight: "220px", overflow: "auto", margin: "6px 0 8px" } });
+  const rows = h("div", { style: { maxHeight: "220px", overflow: "auto" } });
   list.forEach((p) => {
     const said = h("span.meta.ell", { style: { flex: 1, minWidth: 0 } }, "");
     textBetween(p.media, p.s, p.e).then((t) => { said.textContent = t ? "« " + t + " »" : "blanc"; });
     rows.appendChild(h("div.row", { style: { padding: "3px 0", cursor: "pointer" },
                                     onclick: () => setTime(Math.max(0, p.t - 1), { from: "list" }) },
-      h("span.num", { style: { fontSize: "12px", minWidth: "92px", color: "var(--accent)" } }, passageLabel(p)),
+      h("span.num", { style: { fontSize: "12px", minWidth: "88px", color: "var(--accent)" } }, passageLabel(p)),
       said,
-      h("button.btn.sm.quiet", { title: "Remettre ce passage dans le montage", html: svg("undo", 12),
+      h("button.btn.sm.icon.quiet", { title: "Remettre ce passage dans le montage", html: svg("undo", 12),
         onclick: (e) => { e.stopPropagation(); restorePassage(p); } })));
   });
-  put(box,
-    h("div.sep"),
-    h("div.row", {},
-      h("span.label.grow", {}, `Passages supprimés · ${list.length} · −${sec(total)}`),
-      h("button.btn.sm", { html: svg("undo", 12) + "Tout restaurer", onclick: () => {
-        const n = edit((doc) => { const r = M.restoreAll(doc); M.reflowCaptions(doc); return r; }, "restore");
-        toast(`Tous les passages sont revenus (+${sec(n)}).`);
-      } })),
-    rows,
-    h("div.hint", {}, "Repères rouges sur la timeline : clic pour voir ce qui a été coupé et le restaurer."));
+  const all = h("button.btn.sm.quiet", { title: "Tout restaurer", html: svg("undo", 12) + "Tout",
+    onclick: (e) => {
+      e.stopPropagation();
+      const n = edit((doc) => { const r = M.restoreAll(doc); M.reflowCaptions(doc); return r; }, "restore");
+      toast(`Tous les passages sont revenus (+${sec(n)}).`);
+    } });
+  put(box, section({ title: "Passages supprimés", icon: "cut", key: "ai.passages", count: `−${sec(total)}`, extra: all },
+    rows, h("div.hint", { style: { marginTop: "6px" } }, "Aussi sur la timeline : les repères rouges.")));
 }
 
 function restorePassage(p) {
@@ -588,30 +571,22 @@ function renderSilence() {
   const fill = h("input", { type: "checkbox", checked: !!st.fillers });
   fill.onchange = () => { setS("fillers", fill.checked); clearPreview(); };
   box.innerHTML = "";
-  put(box, 
-    h("div.stitle", { style: { display: "flex", gap: "7px", fontWeight: 620, marginBottom: "10px" },
-                      html: svg("silence", 14) + "<span>Supprimer les blancs</span>" }),
-    h("div.field", {}, h("div.head", {}, h("span.label", {}, "Où")),
-      h("div.seg", {}, [["selection", "Sélection"], ["main", "Piste principale"], ["all", "Tout"]].map(([k, l]) =>
-        h("button", { class: X.scope === k ? "on" : "", onclick: () => { X.scope = k; clearPreview(); renderSilence(); } }, l)))),
-    h("div.field", {}, h("div.head", {}, h("span.label", {}, "Détection")),
-      h("div.seg", {}, [["voice", "Par la voix"], ["volume", "Par le volume"]].map(([k, l]) =>
-        h("button", { class: X.method === k ? "on" : "", onclick: () => { X.method = k; clearPreview(); renderSilence(); } }, l)))),
+  put(box, section({ title: "Supprimer les blancs", icon: "silence", key: "ai.silence" },
+    h("div.field", {}, h("div.seg", {}, [["selection", "Sélection"], ["main", "Piste principale"], ["all", "Tout"]].map(([k, l]) =>
+      h("button", { class: X.scope === k ? "on" : "", onclick: () => { X.scope = k; clearPreview(); renderSilence(); } }, l)))),
+    h("div.field", {}, h("div.seg", {}, [["voice", "Par la voix"], ["volume", "Par le volume"]].map(([k, l]) =>
+      h("button", { class: X.method === k ? "on" : "", onclick: () => { X.method = k; clearPreview(); renderSilence(); } }, l)))),
     X.method === "voice" ? h("div", {},
-      slider("Blanc toléré entre deux mots", st.max_gap ?? 0.5, 0.1, 2, 0.05, (v) => sec(v).replace(" s", "") + " s",
-             (v) => setS("max_gap", v)),
-      slider("Marge gardée autour des mots", st.pad ?? 0.08, 0, 0.4, 0.01, (v) => Math.round(v * 1000) + " ms",
-             (v) => setS("pad", v)),
-      h("label.check", { style: { marginBottom: "10px" } }, fill, "Couper aussi les tics (euh, du coup, en fait…)"),
-      h("div.hint", { style: { marginBottom: "10px" } }, "Utilise la transcription (lancée si besoin)."))
+      slider("Blanc toléré entre deux mots", st.max_gap ?? 0.5, 0.1, 2, 0.05, (v) => sec(v), (v) => setS("max_gap", v)),
+      slider("Marge autour des mots", st.pad ?? 0.08, 0, 0.4, 0.01, (v) => Math.round(v * 1000) + " ms", (v) => setS("pad", v)),
+      h("label.check", { style: { marginBottom: "10px" } }, fill, "Couper aussi les tics (euh, du coup…)"))
     : h("div", {},
       slider("Seuil de silence", X.noise, -60, -15, 1, (v) => v + " dB", (v) => { X.noise = v; }),
-      slider("Silence minimal", X.minSil, 0.1, 2, 0.05, (v) => sec(v), (v) => { X.minSil = v; }),
-      h("div.hint", { style: { marginBottom: "10px" } }, "Pour les rushs sans parole : coupe ce qui reste sous le seuil.")),
+      slider("Silence minimal", X.minSil, 0.1, 2, 0.05, (v) => sec(v), (v) => { X.minSil = v; })),
     h("div.actions", {},
       h("button.btn", { id: "silPreview", html: svg("eye", 13) + "Aperçu", onclick: () => previewCuts() }),
       h("button.btn.primary", { id: "silApply", html: svg("cut", 13) + "Appliquer", onclick: () => applyCutsNow() })),
-    h("div.meta", { id: "silMsg", style: { marginTop: "8px" } }, X.preview ? previewText() : ""));
+    h("div.meta", { id: "silMsg", style: { marginTop: "8px" } }, X.preview ? previewText() : "")));
 }
 
 /** Un clip par groupe lié : celui de la piste principale, sinon la vidéo. */
@@ -750,10 +725,11 @@ function renderTranscripts() {
   const model = h("select", {}, [["large-v3-turbo", "Précis (large-v3-turbo)"], ["medium", "Moyen"], ["small", "Rapide (small)"]]
     .map(([v, l]) => h("option", { value: v, selected: (st.model || "large-v3-turbo") === v }, l)));
   model.onchange = () => setS("model", model.value);
+  const done = list.filter((m) => (m.transcript || {}).status === "done").length;
+  const todo = list.filter((m) => (m.transcript || {}).status !== "done");
   box.innerHTML = "";
-  put(box, 
-    h("div.stitle", { style: { display: "flex", gap: "7px", fontWeight: 620, marginBottom: "10px" },
-                      html: svg("cc", 14) + "<span>Transcription</span>" }),
+  put(box, section({ title: "Transcription", icon: "cc", key: "ai.transcribe", open: false,
+                     count: list.length ? `${done}/${list.length}` : undefined },
     h("div.g2", {}, h("div.field", {}, h("div.head", {}, h("span.label", {}, "Langue")), lang),
                     h("div.field", {}, h("div.head", {}, h("span.label", {}, "Modèle")), model)),
     list.length ? h("div", {}, list.map((m) => {
@@ -762,16 +738,13 @@ function renderTranscripts() {
                       queued: "en attente…", error: "erreur", none: "à faire" }[tr.status || "none"];
       return h("div.kv", { title: tr.error || "" },
         h("span.ell", { style: { maxWidth: "150px" } }, m.name),
-        h("span.row", {}, h("b", { class: tr.status === "error" ? "err" : "" }, label),
+        h("span.row", { style: { gap: "2px" } }, h("b", { class: tr.status === "error" ? "err" : "" }, label),
           tr.status === "running" || tr.status === "queued" ? null :
-            h("button.btn.sm.quiet", { title: tr.status === "done" ? "Retranscrire" : "Transcrire",
+            h("button.btn.sm.icon.quiet", { title: tr.status === "done" ? "Retranscrire" : "Transcrire",
               html: svg(tr.status === "done" ? "refresh" : "cc", 13),
               onclick: () => transcribe([m.id], tr.status === "done") })));
-    })) : h("div.meta", {}, "Aucun média avec du son."),
-    list.some((m) => (m.transcript || {}).status !== "done") ? h("button.btn.wide", {
-      style: { marginTop: "8px" }, html: svg("cc", 13) + "Tout transcrire",
-      onclick: () => transcribe(list.filter((m) => (m.transcript || {}).status !== "done").map((m) => m.id)),
-    }) : null,
-    h("div.hint", { style: { marginTop: "8px" } },
-      "Whisper tourne sur ton PC (carte graphique si possible). La première fois, le modèle (~1,6 Go) se télécharge."));
+    })) : h("div.hint", {}, "Aucun média avec du son."),
+    todo.length ? h("button.btn.sm.wide", { style: { marginTop: "8px" }, html: svg("cc", 13) + "Tout transcrire",
+      onclick: () => transcribe(todo.map((m) => m.id)) }) : null,
+    h("div.hint", { style: { marginTop: "8px" } }, "Whisper, sur ton PC. Le modèle se télécharge une fois (~1,6 Go).")));
 }
