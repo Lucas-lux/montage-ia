@@ -36,4 +36,7 @@ build/_work/
 Thumbs.db
 desktop.ini
 
-PORTFOLIO.mdbuild/_mac/
+PORTFOLIO.md
+
+# cache du build macOS (ffmpeg statique téléchargé)
+build/_mac/
