@@ -93,10 +93,10 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
       copier-coller, annuler/rétablir.
 
 ### 4. Lecteur
-- [ ] Lecture temps réel de la timeline : clips vidéo superposés, images,
+- [x] Lecture temps réel de la timeline : clips vidéo superposés, images,
       pistes audio mixées.
-- [ ] Défilement image par image, lecture en boucle, raccourcis clavier.
-- [ ] Format du projet (9:16, 16:9, 1:1, 4:5…), couleur de fond.
+- [x] Défilement image par image, lecture en boucle, raccourcis clavier.
+- [x] Format du projet (9:16, 16:9, 1:1, 4:5…), couleur de fond.
 
 ### 5. Son et clips
 - [ ] Séparer le son d'une vidéo en un clic (clip audio lié).

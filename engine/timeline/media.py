@@ -240,9 +240,12 @@ def make_thumbs(proxy: str, out: str, info: dict) -> dict:
 
 
 def make_poster(proxy: str, out: str, info: dict, height: int = 240) -> None:
-    at = 0.0 if info["kind"] == "image" else min(1.0, info.get("duration", 0) * 0.1)
-    _run_ffmpeg(["-ss", f"{at:.2f}", "-i", proxy, "-frames:v", "1",
-                 "-vf", f"scale=-2:{height}", "-q:v", "4", out])
+    # Pas de -ss sur une image fixe : ffmpeg sauterait sa seule image et
+    # terminerait « sans erreur » sans rien écrire.
+    seek = [] if info["kind"] == "image" else         ["-ss", f"{min(1.0, info.get('duration', 0) * 0.1):.2f}"]
+    _run_ffmpeg([*seek, "-i", proxy, "-frames:v", "1", "-vf", f"scale=-2:{height}", "-q:v", "4", out])
+    if not os.path.isfile(out):
+        raise RuntimeError("Affiche du média impossible à extraire.")
 
 
 # ------------------------------------------------------------- forme d'onde
