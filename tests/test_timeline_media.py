@@ -217,6 +217,24 @@ def test_api_televersement(client, files):
     assert len(client.get(urls["wave"]).content) == media["media"][0]["waveform"]["count"]
 
 
+@pytest.mark.ffmpeg
+def test_api_voix_off_enregistree(client, tmp_path):
+    # le navigateur envoie un webm/opus : converti en wav mono 48 kHz, puis média audio prêt
+    rec = tmp_path / "rec.webm"
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "sine=frequency=300:duration=1.5",
+                    "-c:a", "libopus", str(rec)], check=True)
+    r = client.post(f"/api/timeline/{client.pid}/media/record", params={"name": "Voix off 1"},
+                    content=rec.read_bytes())
+    view = r.json()
+    assert r.status_code == 200, view
+    assert view["name"] == "Voix off 1.wav" and view["kind"] == "audio" and view["copied"]
+    jobs.MEDIA.join()
+    m = client.get(f"/api/timeline/{client.pid}/media").json()["media"][0]
+    assert m["status"] == "ready" and m["has_audio"] and abs(m["duration"] - 1.5) < 0.1
+    r = client.post(f"/api/timeline/{client.pid}/media/record", params={"name": "vide"}, content=b"")
+    assert r.status_code == 400
+
+
 def test_api_televersement_refuse(client):
     r = client.post(f"/api/timeline/{client.pid}/media/upload", params={"name": "notes.txt"},
                     content=b"x")

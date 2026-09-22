@@ -93,6 +93,7 @@ export const P = {
   search: "M8.5 14a5.5 5.5 0 1 0 0-11 5.5 5.5 0 0 0 0 11zM12.5 12.5 17 17",
   upload: "M10 13V4M6.5 7.5 10 4l3.5 3.5M4 16.5h12",
   caret: "M6 8l4 4 4-4",
+  mic: "M10 12.5a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v4.5a3 3 0 0 0 3 3zM5 9.5a5 5 0 0 0 10 0M10 14.5v3M7.5 17.5h5",
 };
 
 export function svg(name, size = 16, extra = "") {

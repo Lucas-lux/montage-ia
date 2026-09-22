@@ -405,6 +405,13 @@ test("sous-titres : restaurer un blanc fait revenir ses mots", () => {
 
 /* ------------------------------------------------- montage automatique */
 
+test("coupes : une respiration après le dernier mot avant chaque coupe", () => {
+  const cuts = M.silenceCuts([{ start: 1, end: 2 }, { start: 3, end: 4 }], 5, 0.5, 0.1, 0.2);
+  assert.deepEqual(cuts.map((c) => c.map((x) => M.r4(x))), [[0, 0.9], [2.3, 2.9], [4.3, 5]]);
+  // pas de coupe négative quand la respiration dépasse le blanc
+  assert.deepEqual(M.silenceCuts([{ start: 1, end: 2 }, { start: 2.6, end: 3 }], 3.1, 0.5, 0.1, 0.4), [[0, 0.9]]);
+});
+
 test("coupes : des plages imposées se mêlent aux blancs", () => {
   const v = { start: 0, dur: 10, in: 0, speed: 1 };
   const cuts = M.clipCuts(v, { words: WORDS, maxGap: 0.5, pad: 0.08, extra: [[3, 6], [5.5, 7]] });

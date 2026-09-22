@@ -45,12 +45,29 @@ def test_salutation_avec_sujet_gardee():
     assert ae.detect_fluff(s) == {1, 3}
 
 
-def test_ouverture_a_froid_par_les_regles():
+def test_ouverture_a_froid_seulement_si_demandee():
     words = words_of("Bonjour à tous, aujourd'hui je vais vous parler de montage vidéo. | Euh c'est un sujet passionnant. | "
                      "Avec ce logiciel on gagne énormément de temps et d'argent. | Merci et à bientôt.")
-    plan = ae.build_plan(words, None, 100, {"llm": False, "trim": True})
+    plan = ae.build_plan(words, None, 100, {"llm": False, "trim": True, "cold_open": True})
     assert plan["hook"]["sentence"] == 2 and plan["hook"]["cold_open"]
     assert plan["drop_sentences"] == [3]
+    # par défaut : la phrase forte des premières secondes donne le titre, rien ne bouge
+    plan = ae.build_plan(words, None, 100, {"llm": False, "trim": True})
+    assert plan["hook"]["sentence"] == 2 and not plan["hook"]["cold_open"]
+
+
+def test_accroche_tournee_au_debut():
+    """« Ne jetez pas votre Kindle » tourné en premier : c'est l'accroche, même si
+    une phrase plus forte arrive après."""
+    words = words_of("Ne jetez pas votre Kindle. | Je vais vous montrer pourquoi. | Voici la Kindle, un appareil que "
+                     "j'utilise depuis 3 ans. | Le secret : 90 % des gens ignorent cette astuce incroyable. | À bientôt.")
+    s = ae.sentences(words)
+    ae.score_sentences(s, None, 100)
+    assert ae._imperative(["ne", "jetez", "pas"]) and not ae._imperative(["je", "vais"])
+    assert s[0]["score"] > s[2]["score"]
+    plan = ae.build_plan(words, None, 100, {"llm": False, "trim": True})
+    assert plan["hook"]["sentence"] == 0 and plan["hook"]["text"].startswith("Ne jetez pas")
+    assert not plan["hook"]["cold_open"]
 
 
 def test_formule_de_fin_et_reprises():
@@ -103,16 +120,22 @@ def test_plan_ia_valide_et_borne(monkeypatch):
     words = words_of("Salut. | Regarde ce secret. | Deux. | Trois. | Quatre. | Cinq. | Six.")
     monkeypatch.setattr(llm, "available", lambda: True)
     monkeypatch.setattr(llm, "chat_json", lambda *a, **k: {
-        "titre": "Un titre", "hook": {"phrase": "1", "texte": "Le secret", "ouverture": True},
+        "titre": "Un titre", "hook": {"phrase": "3", "texte": "Le secret", "ouverture": True},
         "supprimer": [0, 2, 3, 4, 5, 6, 99], "moments_forts": [{"de": 1, "a": 2, "pourquoi": "fort"}, {"de": 5, "a": 1}],
         "textes": [{"phrase": 1, "texte": "SECRET"}, {"phrase": 3, "texte": "bien trop long pour un texte à l'écran"}]})
-    plan = ae.build_plan(words, None, 100, {"llm": True, "trim": True})
+    plan = ae.build_plan(words, None, 100, {"llm": True, "trim": True, "cold_open": True})
     assert plan["llm"] and plan["title"] == "Un titre"
-    assert plan["hook"]["text"] == "Le secret" and plan["hook"]["cold_open"]
+    assert plan["hook"]["text"] == "Le secret" and plan["hook"]["cold_open"] and plan["hook"]["sentence"] == 3
     assert len(plan["drop_sentences"]) <= 0.4 * 7 + 1e-9    # garde-fou
     assert plan["highlights"] == [{"s": pytest.approx(words_of("Salut. | Regarde")[1]["start"]), "e": plan["highlights"][0]["e"],
                                    "sentence": 1, "label": "fort", "score": plan["highlights"][0]["score"]}]
     assert [t["text"] for t in plan["texts"]] == ["SECRET"]
+    # sans ouverture à froid demandée : la phrase tardive n'est pas déplacée,
+    # son texte sert de titre, l'accroche reste au début
+    monkeypatch.setattr(llm, "chat_json", lambda *a, **k: {
+        "hook": {"phrase": "5", "texte": "Six secrets", "ouverture": True}, "supprimer": [], "moments_forts": [], "textes": []})
+    plan = ae.build_plan(words, None, 100, {"llm": True, "trim": True})
+    assert plan["hook"]["text"] == "Six secrets" and not plan["hook"]["cold_open"]
     monkeypatch.setattr(llm, "chat_json", lambda *a, **k: None)
     assert not ae.build_plan(words, None, 100, {"llm": True})["llm"]     # réponse illisible : règles
 

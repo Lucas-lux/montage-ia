@@ -28,6 +28,8 @@ import unicodedata
 
 SENTENCE_GAP = 0.9          # s de blanc qui termine une phrase
 HOOK_MAX = 9.0          # s : au-delà, une phrase ne fait plus une ouverture à froid
+EARLY_WINDOW = 20.0     # s : l'accroche tournée par le créateur est dans ce début
+FIRST_HOOK = 1.5        # score à partir duquel la première phrase est prise comme accroche tournée
 MAX_DROP_RATIO = 0.4        # jamais plus de 40 % des phrases retirées d'office
 RHYTHM_MAX = 7.0            # s : au-delà, on propose une coupe à la fin d'une phrase
 LLM_WINDOW = 90             # phrases par appel au modèle
@@ -144,6 +146,10 @@ def score_sentences(sents: list[dict], wave: bytes | None, rate: int) -> None:
         if toks and toks[0] in ("regarde", "regardez", "imagine", "imaginez", "attention", "arrete", "arretez",
                                 "ecoute", "ecoutez", "stop", "look", "listen"):
             pts += 1.5
+        elif _imperative(toks):
+            pts += 1.2                       # « ne jetez pas… », « oubliez… », « arrêtez de… »
+        if any(t in _YOU for t in toks[:6]):
+            pts += 0.5                       # on s'adresse au spectateur
         if 4 <= n <= 14:
             pts += 0.6                       # une phrase courte accroche, une tirade non
         elif n > 25:
@@ -154,6 +160,22 @@ def score_sentences(sents: list[dict], wave: bytes | None, rate: int) -> None:
             pts -= 3.0
         s["score"] = round(pts, 2)
         s["energy"] = round(energies[i], 3)
+
+
+_YOU = {"vous", "votre", "vos", "tu", "ton", "ta", "tes", "you", "your"}
+
+
+def _imperative(toks: list[str]) -> bool:
+    """Phrase à l'impératif : « jetez », « ne jetez pas », « arrête de » en tête."""
+    head = toks[:3]
+    if not head:
+        return False
+    if head[0] == "ne" and len(head) > 1:
+        head = head[1:]
+    v = head[0]
+    if v in _STOP or v in _YOU or len(v) < 4:
+        return False
+    return v.endswith(("ez", "ons")) or v in ("arrete", "oublie", "evite", "prends", "fais", "regarde", "teste", "essaie")
 
 
 def _hits(text: str, roots: tuple) -> int:
@@ -251,14 +273,17 @@ def heuristic_plan(analysis: dict, opts: dict) -> dict:
 
     hook = None
     if kept:
-        # la phrase la plus forte du premier tiers ; si une phrase bien plus
-        # forte arrive plus tard et tient en quelques secondes, elle passe en
-        # tête (ouverture à froid)
-        early = [s for s in kept[:max(1, len(kept) // 3)]]
-        best = max(early, key=lambda s: s.get("score", 0))
+        # Le créateur a souvent tourné son accroche en premier : une première
+        # phrase qui accroche (impératif, question, promesse) est l'accroche.
+        # Sinon, la plus forte des premières secondes. Une phrase bien plus
+        # forte venue plus tard ne passe en tête que si l'ouverture à froid
+        # est demandée.
+        first = kept[0]
+        best = first if first.get("score", 0) >= FIRST_HOOK else max(_early(kept), key=lambda s: s.get("score", 0))
         top = ranked[0]
-        cold = (top is not best and top.get("score", 0) >= 2.5 and best.get("score", 0) < 1.0
-                and top["end"] - top["start"] <= HOOK_MAX)
+        cold = bool(opts.get("cold_open")) and (top is not first and top.get("score", 0) >= 3.0
+                                                and first.get("score", 0) < FIRST_HOOK
+                                                and top["end"] - top["start"] <= HOOK_MAX)
         if cold:
             best = top
         hook = {"sentence": best["i"], "s": best["start"], "e": best["end"],
@@ -279,6 +304,14 @@ def heuristic_plan(analysis: dict, opts: dict) -> dict:
     return {"hook": hook, "drop": _ranges(sents, drop), "drop_sentences": sorted(drop),
             "highlights": sorted(highlights, key=lambda x: x["s"]), "texts": sorted(texts, key=lambda x: x["s"]),
             "cutpoints": _cutpoints(sents), "title": _hook_text(ranked[0]) if ranked else "", "llm": False}
+
+
+def _early(kept: list[dict]) -> list[dict]:
+    """Les phrases candidates à l'accroche : celles des EARLY_WINDOW premières
+    secondes de parole gardée, et au moins les trois premières."""
+    t0 = kept[0]["start"]
+    out = [s for s in kept if s["start"] - t0 <= EARLY_WINDOW]
+    return out if len(out) >= 3 else kept[:3]
 
 
 def _hook_text(sent: dict, max_words: int = 7) -> str:
@@ -317,7 +350,7 @@ def llm_plan(analysis: dict, opts: dict, language: str = "fr") -> dict | None:
     title = ""
     for w0 in range(0, len(sents), LLM_WINDOW):
         window = sents[w0:w0 + LLM_WINDOW]
-        res = _ask(window, first=(w0 == 0), language=language)
+        res = _ask(window, first=(w0 == 0), language=language, cold_open=bool(opts.get("cold_open")))
         if res is None:
             if w0 == 0:
                 return None
@@ -329,8 +362,19 @@ def llm_plan(analysis: dict, opts: dict, language: str = "fr") -> dict | None:
             si = _int(hk.get("phrase"))
             if si in valid and str(hk.get("texte") or "").strip():
                 s = sents[si]
-                hook = {"sentence": si, "s": s["start"], "e": s["end"], "text": str(hk["texte"]).strip()[:48],
-                        "cold_open": bool(hk.get("ouverture"))}
+                kept = [x for x in sents if x["i"] not in drop] or sents
+                early = {x["i"] for x in _early(kept)}
+                cold = (bool(hk.get("ouverture")) and bool(opts.get("cold_open")) and si != kept[0]["i"]
+                        and s["end"] - s["start"] <= HOOK_MAX)
+                if si in early or cold:
+                    hook = {"sentence": si, "s": s["start"], "e": s["end"], "text": str(hk["texte"]).strip()[:48],
+                            "cold_open": cold}
+                else:
+                    # phrase tardive sans ouverture à froid : son texte sert de
+                    # titre, l'accroche tournée reste au début
+                    base_hook = base["hook"]
+                    if base_hook:
+                        hook = {**base_hook, "text": str(hk["texte"]).strip()[:48], "cold_open": False}
         for x in res.get("supprimer") or []:
             si = _int(x)
             if si in valid:
@@ -369,14 +413,27 @@ def _int(v) -> int | None:
         return None
 
 
-def _ask(window: list[dict], first: bool, language: str) -> dict | None:
+def _ask(window: list[dict], first: bool, language: str, cold_open: bool = False) -> dict | None:
     from engine.pipeline import llm
     lines = "\n".join(f"[{s['i']}] {s['start']:.1f}-{s['end']:.1f} : {s['text']}" for s in window)
+    t0 = window[0]["start"] if window else 0.0
+    early = [s["i"] for s in window if s["start"] - t0 <= EARLY_WINDOW] or [s["i"] for s in window[:3]]
+    early_txt = f"[{early[0]}] à [{early[-1]}]" if early else "[0]"
     lang = "français" if (language or "fr").startswith("fr") else "la langue de la vidéo"
     system = ("Tu es un monteur vidéo spécialisé dans les shorts (TikTok, Reels, Shorts). "
               f"Tu réponds uniquement par un objet JSON valide, en {lang}, sans commentaire.")
-    hook_part = ('''  "titre": "titre court du short (max 8 mots)",
-  "hook": {"phrase": <numéro de la phrase la plus concrète et surprenante : un bénéfice, un chiffre, une question, une affirmation forte ; jamais une transition ni une opinion vague>, "texte": "accroche à afficher à l'écran au tout début, 3 à 7 mots, la promesse ou le bénéfice concret", "ouverture": <true si cette phrase se comprend seule et peut ouvrir la vidéo, sinon false>},
+    if cold_open:
+        hook_rule = (f"la phrase la plus concrète et surprenante : un bénéfice, un chiffre, une question, une "
+                     f"affirmation forte, un impératif ; jamais une transition ni une opinion vague. Le créateur "
+                     f"a souvent tourné son accroche en premier ({early_txt}) : si l'une de ces phrases accroche, "
+                     f"c'est elle, avec ouverture=false")
+        open_rule = "true seulement si la phrase est ailleurs qu'au début ET se comprend seule pour ouvrir la vidéo"
+    else:
+        hook_rule = (f"parmi les phrases du début ({early_txt}) uniquement, celle qui accroche le mieux : "
+                     f"question, promesse, chiffre, impératif, affirmation choc")
+        open_rule = "toujours false"
+    hook_part = (f'''  "titre": "titre court du short (max 8 mots)",
+  "hook": {{"phrase": <numéro de {hook_rule}>, "texte": "accroche à afficher à l'écran au tout début, 3 à 7 mots, reprenant la phrase ou sa promesse concrète", "ouverture": <{open_rule}>}},
 ''' if first else "")
     user = f"""Transcription d'une vidéo face caméra, phrase par phrase, avec les secondes :
 

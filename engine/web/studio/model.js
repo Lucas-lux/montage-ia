@@ -571,17 +571,21 @@ export function norm(s) {
 /** Mêmes règles que `engine/pipeline/edit.py` : blancs avant, entre et après
  *  les mots (au-delà de `maxGap`, en gardant `pad` autour des mots). Temps
  *  relatifs à la plage [0, dur]. */
-export function silenceCuts(words, dur, maxGap = 0.5, pad = 0.08) {
+/** Blancs à retirer entre des mots. `pad` reste de chaque côté d'une coupe ;
+ *  `tail` s'ajoute après le dernier mot avant une coupe (la voix finit
+ *  souvent après l'horodatage du mot : couper trop tôt mange la fin de la
+ *  phrase). */
+export function silenceCuts(words, dur, maxGap = 0.5, pad = 0.08, tail = 0) {
   if (!words.length) return [[0, dur]];
   const cuts = [];
   if (words[0].start - pad > 0) cuts.push([0, words[0].start - pad]);
   for (let i = 0; i + 1 < words.length; i++) {
     const a = words[i], b = words[i + 1];
-    if (b.start - a.end > maxGap) cuts.push([a.end + pad, b.start - pad]);
+    if (b.start - a.end > maxGap) cuts.push([a.end + pad + tail, b.start - pad]);
   }
   const last = words[words.length - 1];
-  if (last.end + pad < dur) cuts.push([last.end + pad, dur]);
-  return cuts;
+  if (last.end + pad + tail < dur) cuts.push([last.end + pad + tail, dur]);
+  return cuts.filter(([x, y]) => y > x);
 }
 
 export function fillerCuts(words, pad = 0.05) {
@@ -616,7 +620,7 @@ export function mergeRanges(ranges) {
  *  (`words`) ou les silences mesurés au volume (`silences`). Un bout gardé de
  *  moins de `minKeep` entre deux coupes part aussi ; une coupe de moins de
  *  `minCut` est ignorée (on ne découpe pas pour trois images). */
-export function clipCuts(clip, { words, silences, extra, maxGap = 0.5, pad = 0.08, fillers = false,
+export function clipCuts(clip, { words, silences, extra, maxGap = 0.5, pad = 0.08, tail = 0, fillers = false,
                                   minKeep = 0.1, minCut = 0.12 } = {}) {
   const a = clip.in, b = srcEnd(clip);
   let cuts = [];
@@ -624,7 +628,7 @@ export function clipCuts(clip, { words, silences, extra, maxGap = 0.5, pad = 0.0
   if (words) {
     const inside = words.filter((w) => w.end > a && w.start < b)
       .map((w) => ({ text: w.text, start: Math.max(0, w.start - a), end: Math.min(b - a, w.end - a) }));
-    let found = silenceCuts(inside, b - a, maxGap, pad);
+    let found = silenceCuts(inside, b - a, maxGap, pad, tail);
     if (fillers) found = found.concat(fillerCuts(inside));
     cuts = cuts.concat(found.map(([x, y]) => [x + a, y + a]));
   } else if (silences) {

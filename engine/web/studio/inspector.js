@@ -9,6 +9,7 @@
 import * as A from "./actions.js";
 import { api } from "./api.js";
 import * as M from "./model.js";
+import * as V from "./voice.js";
 import { PRESETS } from "./main.js";
 import { S, begin, changed, edit, emit, end, on } from "./store.js";
 import { emojiGeometry, setText, stylePreview } from "./captions.js";
@@ -264,6 +265,7 @@ function clipPanel(clips, lead, m) {
     const each = (doc, fn) => doc.clips.forEach((c) => { if (ids.has(c.id)) fn(c); });
     const maxFade = Math.max(0.1, Math.min(10, Math.min(...sound.map((c) => c.dur)) / 2));
     const fx = s.audio_fx || {};
+    out.push(voiceSection(fx, each));
     out.push(section({ title: "Son", icon: "vol", key: "c.sound", count: s.muted ? "coupé" : undefined },
       range({ label: "Volume", value: Math.round((s.volume ?? 1) * 100), min: 0, max: 200, unit: " %",
               apply: (doc, x) => each(doc, (c) => { c.volume = x / 100; }) }),
@@ -271,14 +273,40 @@ function clipPanel(clips, lead, m) {
               unit: " s", apply: (doc, x) => each(doc, (c) => { c.fade_in = x; }) }),
       range({ label: "Fondu de sortie", value: s.fade_out || 0, min: 0, max: +maxFade.toFixed(1), step: 0.1, decimals: 1,
               unit: " s", apply: (doc, x) => each(doc, (c) => { c.fade_out = x; }) }),
-      check("Couper le son", !!s.muted, (doc, v) => each(doc, (c) => { c.muted = v; })),
-      check("Réduire le bruit de fond", !!fx.denoise,
-            (doc, v) => each(doc, (c) => { c.audio_fx = { ...(c.audio_fx || {}), denoise: v }; })),
-      check("Voix plus claire", !!fx.voice,
-            (doc, v) => each(doc, (c) => { c.audio_fx = { ...(c.audio_fx || {}), voice: v }; })),
-      fx.denoise || fx.voice ? h("div.hint", {}, "Les effets de voix s'entendent à l'export.") : null));
+      check("Couper le son", !!s.muted, (doc, v) => each(doc, (c) => { c.muted = v; }))));
   }
   return out;
+}
+
+/** Traitement de la voix : presets, puis chaque réglage. */
+function voiceSection(fx, each) {
+  const preset = V.presetOf(fx);
+  const setFx = (doc, patch) => each(doc, (c) => {
+    const next = { ...(c.audio_fx || {}), ...patch };
+    delete next.preset;
+    const p = V.presetOf(next);
+    if (p) next.preset = p.name;
+    c.audio_fx = next;
+  });
+  const chips = h("div.chips", { style: { marginBottom: "10px" } }, V.PRESETS.map((p) => h("button.chip" +
+    (preset && preset.name === p.name ? ".on" : ""), { title: p.hint,
+    onclick: () => edit((doc) => each(doc, (c) => { c.audio_fx = V.withPreset(p.name); }), "inspector") }, p.label)));
+  const label = preset ? preset.label : V.active(fx) ? "personnalisé" : undefined;
+  return section({ title: "Voix", icon: "mic", key: "c.voice", open: V.active(fx), count: label },
+    chips,
+    V.SLIDERS.map(([k, l, hint]) => {
+      const el = range({ label: l, value: Math.round((fx[k] || 0) * 100), min: 0, max: 100, unit: " %",
+                         apply: (doc, x) => setFx(doc, { [k]: x / 100 }) });
+      el.title = hint;
+      return el;
+    }),
+    V.SWITCHES.map(([k, l, hint]) => {
+      const el = check(l, !!fx[k], (doc, v) => setFx(doc, { [k]: v }));
+      el.title = hint;
+      return el;
+    }),
+    h("div.hint", {}, "L'aperçu joue coupe-bas, clarté, chaleur, sifflantes et compression ; " +
+                      "bruit, porte et niveau constant s'entendent à l'export."));
 }
 
 function transitionSection(c) {

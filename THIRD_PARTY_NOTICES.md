@@ -32,6 +32,7 @@ the components below, which keep their own licenses.
 | File | Origin | License |
 |---|---|---|
 | `engine/data/face_detection_yunet_2023mar.onnx` | [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) face detector, from the OpenCV Zoo (Shiqi Yu et al.) | Apache-2.0 |
+| `engine/data/rnnoise_sh.rnnn` | RNNoise model « somnolent-hogwash » from [rnnoise-models](https://github.com/GregorR/rnnoise-models) (Gregor Richards), used by ffmpeg's `arnndn` filter | Declared by its author as not subject to copyright ("none of this work is creative and thus none of it is subject to copyright") |
 
 ## External tools
 

@@ -14,6 +14,7 @@
    cette taille, `x`/`y` placent son centre, `rotation` le tourne. */
 
 import * as M from "./model.js";
+import { buildChain, fxKey } from "./voice.js";
 import { S, emit, on, setTime } from "./store.js";
 import { $, clamp, h, pauseSvg, playSvg, svg, tc, typing } from "./util.js";
 import { renderCaptions } from "./captions.js";
@@ -25,6 +26,7 @@ const MAX_ELEMS = 24;
 export const P = {
   playing: false,
   loop: false,
+  silent: false,           // voix off en cours d'enregistrement : les autres sons se taisent
   t0: 0, p0: 0,
   raf: 0,
   items: new Map(),        // clip id -> { el, wrap, media, url, kind, gain, src, last }
@@ -160,12 +162,28 @@ function route(it) {
     it.src = P.ctx.createMediaElementSource(it.el);
     it.gain = P.ctx.createGain();
     it.src.connect(it.gain).connect(P.ctx.destination);
+    it.fxKey = "";
   } catch (e) { /* déjà relié ou refusé : volume natif */ }
+}
+
+/** Traitement de la voix du clip dans l'aperçu (reconstruit quand il change). */
+function applyFx(it, c) {
+  if (!it.gain || !P.ctx) return;
+  const key = fxKey(c.audio_fx);
+  if (key === it.fxKey) return;
+  it.fxKey = key;
+  try {
+    it.gain.disconnect();
+    if (it.fx) it.fx.nodes.forEach((n) => n.disconnect());
+    it.fx = buildChain(P.ctx, c.audio_fx);
+    if (it.fx) { it.gain.connect(it.fx.first); it.fx.last.connect(P.ctx.destination); }
+    else it.gain.connect(P.ctx.destination);
+  } catch (e) { it.fx = null; }
 }
 
 /** Gain d'un clip à l'instant t : volume, fondus, muet du clip et de la piste. */
 export function gainAt(c, t, tr) {
-  if (c.muted || (tr && tr.muted)) return 0;
+  if (c.muted || (tr && tr.muted) || P.silent) return 0;
   let g = c.volume ?? 1;
   const local = t - c.start;
   if (c.fade_in > 0 && local < c.fade_in) g *= clamp(local / c.fade_in, 0, 1);
@@ -236,7 +254,7 @@ export function sync(t, { layout = false } = {}) {
       el.muted = g === 0;
     }
     if (seen && P.playing) {
-      if (P.ctx && hearMe) route(it);
+      if (P.ctx && hearMe) { route(it); applyFx(it, c); }
       const speed = c.speed || 1;
       if (el.paused) {
         if (Math.abs(el.currentTime - target) > 0.05) el.currentTime = target;

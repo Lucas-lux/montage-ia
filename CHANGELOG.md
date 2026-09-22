@@ -36,7 +36,14 @@ First public release.
   keywords; captions; cleaned voice and −14 LUFS loudness at export; ★ markers
   on the strongest moments with *Isoler*. Uses an optional local language model
   (Qwen3-4B-Instruct int8 via CTranslate2, `download_models.py --llm`) or
-  built-in rules. Per-project options, summary, *Revenir en arrière*.
+  built-in rules. Per-project options, summary, *Revenir en arrière*. The hook
+  filmed first is kept as the hook (cold open only on request) and a breath is
+  kept after each sentence before a cut.
+- Voice-over: record any microphone of the PC on the timeline (level meter,
+  countdown, montage playing under the take, other sounds muted), the take
+  lands on a « Voix off » track. Voice processing on any clip with speech:
+  RNNoise noise reduction, low cut, gate, de-esser, compressor, clarity, warmth,
+  constant level, with presets; previewed in the browser, rendered by ffmpeg.
 - Toolbox, usable without a project. First tool: extract a video's audio as
   MP3 (default), AAC, Opus, Ogg Vorbis, WAV or FLAC, with a chosen bitrate or
   bit depth, sample rate and channels (`python -m engine.tools.audio`).

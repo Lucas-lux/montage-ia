@@ -63,7 +63,7 @@ SETTINGS_DEFAULTS: dict = {
 }
 # Montage automatique : ce qu'on laisse faire à l'IA, et le rythme des zooms.
 AUTO_DEFAULTS: dict = {
-    "silence": True, "fillers": True, "trim": True, "hook": True, "zoom": True,
+    "silence": True, "fillers": True, "trim": True, "hook": True, "cold_open": False, "zoom": True,
     "texts": True, "captions": True, "sound": True, "llm": True,
     "rhythm": "normal",      # calm | normal | punchy
     "max_duration": 0,       # 0 = libre
@@ -77,6 +77,19 @@ _TEXT_EXTRA = {"emoji": "", "emoji_size": 0.0, "emoji_dx": 0.0, "emoji_dy": 0.0,
                "ai": ""}                       # "hook" / "text" : posé par le montage automatique
 # Réglages d'image d'un clip vidéo ou image.
 FILTERS = ("brightness", "contrast", "saturation", "temperature")
+# Traitement de la voix d'un clip (voix off, face caméra) : intensités 0..1 ou
+# interrupteurs. Rendu par ffmpeg à l'export (engine/timeline/render.py), en
+# partie entendu dans l'aperçu (Web Audio).
+VOICE_FX: dict = {
+    "denoise": 0.0,      # réduction de bruit (RNNoise)
+    "lowcut": False,     # coupe-bas 80 Hz : souffle, ronflement, pop
+    "gate": False,       # porte anti-bruit entre les phrases
+    "deess": 0.0,        # de-esser : sifflantes
+    "compress": 0.0,     # compression : voix régulière et présente
+    "clarity": 0.0,      # clarté : moins de boue (200 Hz), plus de présence (3 kHz) et d'air
+    "warmth": 0.0,       # chaleur : graves autour de 180 Hz
+    "level": False,      # niveau constant (normalisation dynamique)
+}
 # Transitions d'entrée (noms des transitions `xfade` de ffmpeg).
 TRANSITIONS = ("fade", "fadeblack", "fadewhite", "slideleft", "slideright", "wipeleft", "circleopen",
                "zoomin", "dissolve")
@@ -289,11 +302,9 @@ def normalize_clip(c: dict, track: dict, media: dict | None) -> dict | None:
                     a, b = _num(r.get("s"), -1.0, -1.0), _num(r.get("e"), -1.0, -1.0)
                     if b > a >= 0:
                         out[key] = {"s": _t(a), "e": _t(b)}
-            fx = c.get("audio_fx")
-            if isinstance(fx, dict):
-                clean = {k: True for k in ("denoise", "voice") if _bool(fx.get(k))}
-                if clean:
-                    out["audio_fx"] = clean
+            fx = normalize_voice_fx(c.get("audio_fx"))
+            if fx:
+                out["audio_fx"] = fx
         out["link"] = _str(c.get("link"), "", 40)
     else:
         out.update(_text_fields(c))
@@ -451,6 +462,34 @@ def normalize_auto(a) -> dict:
     out = {k: _bool(a.get(k), d[k]) for k, v in d.items() if isinstance(v, bool)}
     out["rhythm"] = a.get("rhythm") if a.get("rhythm") in ("calm", "normal", "punchy") else d["rhythm"]
     out["max_duration"] = _int(a.get("max_duration"), d["max_duration"], 0, 600)
+    return out
+
+
+def normalize_voice_fx(fx) -> dict:
+    """Traitement de la voix d'un clip : seules les valeurs actives restent.
+    Les anciens interrupteurs (`denoise`, `voice` booléens) sont convertis."""
+    if not isinstance(fx, dict):
+        return {}
+    src = dict(fx)
+    if src.get("denoise") is True:
+        src["denoise"] = 0.7
+    if src.pop("voice", None) is True:
+        src.setdefault("lowcut", True)
+        src.setdefault("compress", 0.5)
+        src.setdefault("clarity", 0.6)
+    out: dict = {}
+    for key, default in VOICE_FX.items():
+        v = src.get(key, default)
+        if isinstance(default, bool):
+            if _bool(v):
+                out[key] = True
+        else:
+            x = round(_num(v, 0.0, 0.0, 1.0), 2)
+            if x > 0:
+                out[key] = x
+    preset = _str(src.get("preset"), "", 24).strip()
+    if out and preset:
+        out["preset"] = preset
     return out
 
 

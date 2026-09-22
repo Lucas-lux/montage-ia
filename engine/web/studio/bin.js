@@ -77,7 +77,7 @@ export async function importPaths(paths, { recursive = false, toTimeline = false
   return res;
 }
 
-function addMediaViews(views) {
+export function addMediaViews(views) {
   if (!views.length) return;
   B.gen++;
   const list = [...S.media.values()];

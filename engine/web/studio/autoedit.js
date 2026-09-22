@@ -24,16 +24,18 @@ import { applyLook } from "./inspector.js";
 import * as M from "./model.js";
 import { S, changed, edit, on, setTime } from "./store.js";
 import { $, fmt, h, put, sec, section, svg, toast } from "./util.js";
+import { withPreset } from "./voice.js";
 import { wordsOf } from "./words.js";
 import { ensureTranscripts, generateCaptions, leads } from "./panels.js";
 
 const A = { busy: false, llm: null, before: null, last: null, poll: 0 };
 
-const DEFAULTS = { silence: true, fillers: true, trim: true, hook: true, zoom: true, texts: true,
+const DEFAULTS = { silence: true, fillers: true, trim: true, hook: true, cold_open: false, zoom: true, texts: true,
                    captions: true, sound: true, llm: true, rhythm: "normal", max_duration: 0 };
-// rythme : longueur maximale d'un plan avant une coupe, et force des zooms
-const RHYTHM = { calm: { max: 9, z: 1.1, zh: 1.22 }, normal: { max: 6, z: 1.15, zh: 1.28 },
-                 punchy: { max: 4, z: 1.2, zh: 1.32 } };
+// rythme : longueur maximale d'un plan avant une coupe, force des zooms, et
+// respiration laissée après chaque phrase avant une coupe (`tail`, s)
+const RHYTHM = { calm: { max: 9, z: 1.1, zh: 1.22, tail: 0.3 }, normal: { max: 6, z: 1.15, zh: 1.28, tail: 0.2 },
+                 punchy: { max: 4, z: 1.2, zh: 1.32, tail: 0.12 } };
 const HOOK_MAX = 9;          // s : au-delà, une phrase n'est plus une accroche à déplacer
 const TITLE_DUR = 3.2;       // s : durée du titre d'accroche
 const MARK = "★ ";           // préfixe des repères posés ici
@@ -78,11 +80,12 @@ export function render() {
       toggle("silence", "Blancs", "Retire les silences entre les mots (réglages dans « Supprimer les blancs »)"),
       toggle("fillers", "Tics", "Retire les euh, du coup, en fait…"),
       toggle("trim", "Passages inutiles", "Intro, fin, faux départs, phrases faibles"),
-      toggle("hook", "Accroche", "Titre au début, et phrase forte remontée en tête si l'IA le conseille"),
+      toggle("hook", "Accroche", "Titre à l'écran au début, tiré de l'accroche (celle tournée en premier, ou la phrase forte des premières secondes)"),
+      toggle("cold_open", "Ouverture à froid", "Remonte en tête une phrase forte venue plus tard (à laisser décoché si tu as tourné ton accroche)"),
       toggle("zoom", "Zooms", "Coupes rythmées aux fins de phrases, zooms alternés cadrés sur le visage"),
       toggle("texts", "Textes à l'écran", "Mots-clés posés sur les phrases fortes"),
       toggle("captions", "Sous-titres", "Style choisi dans l'onglet Sous-titres"),
-      toggle("sound", "Son", "Voix nettoyée et niveau normalisé à l'export")),
+      toggle("sound", "Son", "Voix « Clair » (coupe-bas, clarté, compression) et niveau normalisé à l'export")),
     h("div.g2", { style: { marginTop: "10px" } },
       h("div.field", {}, h("div.head", {}, h("span.label", {}, "Rythme")),
         seg("rhythm", [["calm", "Calme"], ["normal", "Normal"], ["punchy", "Punchy"]])),
@@ -277,7 +280,7 @@ export async function run() {
 
 async function fetchPlans(mids, o, say) {
   const res = await post(`/api/timeline/${S.pid}/autoedit`,
-    { media: mids, options: { llm: o.llm, trim: o.trim, max_duration: o.max_duration } });
+    { media: mids, options: { llm: o.llm, trim: o.trim, cold_open: o.cold_open, max_duration: o.max_duration } });
   for (;;) {
     await sleep(600);
     const job = await api(`/api/timeline/${S.pid}/autoedit/${res.job_id}`);
@@ -299,17 +302,22 @@ export function apply(doc, plans, wordsBy, o) {
   doc.markers = (doc.markers || []).filter((m) => !(m.label || "").startsWith(MARK));
 
   // 1. coupes, du dernier clip au premier (les coupes ne décalent pas ce qui précède)
+  const R0 = RHYTHM[o.rhythm] || RHYTHM.normal;
+  const pad = Math.max(0.1, st.pad ?? 0.08), tail = R0.tail;
   for (const c of targets(doc).sort((a, b) => b.start - a.start)) {
     const plan = plans[c.media];
     if (!plan) continue;
-    const cutOpts = { maxGap: st.max_gap ?? 0.5, pad: st.pad ?? 0.08, fillers: !!o.fillers, extra: [] };
+    // un bout gardé de moins de 0,35 s entre deux coupes (une respiration) part aussi
+    const cutOpts = { maxGap: st.max_gap ?? 0.5, pad, tail, fillers: !!o.fillers, extra: [], minKeep: 0.35 };
     const words = wordsBy.get(c.media) || [];
     if (o.silence) cutOpts.words = words;
     else if (o.fillers) {                          // les tics seuls, sans toucher aux blancs
       cutOpts.extra.push(...M.fillerCuts(words.filter((w) => w.end > c.in && w.start < M.srcEnd(c)), 0.05));
     }
     if (o.trim) {
-      const inside = (plan.drop || []).filter(([s, e]) => e > c.in && s < M.srcEnd(c));
+      // une phrase retirée emporte les blancs qui l'entourent
+      const inside = (plan.drop || []).filter(([s, e]) => e > c.in && s < M.srcEnd(c))
+        .map(([s, e]) => [s - pad, e + pad + tail]);
       cutOpts.extra.push(...inside);
       rep.dropped += inside.length;
     }
@@ -384,7 +392,7 @@ export function apply(doc, plans, wordsBy, o) {
   if (o.sound) {
     for (const c of targets(doc)) {
       for (const g of [c, ...M.partners(doc, c)]) {
-        if (g.kind === "video" || g.kind === "audio") g.audio_fx = { denoise: true, voice: true };
+        if (g.kind === "video" || g.kind === "audio") g.audio_fx = withPreset("clair");
       }
     }
     doc.settings = { ...(doc.settings || {}), loudness: true };

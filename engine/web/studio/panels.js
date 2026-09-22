@@ -592,7 +592,7 @@ async function computeCuts() {
   for (const c of list) {
     let cuts;
     if (X.method === "voice") {
-      cuts = M.clipCuts(c, { words: await wordsOf(c.media), maxGap: st.max_gap ?? 0.5, pad: st.pad ?? 0.08,
+      cuts = M.clipCuts(c, { words: await wordsOf(c.media), maxGap: st.max_gap ?? 0.5, pad: st.pad ?? 0.08, tail: 0.1,
                              fillers: !!st.fillers });
     } else {
       const res = await api(`/api/timeline/${S.pid}/media/${c.media}/silences?noise=${X.noise}&min=${X.minSil}`);

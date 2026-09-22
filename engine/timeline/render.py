@@ -378,19 +378,51 @@ def _atempo(speed: float) -> list[str]:
     return out
 
 
+RNNOISE_MODEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "rnnoise_sh.rnnn")
+RNNOISE_FILE = "rnnoise.rnnn"      # copie du modèle dans le dossier de travail (chemin sans échappement)
+
+
+def voice_chain(fx: dict, rnnoise: bool = False) -> list[str]:
+    """Filtres ffmpeg du traitement de la voix (voir model.VOICE_FX), dans
+    l'ordre d'une chaîne de studio : nettoyage, dynamique, couleur, niveau."""
+    fx = fx or {}
+    out: list[str] = []
+    if fx.get("lowcut"):
+        out.append("highpass=f=80")
+    dn = float(fx.get("denoise") or 0)
+    if dn > 0:
+        if rnnoise:
+            out.append(f"arnndn=m={RNNOISE_FILE}:mix={_f(0.3 + 0.7 * dn)}")
+        else:
+            out.append(f"afftdn=nr={_f(6 + 18 * dn)}:nf=-30:tn=1")
+    if fx.get("gate"):
+        out.append("agate=threshold=0.02:ratio=4:attack=5:release=180:knee=4")
+    de = float(fx.get("deess") or 0)
+    if de > 0:
+        out.append(f"deesser=i={_f(0.2 + 0.6 * de)}:m=0.5:f=0.5")
+    co = float(fx.get("compress") or 0)
+    if co > 0:
+        out.append(f"acompressor=threshold={_f(-12 - 10 * co)}dB:ratio={_f(1 + 4 * co)}:attack=8:release=150"
+                   f":makeup={_f(1 + 2.5 * co)}:knee=4")
+    cl = float(fx.get("clarity") or 0)
+    if cl > 0:
+        out += [f"equalizer=f=220:t=q:w=1.1:g={_f(-3 * cl)}", f"equalizer=f=3000:t=q:w=1.2:g={_f(4 * cl)}",
+                f"treble=g={_f(2 * cl)}:f=7000"]
+    wa = float(fx.get("warmth") or 0)
+    if wa > 0:
+        out.append(f"bass=g={_f(4 * wa)}:f=180:w=0.6")
+    if fx.get("level"):
+        out.append("dynaudnorm=f=250:g=15:p=0.9:m=6")
+    return out
+
+
 def audio_segment(c: dict, src: str, label: str) -> list[str]:
     dur = float(c["dur"])
     speed = float(c.get("speed") or 1.0)
     a = float(c["in"]) - float(c.get("_origin", c["in"]))
     chain = [f"atrim=start={_f(a)}:end={_f(a + dur * speed)}", "asetpts=PTS-STARTPTS", *_atempo(speed),
              f"aresample={SR}", "aformat=sample_fmts=fltp:channel_layouts=stereo"]
-    fx = c.get("audio_fx") or {}
-    if fx.get("denoise"):
-        chain.append("afftdn=nr=18:nf=-30:tn=1")
-    if fx.get("voice"):
-        # voix plus claire : coupe les graves parasites, compresse, présence vers 3 kHz
-        chain += ["highpass=f=85", "acompressor=threshold=-20dB:ratio=3:attack=8:release=120:makeup=2",
-                  "equalizer=f=3200:t=q:w=1.2:g=3"]
+    chain += voice_chain(c.get("audio_fx") or {}, bool(c.get("_rnnoise")))
     vol = float(c.get("volume", 1.0))
     if abs(vol - 1.0) > 1e-3:
         chain.append(f"volume={_f(vol)}")
@@ -499,6 +531,14 @@ def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int,
     total = duration(state)
     if total <= 0:
         raise ValueError("Le montage est vide : rien à exporter.")
+    # réduction de bruit : le modèle RNNoise est copié à côté du graphe
+    if any((c.get("audio_fx") or {}).get("denoise") for c in state["clips"]) and os.path.isfile(RNNOISE_MODEL):
+        try:
+            shutil.copyfile(RNNOISE_MODEL, os.path.join(workdir, RNNOISE_FILE))
+            for c in state["clips"]:
+                c["_rnnoise"] = True
+        except OSError:
+            pass
     canvas = state["canvas"]
     f = out_w / float(canvas["w"])
     plan_transitions(state, media)

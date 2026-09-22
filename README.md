@@ -29,6 +29,11 @@ API key.
   and normalised loudness; the strongest moments flagged on the timeline. Runs
   with a local language model (Qwen3 4B, ~4 GB, optional) or with built-in rules.
   Every step stays editable, and one button restores the original.
+- **Voice-over and voice processing** — record your voice on the timeline from
+  any microphone of the PC (level meter, countdown, the montage plays under the
+  take), then shape it: noise reduction (RNNoise), low cut, gate, de-esser,
+  compressor, clarity, warmth, constant level — with presets (*Clair*, *Voix
+  off*, *Podcast*, *Radio*) that also work on any clip with speech.
 - **Automatic cuts** — removes silences (adjustable threshold) and, optionally,
   French filler words (« euh », « du coup », « en fait »…).
 - **Keep what matters** — every cut is marked on the timeline; click a marker
@@ -122,6 +127,15 @@ runs the automatic edit as soon as your video is imported.
   sound level, with a red preview before applying. *Sous-titres* generates
   captions from the voice; they follow later cuts and moves. Styles, positions,
   emojis, merge, split and English translation as in the short editor.
+- **Voice-over** — the microphone button in the timeline toolbar (or `R`) opens
+  the recorder: pick a microphone, watch the level, *3, 2, 1* and the take starts
+  at the playhead while the montage plays (other sounds muted so they don't leak
+  into the mic). The take lands on a « Voix off » track with the chosen voice
+  preset. The *Voix* section of the inspector then shapes any clip with speech:
+  noise reduction (RNNoise), low cut, noise gate, de-esser, compression, clarity,
+  warmth and constant level, or a preset (*Brut*, *Clair*, *Voix off*, *Podcast*,
+  *Radio*). The preview plays the EQ, de-esser and compression; noise reduction,
+  gate and levelling are applied at export.
 - **Export** — resolution (720p to 4K), frame rate, quality, H.264 or HEVC (NVIDIA
   GPU when available), or audio only (MP3, AAC, Opus, WAV, FLAC…). Files go to
   `Videos\Montage IA` and never overwrite each other.
@@ -138,10 +152,14 @@ picks the hook, the sentences to drop, the strongest moments and the on-screen
 keywords; otherwise built-in rules do it. The studio then applies the plan:
 
 1. **Cuts** — silences, filler words and dropped sentences, each with a red
-   marker you can click to restore.
-2. **Hook** — a title with the promise of the video during the first 3 seconds;
-   when the strongest sentence is further in and stands on its own, it is moved to
-   the front (cold open).
+   marker you can click to restore. A breath is kept after every sentence
+   (shorter with the *Punchy* rhythm, longer with *Calme*) so endings are never
+   clipped.
+2. **Hook** — a title with the promise of the video during the first 3 seconds,
+   taken from the hook you filmed first (a strong first sentence: imperative,
+   question, promise) or from the strongest sentence of the first 20 seconds.
+   Nothing is moved unless *Ouverture à froid* is ticked: then a much stronger
+   sentence found later can be pulled to the front.
 3. **Rhythm and zooms** — long shots are cut at sentence ends (*Calme*, *Normal*
    or *Punchy* sets the pace) and every other shot is punched in, more on the
    strong moments. Zooms are framed on the face (YuNet detector, on the proxy).

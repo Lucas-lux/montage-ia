@@ -150,3 +150,15 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
       −14 LUFS à l'export), repères ★ sur les moments forts (« Isoler »).
 - [x] Options par projet (chaque étape, rythme, durée visée), résumé du
       passage, « Revenir en arrière ».
+- [x] Affinage : l'accroche tournée en premier est respectée (ouverture à froid
+      sur demande seulement), respiration après chaque phrase selon le rythme.
+
+### 11. Voix off et traitement de la voix
+- [x] Enregistrement du micro (choix parmi ceux du PC, vumètre, compte à
+      rebours, lecture du montage pendant la prise, autres sons coupés) depuis
+      la barre rapide de la timeline (`R`) ; la prise devient un clip sur une
+      piste « Voix off », convertie en wav 48 kHz par le moteur.
+- [x] Section « Voix » de l'inspecteur pour tout clip avec du son : réduction
+      de bruit (RNNoise), coupe-bas, porte, de-esser, compression, clarté,
+      chaleur, niveau constant ; presets Brut / Clair / Voix off / Podcast /
+      Radio. Aperçu Web Audio (EQ, de-esser, compression), export ffmpeg.

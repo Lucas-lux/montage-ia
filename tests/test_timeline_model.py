@@ -165,10 +165,16 @@ def test_reglages_image_et_mots_coupes_conserves():
 
 
 def test_transition_et_effets_audio():
-    [c] = norm(clip(trans={"type": "fade", "dur": 9}, audio_fx={"denoise": 1, "bidon": True}))
-    assert c["trans"] == {"type": "fade", "dur": 3.0} and c["audio_fx"] == {"denoise": True}
+    [c] = norm(clip(trans={"type": "fade", "dur": 9}, audio_fx={"denoise": 0.5, "bidon": True, "lowcut": 1}))
+    assert c["trans"] == {"type": "fade", "dur": 3.0} and c["audio_fx"] == {"denoise": 0.5, "lowcut": True}
     [c] = norm(clip(trans={"type": "explosion"}))
     assert "trans" not in c and "audio_fx" not in c
+    # anciens interrupteurs
+    [c] = norm(clip(audio_fx={"denoise": True, "voice": True}))
+    assert c["audio_fx"] == {"denoise": 0.7, "lowcut": True, "compress": 0.5, "clarity": 0.6}
+    [c] = norm(clip(audio_fx={"deess": 2, "warmth": -1, "level": "yes", "preset": "Podcast"}))
+    assert c["audio_fx"] == {"deess": 1.0, "level": True, "preset": "Podcast"}
+    assert "audio_fx" not in norm(clip(audio_fx={"denoise": 0, "preset": "Brut"}))[0]
 
 
 def test_passages_retires_conserves():

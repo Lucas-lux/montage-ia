@@ -126,6 +126,7 @@ function buildTools() {
     iconBtn("silence", "Supprimer les blancs", () => emit("tool", { name: "silence" })),
     iconBtn("cc", "Sous-titres automatiques", () => emit("tool", { name: "captions" })),
     iconBtn("text", "Ajouter un texte", () => emit("tool", { name: "text" })),
+    iconBtn("mic", "Voix off : enregistrer ta voix à la tête de lecture (R)", () => emit("tool", { name: "voiceover" })),
     h("div.grow"),
     h("span.meta.num", { id: "tlInfo", style: { marginRight: "8px" } }),
     h("button.btn.icon.quiet" + (T.snap ? ".on" : ""), { id: "tlSnap", title: "Aimantation (N)",
@@ -1189,6 +1190,7 @@ function initKeys() {
     else if (!mod && k === "m") A.addMarker();
     else if (!mod && k === "n") toggleSnap();
     else if (!mod && k === "f") A.freezeFrame();
+    else if (!mod && k === "r") emit("tool", { name: "voiceover" });
     else used = false;
     if (used) e.preventDefault();
   });

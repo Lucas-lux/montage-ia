@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 
 import pytest
@@ -283,10 +284,27 @@ def test_transition_centree_sur_la_coupe(tmp_path):
 
 
 def test_effets_son_et_normalisation(tmp_path):
-    st = state([vclip(audio_fx={"denoise": True, "voice": True})])
+    st = state([vclip(audio_fx={"denoise": 0.7, "lowcut": True, "compress": 0.5, "clarity": 0.6})])
     g = render.build(st, {"mr": RED}, 360, 640, 25, str(tmp_path), loudness=True)
-    assert "afftdn" in g["graph"] and "acompressor" in g["graph"]
+    assert "acompressor" in g["graph"] and "highpass=f=80" in g["graph"] and "equalizer=f=3000" in g["graph"]
     assert "loudnorm=I=-14" in g["graph"] and "aresample=48000,atrim" in g["graph"]
+    # le modèle RNNoise est copié dans le dossier de travail et référencé sans chemin
+    if os.path.isfile(render.RNNOISE_MODEL):
+        assert "arnndn=m=rnnoise.rnnn:mix=0.79" in g["graph"]
+        assert os.path.isfile(os.path.join(str(tmp_path), "rnnoise.rnnn"))
+    else:
+        assert "afftdn" in g["graph"]
+
+
+def test_chaine_voix():
+    assert render.voice_chain({}) == []
+    full = render.voice_chain({"denoise": 1, "lowcut": True, "gate": True, "deess": 0.5, "compress": 1,
+                               "clarity": 0.5, "warmth": 0.5, "level": True}, rnnoise=True)
+    names = [f.split("=")[0] for f in full]
+    assert names == ["highpass", "arnndn", "agate", "deesser", "acompressor", "equalizer", "equalizer", "treble",
+                     "bass", "dynaudnorm"]
+    assert "acompressor=threshold=-22dB:ratio=5:attack=8:release=150:makeup=3.5:knee=4" in full
+    assert render.voice_chain({"denoise": 0.5}, rnnoise=False) == ["afftdn=nr=15:nf=-30:tn=1"]
 
 
 @pytest.mark.ffmpeg

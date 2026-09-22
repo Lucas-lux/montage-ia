@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 from typing import Callable
 
 from fastapi import APIRouter, Body, HTTPException, Query, Request
@@ -140,6 +141,41 @@ async def media_upload(pid: str, request: Request, name: str = Query(...)) -> di
     except Exception as exc:  # noqa: BLE001 - envoi coupé, disque plein…
         shutil.rmtree(folder, ignore_errors=True)
         raise HTTPException(400, f"Envoi de {clean} interrompu ({exc}).") from exc
+    return _view(proj, proj.add_media(dest, name=clean, copied=True, mid=mid))
+
+
+@router.post("/api/timeline/{pid}/media/record")
+async def media_record(pid: str, request: Request, name: str = Query("Voix off")) -> dict:
+    """Voix off enregistrée dans l'éditeur (webm/opus ou wav du navigateur) :
+    convertie en wav 48 kHz mono, puis ajoutée aux médias comme un fichier."""
+    proj = get(pid)
+    mid = model.new_id("m")
+    folder = proj.media_folder(mid)
+    os.makedirs(folder, exist_ok=True)
+    raw = os.path.join(folder, "recording.bin")
+    dest = os.path.join(folder, "source.wav")
+    try:
+        with open(raw, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        if os.path.getsize(raw) < 100:
+            raise ValueError("enregistrement vide")
+        res = subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", raw, "-vn",
+                              "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", dest],
+                             capture_output=True, text=True, timeout=600)
+        if res.returncode != 0 or not os.path.isfile(dest):
+            raise ValueError((res.stderr or "conversion impossible").strip()[-200:])
+    except Exception as exc:  # noqa: BLE001 - envoi coupé, ffmpeg absent…
+        shutil.rmtree(folder, ignore_errors=True)
+        raise HTTPException(400, f"Voix off impossible ({exc}).") from exc
+    finally:
+        try:
+            os.remove(raw)
+        except OSError:
+            pass
+    clean = _safe_name(name).strip() or "Voix off"
+    if not clean.lower().endswith(".wav"):
+        clean += ".wav"
     return _view(proj, proj.add_media(dest, name=clean, copied=True, mid=mid))
 
 
@@ -464,6 +500,7 @@ def autoedit_start(pid: str, body: dict = Body(...)) -> dict:
         raise HTTPException(409, {"message": "Transcription nécessaire.", "missing": missing})
     opts = body.get("options") or {}
     opts = {"llm": bool(opts.get("llm", True)), "trim": bool(opts.get("trim", True)),
+            "cold_open": bool(opts.get("cold_open", False)),
             "max_duration": float(opts.get("max_duration") or 0)}
     jid = model.new_id("j")
     AUTOEDIT_JOBS[jid] = {"status": "running", "pct": 0, "message": "En attente…", "plans": None}
