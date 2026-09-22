@@ -186,13 +186,18 @@ function renderLast() {
       h("div.meta", { style: { margin: "4px 0 2px" } }, "Moments forts — repères ★ sur la timeline"), hl) : null,
     h("div.actions", { style: { marginTop: "10px" } },
       h("button.btn", { html: svg("undo", 13) + "Revenir en arrière", onclick: revert }),
-      h("button.btn.quiet", { html: svg("refresh", 13) + "Refaire", onclick: run }))));
+      h("button.btn.quiet", { html: svg("refresh", 13) + "Refaire", title: "Repart du montage d'avant avec les options actuelles",
+                              onclick: () => { revert(); run(); } }))));
 }
 
 function revert() {
   if (!A.before) return;
   const old = JSON.parse(A.before);
-  edit((doc) => { for (const k of ["tracks", "clips", "markers", "settings"]) doc[k] = old[k]; }, "autoedit");
+  edit((doc) => {
+    for (const k of ["tracks", "clips", "markers"]) doc[k] = old[k];
+    // les options du montage automatique choisies depuis restent
+    doc.settings = { ...old.settings, auto: (doc.settings || {}).auto };
+  }, "autoedit");
   A.last = null;
   A.before = null;
   render();
@@ -200,7 +205,11 @@ function revert() {
 }
 
 function isolate(x) {
-  const a = Math.max(0, x.t - 0.3), b = Math.min(M.duration(S.doc), x.e + 0.4);
+  // une petite marge autour du moment, sans mordre sur les plans voisins
+  const at = (t) => mainClips(S.doc).find((c) => c.start <= t + 1e-3 && M.clipEnd(c) >= t - 1e-3);
+  const ca = at(x.t), cb = at(x.e);
+  const a = Math.max(ca ? ca.start : 0, x.t - 0.3);
+  const b = Math.min(cb ? M.clipEnd(cb) : M.duration(S.doc), x.e + 0.4);
   if (b - a < 1) { toast("Moment trop court."); return; }
   edit((doc) => M.isolateRange(doc, a, b), "isolate");
   setTime(0, { from: "list" });
