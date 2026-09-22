@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 
+from engine import store
 from engine.pipeline.ass_edit import emoji_geometry
 from engine.pipeline.captions import clean_words, group_indices
 from engine.pipeline.emoji import emoji_for
@@ -75,7 +76,7 @@ def run_transcription(proj, mid: str) -> None:
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"words": words, "language": meta.get("language") or ""}, f, ensure_ascii=False)
-        os.replace(tmp, path)
+        store.replace(tmp, path)          # l'éditeur peut être en train de lire l'ancien
         proj.update_media(mid, transcript={
             "status": "done", "count": len(words),
             "language": settings.get("language") or meta.get("language") or "",

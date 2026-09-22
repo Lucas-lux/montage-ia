@@ -69,3 +69,11 @@ def test_ts(t, expected):
 def test_ts_report_des_secondes():
     # Régression : l'arrondi à 100 cs donnait 0:00:60.00.
     assert _ts(59.999) == "0:01:00.00"
+
+
+def test_polices_windows_remplacees_sur_mac():
+    from engine.pipeline import fonts
+    assert fonts.system_font("Segoe UI", "darwin") == "Helvetica Neue"
+    assert fonts.system_font("Consolas", "darwin") == "Menlo"
+    assert fonts.system_font("Arial Black", "darwin") == "Arial Black"      # existe sur Mac
+    assert fonts.system_font("Segoe UI", "win32") == "Segoe UI"

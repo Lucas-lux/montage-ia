@@ -345,3 +345,15 @@ def test_transition_prolonge_les_deux_clips(media, tmp_path):
     assert close(pixel(out, 3.4, 180, 320), (255, 0, 0))          # avant la transition
     assert close(pixel(out, 5.0, 180, 320), (0, 255, 0))          # après
     assert close(pixel(out, 6.5, 180, 320), (0, 0, 255))          # l'image suivante, à sa place
+
+
+def test_encodeur_materiel_selon_le_systeme(monkeypatch):
+    from engine.pipeline import render as prender
+    assert prender.hw_encoder(platform="darwin") == "h264_videotoolbox"
+    assert prender.hw_encoder(True, platform="darwin") == "hevc_videotoolbox"
+    assert prender.hw_encoder(platform="win32") == "h264_nvenc"
+    monkeypatch.setattr(render, "hw_encoder", lambda hevc=False: "hevc_videotoolbox" if hevc else "h264_videotoolbox")
+    monkeypatch.setattr(render, "_encoder_works", lambda enc, size="": enc.endswith("_videotoolbox"))
+    args = render.video_codec_args("h264", "standard", 1080, 1920)
+    assert args[:2] == ["-c:v", "h264_videotoolbox"] and "-allow_sw" in args and "-preset" not in args
+    assert render.video_codec_args("hevc", "standard", 1080, 1920)[-2:] == ["-tag:v", "hvc1"]

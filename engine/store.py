@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
 import time
 
 PROJECTS = "projects"
@@ -42,15 +43,38 @@ def state_path(work_dir: str, pid: str) -> str:
     return os.path.join(project_dir(work_dir, pid), "project.json")
 
 
+def replace(src: str, dst: str, tries: int = 20) -> None:
+    """`os.replace` qui patiente quand Windows verrouille un instant la cible
+    (antivirus, indexation, lecture en cours) au lieu d'échouer."""
+    for i in range(tries):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if i == tries - 1:
+                raise
+            time.sleep(0.05 * (i + 1))
+
+
 def write_state(work_dir: str, pid: str, data: dict) -> None:
     """Écrit l'état de façon atomique : un crash en cours d'écriture ne doit
-    pas laisser un project.json tronqué (donc un projet perdu)."""
+    pas laisser un project.json tronqué (donc un projet perdu). Chaque écriture
+    a son propre fichier temporaire : deux sauvegardes simultanées (préparation
+    d'un média, éditeur) ne se marchent pas dessus."""
     path = state_path(work_dir, pid)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-    os.replace(tmp, path)
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix="project.", suffix=".tmp", dir=folder)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def read_state(work_dir: str, pid: str) -> dict | None:

@@ -1,2 +1,4 @@
 engine/data/*.rnnn -text
 engine/data/*.onnx binary
+build/*.icns binary
+build/*.ico binary

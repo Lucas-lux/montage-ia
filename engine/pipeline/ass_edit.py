@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import os
 
+from engine.pipeline.fonts import system_font
+
 # Antislash : caractère réservé d'ASS. On le neutralise dans les textes saisis.
 _BS = chr(92)
 
@@ -98,7 +100,7 @@ def _tags(c: dict, w: int, h: int) -> str:
     bord = _clamp(_num(c.get("outline"), 5), 0, 60)
     shad = _clamp(_num(c.get("shadow"), 0), 0, 60)
     box = bool(c.get("box"))
-    font = str(c.get("font") or "Arial").replace(_BS, "").replace("}", "")
+    font = system_font(str(c.get("font") or "Arial")).replace(_BS, "").replace("}", "")
     return "".join([
         r"\an5",
         rf"\pos({x},{y})",

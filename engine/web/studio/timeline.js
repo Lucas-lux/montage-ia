@@ -618,7 +618,7 @@ function drawRuler(dpr, vw, sl) {
   const t0 = sl / T.pps, t1 = (sl + vw) / T.pps;
   ctx.strokeStyle = theme().rulerLine;
   ctx.fillStyle = theme().rulerText;
-  ctx.font = "10.5px Segoe UI, system-ui, sans-serif";
+  ctx.font = "10.5px -apple-system, Segoe UI, system-ui, sans-serif";
   ctx.beginPath();
   for (let t = Math.floor(t0 / minor) * minor; t <= t1 + minor; t += minor) {
     const x = Math.round(t * T.pps - sl) + 0.5;

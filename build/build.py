@@ -1,4 +1,5 @@
-r"""Fabrique MontageIA.exe puis son installeur.
+r"""Fabrique MontageIA.exe puis son installeur (Windows), ou Montage IA.app et
+son image disque sur un Mac (voir build_mac.py).
 
     python build\build.py                # application + installeur
     python build\build.py --app-only     # s'arrête après l'application
@@ -227,6 +228,12 @@ def main() -> None:
     ap.add_argument("--no-cuda", action="store_true", help="sans les DLL GPU")
     ap.add_argument("--clean", action="store_true", help="repart de zéro")
     args = ap.parse_args()
+
+    if sys.platform == "darwin":
+        sys.path.insert(0, HERE)
+        import build_mac
+        build_mac.main(args, sys.modules[__name__])
+        return
 
     t0 = time.time()
     if args.clean and os.path.isdir(DIST):

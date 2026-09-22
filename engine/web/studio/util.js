@@ -2,6 +2,12 @@
 
 export const $ = (id) => document.getElementById(id);
 
+/** Sur Mac, les raccourcis s'écrivent ⌘, ⇧, ⌥ (le code accepte Ctrl et ⌘). */
+const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+export const keys = (text) => (MAC && typeof text === "string"
+  ? text.replace(/\bCtrl ?\+ ?/g, "⌘").replace(/\bMaj ?\+ ?/g, "⇧").replace(/\bAlt ?\+ ?/g, "⌥")
+  : text);
+
 /** Crée un élément : h("div.a.b", {title: "x", onclick}, enfants...). */
 export function h(tag, attrs, ...kids) {
   const [name, ...classes] = tag.split(".");
@@ -15,7 +21,7 @@ export function h(tag, attrs, ...kids) {
     else if (k === "html") el.innerHTML = v;
     else if (k === "text") el.textContent = v;
     else if (v === true) el.setAttribute(k, "");
-    else el.setAttribute(k, v);
+    else el.setAttribute(k, k === "title" ? keys(v) : v);
   }
   for (const kid of kids.flat()) {
     if (kid == null || kid === false) continue;
@@ -219,7 +225,7 @@ export function menu(x, y, items) {
       disabled: it.disabled,
       onclick: () => { closeMenu(); it.onclick?.(); },
       html: (it.icon ? svg(it.icon, 14) : `<span style="width:14px"></span>`) +
-            `<span>${it.label}</span>` + (it.key ? `<span class="k">${it.key}</span>` : ""),
+            `<span>${it.label}</span>` + (it.key ? `<span class="k">${keys(it.key)}</span>` : ""),
     })));
   document.body.appendChild(el);
   const r = el.getBoundingClientRect();

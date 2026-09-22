@@ -157,12 +157,34 @@ def _child(conn, path, model_size, device, compute_type, language) -> None:
         conn.close()
 
 
+def model_path(model_size: str) -> str:
+    """Dossier du modèle Whisper : le cache s'il y est, sinon téléchargé.
+
+    L'application passe HuggingFace hors-ligne quand SON modèle est déjà là
+    (`HF_HUB_OFFLINE`, voir app.py) ; un autre modèle choisi dans l'éditeur
+    (small, medium…) doit pouvoir se télécharger quand même."""
+    if os.path.isdir(model_size):
+        return model_size
+    from faster_whisper.utils import download_model
+    try:
+        return download_model(model_size, local_files_only=True)
+    except Exception:  # noqa: BLE001 - absent du cache (l'erreur dépend de la version)
+        pass
+    from huggingface_hub import constants
+    offline = constants.HF_HUB_OFFLINE
+    constants.HF_HUB_OFFLINE = False
+    try:
+        return download_model(model_size)
+    finally:
+        constants.HF_HUB_OFFLINE = offline
+
+
 def _run(path: str, model_size: str, device: str, compute_type: str,
          language: str | None, info: dict | None) -> list[Word]:
     # Import paresseux : le modèle ne se charge que si on transcrit.
     from faster_whisper import WhisperModel
 
-    model = WhisperModel(model_size, device=device, compute_type=compute_type)
+    model = WhisperModel(model_path(model_size), device=device, compute_type=compute_type)
     segments, meta = model.transcribe(
         path,
         word_timestamps=True,

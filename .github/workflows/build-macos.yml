@@ -1,0 +1,102 @@
+name: build-macos
+
+# Fabrique « Montage IA.app » et son .dmg sur un Mac Apple Silicon, puis
+# lance l'application et fait un vrai montage avec (scripts/smoke_test.py).
+#
+# Signature : ad hoc par défaut. Pour une app signée et notarisée, ajoute ces
+# secrets au dépôt : MAC_CERT_P12 (certificat « Developer ID Application »
+# exporté en .p12, en base64), MAC_CERT_PASSWORD, MAC_SIGN_IDENTITY
+# (« Developer ID Application: Nom (TEAMID) »), MAC_NOTARY_APPLE_ID,
+# MAC_NOTARY_TEAM_ID, MAC_NOTARY_PASSWORD (mot de passe d'application).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version affichée par l'application"
+        default: "0.1.0"
+  push:
+    tags: ["v*"]
+    branches: [main, refonte-timeline]
+    paths:
+      - app.py
+      - macapp.py
+      - engine/**
+      - build/**
+      - scripts/**
+      - requirements*.txt
+      - .github/workflows/build-macos.yml
+
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Montage IA.app (Apple Silicon)
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      MONTAGE_IA_VERSION: ${{ inputs.version || (startsWith(github.ref, 'refs/tags/v') && github.ref_name) || '0.1.0' }}
+      # les secrets ne se lisent pas dans un « if » : on en garde la présence ici
+      HAS_CERT: ${{ secrets.MAC_CERT_P12 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Dépendances
+        run: python -m pip install -r requirements-build.txt
+
+      - name: ffmpeg statique (cache)
+        uses: actions/cache@v4
+        with:
+          path: build/_mac
+          key: ffmpeg-macos-arm64-${{ hashFiles('build/build_mac.py') }}
+
+      - name: Modèle de traduction
+        run: python scripts/download_models.py
+
+      - name: Certificat de signature (si configuré)
+        if: env.HAS_CERT == 'true'
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+
+      - name: Build
+        env:
+          MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+          MAC_NOTARY_APPLE_ID: ${{ secrets.MAC_NOTARY_APPLE_ID }}
+          MAC_NOTARY_TEAM_ID: ${{ secrets.MAC_NOTARY_TEAM_ID }}
+          MAC_NOTARY_PASSWORD: ${{ secrets.MAC_NOTARY_PASSWORD }}
+        run: python build/build.py
+
+      - name: Essai de l'application (import, transcription, voix off, export)
+        run: python scripts/smoke_test.py --app "dist/Montage IA.app"
+
+      - name: Image disque
+        uses: actions/upload-artifact@v4
+        with:
+          name: MontageIA-macos-arm64
+          path: dist/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Publication (tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.ref_name }}" dist/*.dmg --clobber || gh release create "${{ github.ref_name }}" dist/*.dmg --generate-notes

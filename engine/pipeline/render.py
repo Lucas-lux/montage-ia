@@ -17,6 +17,7 @@ import functools
 import os
 import re
 import subprocess
+import sys
 import tempfile
 
 from engine.edl import KeepSegment
@@ -125,6 +126,13 @@ _HW_SUFFIXES = ("_nvenc", "_qsv", "_amf", "_vaapi", "_videotoolbox", "_mf")
 _H264_HW_MAX = 4096
 
 
+def hw_encoder(hevc: bool = False, platform: str | None = None) -> str:
+    """Encodeur matériel du système : VideoToolbox sur Mac, NVENC ailleurs."""
+    if (platform or sys.platform) == "darwin":
+        return "hevc_videotoolbox" if hevc else "h264_videotoolbox"
+    return "hevc_nvenc" if hevc else "h264_nvenc"
+
+
 @functools.lru_cache(maxsize=None)
 def _encoder_works(encoder: str, size: str = "320x240") -> bool:
     """Encode une image de test pour vérifier que l'encodeur s'ouvre vraiment.
@@ -162,9 +170,9 @@ def _video_codec_args(encoder: str, width: int = 0, height: int = 0) -> list[str
     requested = encoder
     big = max(width, height) > _H264_HW_MAX
     if encoder == "auto":
-        encoder = "h264_nvenc"
-    if big and encoder == "h264_nvenc":
-        encoder = "hevc_nvenc"
+        encoder = hw_encoder()
+    if big and encoder.startswith("h264_") and encoder.endswith(_HW_SUFFIXES):
+        encoder = "hevc_" + encoder[len("h264_"):]
     rate = _bitrate(width or 1080, height or 1920)
 
     if encoder.endswith(_HW_SUFFIXES):

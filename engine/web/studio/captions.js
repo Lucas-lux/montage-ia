@@ -8,6 +8,7 @@
    Deux couches : les textes actifs à l'instant courant, et les textes
    sélectionnés hors de leur temps (en fantôme, pour les placer à l'aveugle). */
 
+import { fontStack } from "./fonts.js";
 import * as M from "./model.js";
 import { S, begin, cancelBegin, changed, end, on, select, snapshot } from "./store.js";
 import { $, clamp, h } from "./util.js";
@@ -74,7 +75,7 @@ export function buildCap(c, wordIdx, ghost) {
                { dataset: { id: c.id } });
   el.style.left = (c.x * 100) + "%";
   el.style.top = (c.y * 100) + "%";
-  el.style.fontFamily = `"${c.font}", Arial, sans-serif`;
+  el.style.fontFamily = fontStack(c.font);
   el.style.fontSize = (c.size * k) + "px";
   el.style.fontWeight = c.bold ? 700 : 400;
 
@@ -295,7 +296,7 @@ export function stylePreview(look, { words = ["Ton", "texte", "ici"], height = 5
     if (i < words.length - 1) inner.appendChild(document.createTextNode(" "));
   });
   return h("div.stylepv", {
-    style: { height: height + "px", fontFamily: `"${look.font}", Arial, sans-serif`, fontSize: px + "px",
+    style: { height: height + "px", fontFamily: fontStack(look.font), fontSize: px + "px",
              fontWeight: look.bold === false ? 400 : 700 },
   }, inner);
 }

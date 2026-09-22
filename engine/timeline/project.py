@@ -329,8 +329,11 @@ def _project_thumb(proj: TimelineProject, poster: str) -> None:
 
 def default_export_dir(proj: TimelineProject, create: bool = True) -> str:
     """Dossier des exports : `MONTAGE_IA_EXPORTS`, sinon « Vidéos/Montage IA »
-    de l'utilisateur, sinon le dossier du projet. Créé seulement pour écrire."""
-    videos = os.path.join(os.path.expanduser("~"), "Videos")
+    de l'utilisateur (« Movies » sur Mac), sinon le dossier du projet. Créé
+    seulement pour écrire."""
+    home = os.path.expanduser("~")
+    videos = next((os.path.join(home, d) for d in ("Videos", "Movies") if os.path.isdir(os.path.join(home, d))),
+                  os.path.join(home, "Videos"))
     target = os.environ.get("MONTAGE_IA_EXPORTS") or (
         os.path.join(videos, "Montage IA") if os.path.isdir(videos) else os.path.join(proj.dir, "exports"))
     if not create:

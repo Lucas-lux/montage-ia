@@ -34,7 +34,7 @@ import tempfile
 import threading
 
 from engine.pipeline.ass_edit import build_ass_edited
-from engine.pipeline.render import _encoder_works
+from engine.pipeline.render import _encoder_works, hw_encoder
 
 EPS = 1e-3
 SR = 48000
@@ -611,10 +611,14 @@ def video_codec_args(codec: str, quality: str, width: int, height: int, encoder:
     mbps = max(2.5, 8 * (width * height) / (1080 * 1920)) * q
     rate = f"{min(120, max(1, round(mbps)))}M"
     hevc = codec == "hevc" or max(width, height) > 4096
-    hw = "hevc_nvenc" if hevc else "h264_nvenc"
+    hw = hw_encoder(hevc)
     if encoder != "cpu" and _encoder_works(hw, f"{_even(width)}x{_even(height)}"):
-        args = ["-c:v", hw, "-preset", "p5", "-rc", "vbr", "-b:v", rate, "-maxrate", rate,
-                "-pix_fmt", "yuv420p"]
+        if hw.endswith("_videotoolbox"):
+            # puce Apple : débit visé, pas de repli logiciel silencieux
+            args = ["-c:v", hw, "-b:v", rate, "-maxrate", rate, "-allow_sw", "0", "-pix_fmt", "yuv420p"]
+        else:
+            args = ["-c:v", hw, "-preset", "p5", "-rc", "vbr", "-b:v", rate, "-maxrate", rate,
+                    "-pix_fmt", "yuv420p"]
         return args + (["-tag:v", "hvc1"] if hevc else [])
     if hevc and _encoder_works("libx265"):
         return ["-c:v", "libx265", "-preset", "medium", "-crf", str(X265_CRF.get(quality, 24)),

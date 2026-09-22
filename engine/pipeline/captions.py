@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from engine.edl import Word
 from engine.pipeline.emoji import emoji_for
+from engine.pipeline.fonts import system_font
 
 STYLES: dict[str, dict] = {
     "classic": dict(font="Arial", size=84, primary="&H00FFFFFF", secondary="&H0000E5FF",
@@ -56,7 +57,9 @@ _ATTACH_PUNCT = set(",.!?;:…)»")
 
 
 def _header(style: str) -> str:
-    return _HEADER_TPL.format(**STYLES.get(style, STYLES["classic"]))
+    st = dict(STYLES.get(style, STYLES["classic"]))
+    st["font"] = system_font(st["font"])
+    return _HEADER_TPL.format(**st)
 
 
 def _ts(t: float) -> str:

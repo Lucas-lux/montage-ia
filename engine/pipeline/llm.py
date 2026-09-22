@@ -46,9 +46,18 @@ def available() -> bool:
 
 
 def download(repo: str | None = None, progress=None) -> str:
-    """Télécharge le modèle dans le cache HuggingFace (une fois)."""
-    from huggingface_hub import snapshot_download
-    return snapshot_download(repo or _env_repo(), allow_patterns=_FILES)
+    """Télécharge le modèle dans le cache HuggingFace (une fois).
+
+    L'application passe HuggingFace hors-ligne quand Whisper est déjà là
+    (`HF_HUB_OFFLINE`, voir app.py) : le téléchargement demandé ici doit
+    passer quand même."""
+    from huggingface_hub import constants, snapshot_download
+    offline = constants.HF_HUB_OFFLINE
+    constants.HF_HUB_OFFLINE = False
+    try:
+        return snapshot_download(repo or _env_repo(), allow_patterns=_FILES)
+    finally:
+        constants.HF_HUB_OFFLINE = offline
 
 
 def _load() -> tuple:

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-r"""Recette PyInstaller de MontageIA.exe.
+r"""Recette PyInstaller de MontageIA.exe (Windows) et de Montage IA.app (macOS).
 
 Ce fichier n'empaquette que du Python : le moteur, l'interface et les
 bibliothèques. Les gros binaires (ffmpeg, DLL CUDA, modèle Whisper) sont copiés
@@ -9,12 +9,18 @@ du code à inspecter. `app.py` les retrouve au démarrage via le PATH.
 
 Mode « un dossier » et non « un fichier » : un exe unique de 2 Go se
 décompresserait dans un dossier temporaire à chaque lancement.
+
+Sur macOS, le dossier devient une application (BUNDLE) : pas de terminal,
+icône dans le Dock et la barre des menus (macapp.py), App Nap désactivé.
 """
 import os
+import sys
 
 from PyInstaller.utils.hooks import collect_all
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
+MAC = sys.platform == "darwin"
+VERSION = os.environ.get("MONTAGE_IA_VERSION", "0.1.0")
 
 # Toute l'interface : pages, modules JS et feuilles de style du studio, et
 # les données du moteur (détecteur de visage YuNet).
@@ -24,8 +30,11 @@ binaries = []
 hiddenimports = [
     # Chargés paresseusement dans le moteur : PyInstaller ne peut pas les voir.
     "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
-    "engine.server", "engine.project", "engine.store",
+    "engine.server", "engine.project", "engine.store", "engine.pipeline.fonts",
 ]
+if MAC:
+    # Dock et barre des menus (importés dans une fonction : invisibles à l'analyse)
+    hiddenimports += ["macapp", "AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"]
 
 # uvicorn/fastapi résolvent leurs protocoles par nom au démarrage.
 # sentencepiece : tokenizer des modèles de traduction (engine/pipeline/translate.py).
@@ -62,9 +71,12 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=False,
-    console=True,          # la fenêtre sert de journal et de bouton « quitter »
-    icon=os.path.join(SPECPATH, "icon.ico") if os.path.exists(
-        os.path.join(SPECPATH, "icon.ico")) else None,
+    # Windows : la fenêtre sert de journal et de bouton « quitter ».
+    # macOS : une application sans terminal (journal dans ~/Library/Logs).
+    console=not MAC,
+    argv_emulation=False,
+    icon=os.path.join(SPECPATH, "icon.icns" if MAC else "icon.ico") if os.path.exists(
+        os.path.join(SPECPATH, "icon.icns" if MAC else "icon.ico")) else None,
 )
 coll = COLLECT(
     exe,
@@ -74,3 +86,23 @@ coll = COLLECT(
     upx=False,
     name="MontageIA",
 )
+if MAC:
+    app = BUNDLE(
+        coll,
+        name="Montage IA.app",
+        icon=os.path.join(SPECPATH, "icon.icns"),
+        bundle_identifier="io.github.lucas-lux.montage-ia",
+        version=VERSION,
+        info_plist={
+            "CFBundleName": "Montage IA",
+            "CFBundleDisplayName": "Montage IA",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
+            "LSMinimumSystemVersion": "11.0",
+            "LSApplicationCategoryType": "public.app-category.video",
+            "NSHighResolutionCapable": True,
+            # le moteur garde sa vitesse quand le navigateur est au premier plan
+            "NSAppSleepDisabled": True,
+            "NSHumanReadableCopyright": "MIT — Montage IA",
+        },
+    )
