@@ -669,6 +669,7 @@
         </div>
         <button class="btn icon" id="undo" title="Annuler (Ctrl+Z)"></button>
         <button class="btn icon" id="redo" title="Rétablir (Ctrl+Y)"></button>
+        <button class="btn" id="toTimeline" title="Continuer ce montage dans la timeline multipiste (ce projet est gardé)"></button>
         <button class="btn primary" id="export"></button>
       </div>
 
@@ -908,12 +909,16 @@
             <div class="fmts" id="modeFormats"></div>
           </span>
         </div>
-        <button class="mode" id="modeShort">
+        <div class="mode">
           <span class="ic" id="modeShortIc"></span>
           <span class="grow"><b>Short automatique</b>
             <span class="meta">Une vidéo face caméra : coupe des blancs, recadrage 9:16 et
-              sous-titres animés, en une analyse.</span></span>
-        </button>
+              sous-titres animés, en une analyse.</span>
+            <div class="fmts">
+              <button class="btn sm primary" id="modeShortTl" title="Coupes et sous-titres automatiques, puis retouches dans la timeline">Dans la timeline</button>
+              <button class="btn sm" id="modeShort" title="L'éditeur de sous-titres d'origine">Éditeur simple</button>
+            </div></span>
+        </div>
       </div>
     </div>
   </div>
@@ -2566,6 +2571,19 @@ $("edBack").innerHTML = svg(P.back, 16);
 $("undo").innerHTML = svg(P.undo, 15);
 $("redo").innerHTML = svg(P.redo, 15);
 $("export").innerHTML = svg(P.down, 15) + "Exporter";
+$("toTimeline").innerHTML = svg(P.layers, 15) + "Ouvrir dans la timeline";
+$("toTimeline").onclick = async () => {
+  if (!S.id) return;
+  $("toTimeline").disabled = true;
+  try {
+    await saveNow();
+    const { id } = await post("/api/timeline/from-short/" + S.id);
+    location.href = "/studio#p=" + id;
+  } catch (e) {
+    toast("Impossible : " + e.message);
+    $("toTimeline").disabled = false;
+  }
+};
 $("selAll").innerHTML = svg(P.layers, 14);
 $("expClose").innerHTML = svg(P.close, 14);
 $("play").innerHTML = playSvg;
@@ -2581,6 +2599,13 @@ $("audioBack").onclick = () => showView("tools");
 $("edBack").onclick = () => { saveNow(); loadProjects(); };
 $("newProject").onclick = openNew;
 $("modeShort").onclick = openImport;
+$("modeShortTl").onclick = async () => {
+  try {
+    const { id } = await post("/api/timeline", { canvas: "9:16" });
+    saveNow();
+    location.href = "/studio#p=" + id + "&auto=1";
+  } catch (e) { toast(e.message); }
+};
 $("modeClose").onclick = closeNew;
 $("modeOverlay").onpointerdown = (e) => { if (e.target === $("modeOverlay")) closeNew(); };
 // Fermeture de l'onglet : `fetch` n'a plus le temps d'aboutir, sendBeacon si.

@@ -15,6 +15,13 @@ compte, pas d'envoi en ligne, pas de clé d'API.
 
 ## Fonctionnalités
 
+- **Studio timeline** — un éditeur multipiste à la CapCut. Importe des clips, des
+  images, de la musique ou un dossier entier ; place, divise, rogne et supprime (la
+  piste principale referme les trous) ; superpose des vidéos ; sépare le son d'un
+  clip en un clic ; ajoute musique, voix off et titres. La suppression des blancs
+  et les sous-titres automatiques travaillent directement sur la timeline, et les
+  sous-titres restent calés sur la voix après chaque coupe. Export jusqu'en 4K
+  (H.264 ou HEVC), ou le mixage audio seul.
 - **Coupes automatiques** — supprime les blancs (seuil réglable) et, en option,
   les tics de langage (« euh », « du coup », « en fait »…).
 - **Garder ce qui compte** — chaque coupe est repérée sur la timeline ; un clic
@@ -82,7 +89,41 @@ une seule fois. Pour le récupérer d'avance : `python scripts/download_models.p
 > défaut. La ligne de commande accepte un modèle plus léger (`--model small`) pour
 > tester vite.
 
-## Utiliser l'éditeur
+## Utiliser le studio (timeline)
+
+*Nouveau projet → Montage* ouvre une timeline vide au format choisi (9:16, 16:9,
+1:1, 4:5…). *Short automatique → Dans la timeline* fait de même, puis coupe les
+blancs et pose les sous-titres dès que ta vidéo est importée.
+
+- **Médias** — *Importer* (fichiers), *Dossier* (un dossier entier, glisser-déposer
+  compris) ou *Par chemin* (fichiers lus sur place, sans copie — le bon choix pour de
+  gros rushs). Chaque fichier reçoit en tâche de fond un proxy léger, une bande de
+  vignettes et une forme d'onde.
+- **Timeline** — glisse un média sur une piste ou clique sur `+`. Glisse un clip pour
+  le déplacer, ses bords pour le rogner, `Ctrl+B` pour diviser, `Suppr` pour
+  supprimer. La piste principale est magnétique ; les autres sont libres. Glisser un
+  clip au-dessus de la première piste (ou sous la dernière piste audio) crée une
+  piste. `Ctrl`+molette zoome, `N` coupe l'aimantation, `Alt`+clic prend un clip sans
+  son son lié.
+- **Son** — *Séparer le son* place le son d'une vidéo sur une piste audio, lié à elle
+  (ils bougent ensemble ; *Dissocier* les sépare). Volume jusqu'à 200 %, fondus,
+  vitesse (hauteur de voix conservée), muet par clip ou par piste.
+- **Aperçu** — clique sur un clip dans l'aperçu pour le déplacer, l'agrandir (coins)
+  ou le tourner ; l'inspecteur à droite a tous les réglages (remplir/adapter,
+  position, opacité, miroir, luminosité/contraste/saturation).
+- **Outils IA** — *Supprimer les blancs* sur la sélection, la piste principale ou
+  tout le montage, d'après la voix (transcription, tics de langage en option) ou le
+  volume sonore, avec un aperçu en rouge avant d'appliquer. *Sous-titres* les génère
+  depuis la voix ; ils suivent ensuite coupes et déplacements. Styles, positions,
+  émojis, fusion, division et traduction en anglais comme dans l'éditeur short.
+- **Export** — définition (720p à 4K), images/s, qualité, H.264 ou HEVC (GPU NVIDIA
+  si possible), ou son seul (MP3, AAC, Opus, WAV, FLAC…). Les fichiers vont dans
+  `Vidéos\Montage IA` et ne s'écrasent jamais.
+
+Tout est enregistré automatiquement ; `Ctrl+Z` / `Ctrl+Y` annulent et rétablissent
+chaque modification.
+
+## Utiliser l'éditeur short
 
 1. **Nouveau projet** — dépose une vidéo (ou colle un chemin), choisis un style de
    sous-titres et les réglages de coupe, puis *Analyser*. La transcription est la
@@ -189,7 +230,7 @@ bibliothèques CUDA et le modèle de traduction. Les projets vont dans
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest                 # ~120 tests, quelques secondes
+python -m pytest                 # ~250 tests (Python + JS de la timeline), quelques secondes
 python -m pytest -m "not ffmpeg" # sans le test qui demande ffmpeg
 ```
 
@@ -224,7 +265,17 @@ engine/
   project.py               état d'édition d'une vidéo : mots, coupes, sous-titres, export
   core.py · cli.py         pipeline en une passe et sa ligne de commande
   store.py · edl.py        projets sur disque · modèles de données
-  web/index.html           toute l'interface (projets, éditeur, timeline, export)
+  web/index.html           accueil, éditeur short et boîte à outils
+  web/studio.html          studio timeline (modules dans web/studio/)
+    studio/model.js        logique de timeline, pure (testée par node --test)
+    studio/timeline.js     pistes, clips, gestes · player.js aperçu temps réel
+    studio/inspector.js    réglages de clip et de projet · panels.js outils IA, sous-titres
+  timeline/
+    project.py · model.py  projets timeline sur disque · validation de l'état de l'éditeur
+    media.py · jobs.py     proxies, vignettes, formes d'onde · files de tâches
+    ai.py                  transcription, silences, sous-titres depuis la timeline
+    render.py              export : pistes, transformations, mixage, sous-titres
+    convert.py             ouvrir un projet short dans la timeline
   pipeline/
     probe.py               ffprobe (gère les vidéos de téléphone pivotées)
     transcribe.py          faster-whisper, repli GPU → processeur
@@ -239,7 +290,7 @@ engine/
     audio.py               boîte à outils : extraire le son d'une vidéo (aussi en CLI)
 scripts/download_models.py récupère le modèle de traduction (et Whisper en option)
 build/                     recettes PyInstaller + Inno Setup de l'application Windows
-tests/                     suite pytest
+tests/                     suite pytest (+ tests/js, lancés par node --test)
 ```
 
 ## Dépannage

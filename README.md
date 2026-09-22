@@ -15,6 +15,12 @@ API key.
 
 ## Features
 
+- **Timeline studio** — a CapCut-style multitrack editor. Import clips, images,
+  music or a whole folder; arrange, split, trim and delete (the main track closes
+  the gaps); stack video overlays; detach a clip's audio in one click; add music,
+  voice-over and titles. Silence removal and auto captions work directly on the
+  timeline, and captions stay in sync with the voice after every cut. Export up
+  to 4K (H.264 or HEVC), or the audio mix alone.
 - **Automatic cuts** — removes silences (adjustable threshold) and, optionally,
   French filler words (« euh », « du coup », « en fait »…).
 - **Keep what matters** — every cut is marked on the timeline; click a marker
@@ -81,7 +87,38 @@ once. To fetch it in advance: `python scripts/download_models.py --whisper`.
 > 3–4× the video duration with the default model. The command-line tool accepts a
 > smaller model (`--model small`) for faster tests.
 
-## Using the editor
+## Using the studio (timeline)
+
+*Nouveau projet → Montage* opens an empty timeline in the format of your choice
+(9:16, 16:9, 1:1, 4:5…). *Short automatique → Dans la timeline* does the same, then
+cuts the silences and adds captions as soon as your video is imported.
+
+- **Media** — *Importer* (files), *Dossier* (a whole folder, drag-and-drop works
+  too) or *Par chemin* (local files read in place, no copy — best for big rushes).
+  Each file gets a light proxy, a thumbnail strip and a waveform in the background.
+- **Timeline** — drag media onto a track or click `+`. Drag clips to move them,
+  drag their edges to trim, `Ctrl+B` to split, `Suppr` to delete. The main track
+  is magnetic; other tracks are free. Drag a clip above the top track (or below the
+  last audio track) to create a new track. `Ctrl`+wheel zooms, `N` toggles
+  snapping, `Alt`+click picks a clip without its linked audio.
+- **Audio** — *Séparer le son* puts a video's sound on an audio track, linked to
+  it (they move together; *Dissocier* separates them). Volume up to 200 %, fades,
+  speed (pitch kept), mute per clip or per track.
+- **Preview** — click a clip in the preview to move, scale (corners) or rotate it;
+  the inspector on the right has every setting (fit/fill, position, opacity,
+  mirror, brightness/contrast/saturation).
+- **AI tools** — *Supprimer les blancs* on the selection, the main track or
+  everything, based on the voice (transcription, optional filler words) or on the
+  sound level, with a red preview before applying. *Sous-titres* generates
+  captions from the voice; they follow later cuts and moves. Styles, positions,
+  emojis, merge, split and English translation as in the short editor.
+- **Export** — resolution (720p to 4K), frame rate, quality, H.264 or HEVC (NVIDIA
+  GPU when available), or audio only (MP3, AAC, Opus, WAV, FLAC…). Files go to
+  `Videos\Montage IA` and never overwrite each other.
+
+Everything is saved automatically; `Ctrl+Z` / `Ctrl+Y` undo and redo any edit.
+
+## Using the short editor
 
 1. **New project** — drop a video (or paste a path), pick a caption style and the
    cut settings, then start the analysis. Transcription is the only slow step,
@@ -185,7 +222,7 @@ libraries and the translation model. Projects are stored in
 
 ```bash
 pip install -r requirements-dev.txt
-python -m pytest                 # ~120 tests, a few seconds
+python -m pytest                 # ~250 tests (Python + timeline JS), a few seconds
 python -m pytest -m "not ffmpeg" # skip the test that needs ffmpeg
 ```
 
@@ -220,7 +257,17 @@ engine/
   project.py               editing state of one video: words, cuts, captions, export
   core.py · cli.py         one-shot pipeline and its command line
   store.py · edl.py        projects on disk · shared data models
-  web/index.html           the whole UI (projects, editor, timeline, export)
+  web/index.html           home, short editor and toolbox
+  web/studio.html          timeline studio (modules in web/studio/)
+    studio/model.js        timeline logic, pure (tested with node --test)
+    studio/timeline.js     tracks, clips, gestures · player.js real-time preview
+    studio/inspector.js    clip and project settings · panels.js AI tools, captions
+  timeline/
+    project.py · model.py  timeline projects on disk · validation of the editor state
+    media.py · jobs.py     proxies, thumbnails, waveforms · background queues
+    ai.py                  transcription, silences, captions from the timeline
+    render.py              export: tracks, transforms, audio mix, captions
+    convert.py             open a short project in the timeline
   pipeline/
     probe.py               ffprobe (handles rotated phone videos)
     transcribe.py          faster-whisper, GPU → CPU fallback
@@ -235,7 +282,7 @@ engine/
     audio.py               toolbox: extract a video's audio (also a command line)
 scripts/download_models.py fetch the translation (and optionally Whisper) models
 build/                     PyInstaller + Inno Setup recipes for the Windows app
-tests/                     pytest suite
+tests/                     pytest suite (+ tests/js, run by node --test)
 ```
 
 ## Troubleshooting

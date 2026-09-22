@@ -446,3 +446,15 @@ def media_file(pid: str, mid: str, what: str):
         raise HTTPException(404, "Pas encore prêt.")
     return FileResponse(path, media_type=mime,
                         headers={"Cache-Control": "private, max-age=31536000, immutable"})
+
+
+@router.post("/api/timeline/from-short/{pid}")
+def from_short(pid: str) -> dict:
+    """Ouvre un projet short dans la timeline (nouveau projet, l'ancien est gardé)."""
+    from engine.timeline import convert
+    try:
+        tl = convert.from_short(_work_dir(), pid)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    TIMELINES[tl.id] = tl
+    return {"id": tl.id}

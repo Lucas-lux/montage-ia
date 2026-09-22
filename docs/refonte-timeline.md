@@ -123,11 +123,12 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [x] Export du son seul (formats de la boîte à outils).
 
 ### 8. Intégration
-- [ ] Accueil : choix entre « Montage » et « Short automatique ».
-- [ ] « Short automatique » dans la timeline : import → coupes → sous-titres,
+- [x] Accueil : choix entre « Montage » et « Short automatique ».
+- [x] « Short automatique » dans la timeline : import → coupes → sous-titres,
       puis retouches à la main.
-- [ ] Ouvrir un ancien projet dans la timeline.
-- [ ] Documentation, changelog, build de l'application.
+- [x] Ouvrir un ancien projet dans la timeline.
+- [x] Documentation, changelog.
+- [ ] Build de l'application et installation.
 
 ### 9. Finitions (seconde vague)
 - [ ] Transitions entre clips (fondu, fondu au noir, glissement, zoom).

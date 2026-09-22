@@ -16,6 +16,20 @@ First public release.
 - Local French → English caption translation (Opus-MT via CTranslate2).
 - Project library stored on disk; export cached until the edit changes.
 - Command-line pipeline (`python -m engine.cli`).
+- Timeline studio: a CapCut-style multitrack editor (video, audio and text
+  tracks). Import files, folders or local paths (read in place); proxies,
+  thumbnails and waveforms prepared in the background; split, trim, move,
+  ripple delete, duplicate, copy/paste, markers, snapping, undo/redo; one-click
+  audio detach (linked clips), volume up to 200 %, fades, speed; transforms in
+  the preview (move, scale, rotate, mirror, opacity) and image adjustments;
+  real-time multitrack playback.
+- AI tools on the timeline: per-media transcription queue, silence removal by
+  voice or by sound level with a preview, filler words, auto captions that stay
+  in sync with the voice after cuts and moves, titles, local translation, and a
+  one-click « short automatique ».
+- Timeline export: all tracks composited, audio mixed, captions and emojis
+  burned in; 720p to 4K, H.264 or HEVC (NVENC when available), or audio only;
+  cancellable. Short projects can be opened in the timeline.
 - Toolbox, usable without a project. First tool: extract a video's audio as
   MP3 (default), AAC, Opus, Ogg Vorbis, WAV or FLAC, with a chosen bitrate or
   bit depth, sample rate and channels (`python -m engine.tools.audio`).

@@ -46,6 +46,79 @@ export function init() {
   on("select", renderCapList);
   on("tab", ({ name }) => { if (name === "auto") renderAuto(); if (name === "captions") renderCapList(); });
   on("presets", renderCapGen);
+  // Arrivée depuis « Short automatique » : la première vidéo prête lance tout.
+  if (new URLSearchParams(location.hash.slice(1)).get("auto") === "1") {
+    X.autoArmed = true;
+    showTab("media");
+    toast("Short automatique : importe ta vidéo, les coupes et les sous-titres se font tout seuls.", 6000);
+    on("media", armedStart);
+    armedStart();
+  }
+}
+
+/* ======================================================== short automatique */
+
+function armedStart() {
+  if (!X.autoArmed || X.busy) return;
+  const ready = [...S.media.values()].find((m) => m.status === "ready" && m.kind === "video");
+  if (!ready) return;
+  X.autoArmed = false;
+  history.replaceState(null, "", "#p=" + S.pid);
+  if (!S.doc.clips.some((c) => c.kind === "video")) {
+    edit((doc) => {
+      M.appendMedia(doc, ready, 0);
+      // un short sans nom prend celui de sa vidéo
+      if (!doc.name || doc.name === "Nouveau montage") doc.name = ready.name.replace(/\.[^.]+$/, "");
+    }, "add");
+    const input = document.getElementById("name");
+    if (input) input.value = S.doc.name;
+  }
+  autoShort();
+}
+
+/** Coupe les blancs de la piste principale puis génère les sous-titres. */
+export async function autoShort() {
+  if (X.busy) return;
+  if (!S.doc.clips.some((c) => c.kind === "video" || c.kind === "audio")) {
+    toast("Ajoute d'abord une vidéo à la timeline.");
+    return;
+  }
+  const veil = h("div.busyveil", {}, h("div.box", {},
+    h("div", { style: { fontWeight: 600, marginBottom: "6px" } }, "Short automatique"),
+    h("div.meta", { id: "autoMsg" }, "Préparation…"),
+    h("div.track-bar", {}, h("i", { id: "autoBar", style: { width: "10%" } }))));
+  document.body.appendChild(veil);
+  const say = (t, pct) => {
+    const m = document.getElementById("autoMsg");
+    if (m) m.textContent = t;
+    if (pct !== undefined) document.getElementById("autoBar").style.width = pct + "%";
+  };
+  const old = { scope: X.scope, method: X.method };
+  try {
+    X.scope = "main";
+    X.method = "voice";
+    const ids = S.doc.clips.filter((c) => c.kind === "video" || c.kind === "audio").map((c) => c.media);
+    say("Transcription de la voix (Whisper, sur ton PC)…", 20);
+    if (!(await ensureTranscripts(ids, (t) => say(t, 35)))) return;
+    say("Suppression des blancs…", 60);
+    const plan = await computeCuts();
+    if (plan && plan.length) {
+      edit((doc) => {
+        const order = plan.map((p) => ({ ...p, c: doc.clips.find((x) => x.id === p.id) }))
+          .filter((p) => p.c).sort((a, b) => b.c.start - a.c.start);
+        for (const p of order) M.applyCuts(doc, p.c, p.cuts);
+        M.reflowCaptions(doc);
+      }, "silence");
+    }
+    say("Sous-titres…", 80);
+    await generateCaptions();
+    say("Terminé", 100);
+    toast("Short prêt : blancs coupés, sous-titres posés. Tout se retouche dans la timeline.", 6000);
+  } finally {
+    Object.assign(X, old);
+    veil.remove();
+    renderSilence();
+  }
 }
 
 /* ============================================================== transcription */
@@ -410,7 +483,12 @@ function restore(list) {
 /* ================================================================ outils IA */
 
 function buildAuto() {
-  $("tab-auto").append(h("div", { id: "autoSil" }), h("div.sep"), h("div", { id: "autoTr" }));
+  $("tab-auto").append(
+    h("div", {},
+      h("button.btn.primary.wide", { html: svg("wand", 14) + "Short automatique en un clic", onclick: autoShort }),
+      h("div.meta", { style: { marginTop: "6px" } },
+        "Coupe les blancs de la piste principale puis pose les sous-titres. Chaque étape reste annulable (Ctrl+Z).")),
+    h("div.sep"), h("div", { id: "autoSil" }), h("div.sep"), h("div", { id: "autoTr" }));
   renderAuto();
 }
 
