@@ -119,3 +119,39 @@ def test_plan_ia_valide_et_borne(monkeypatch):
 
 def test_visage_sans_opencv_ni_video(tmp_path):
     assert ae.face_anchor(str(tmp_path / "rien.mp4")) is None
+
+
+def test_visage_median_en_flottants_json(monkeypatch, tmp_path):
+    """Un faux OpenCV : le visage médian des images, en flottants Python (JSON)."""
+    import json
+    import sys
+    import types
+    np = pytest.importorskip("numpy")
+
+    class Cap:
+        def __init__(self, path):
+            self.i = 0
+        def get(self, prop):
+            return {7: 80, 3: 640, 4: 360}[prop]
+        def set(self, prop, v):
+            self.i = v
+        def read(self):
+            # visage centré en (320, 180), largeur 128, sauf une image sans rien
+            if self.i == 5:
+                return False, None
+            return True, np.zeros((360, 640, 3), dtype=np.uint8)
+        def release(self):
+            pass
+
+    class Det:
+        def detect(self, frame):
+            return 1, np.array([[256, 116, 128, 128, 0.9]], dtype=np.float32)
+
+    fake = types.SimpleNamespace(CAP_PROP_FRAME_COUNT=7, CAP_PROP_FRAME_WIDTH=3, CAP_PROP_FRAME_HEIGHT=4,
+                                 CAP_PROP_POS_FRAMES=1, VideoCapture=Cap,
+                                 FaceDetectorYN_create=lambda *a: Det())
+    monkeypatch.setitem(sys.modules, "cv2", fake)
+    face = ae.face_anchor(str(tmp_path / "x.mp4"))
+    assert face == {"x": 0.5, "y": 0.5, "w": 0.2, "samples": 7}     # une image illisible sur huit
+    assert all(type(v) in (float, int) for v in face.values())
+    json.dumps(face)

@@ -449,6 +449,10 @@ def face_anchor(video_path: str, samples: int = 8) -> dict | None:
                          "face_detection_yunet_2023mar.onnx")
     if not os.path.isfile(model) or not hasattr(cv2, "FaceDetectorYN_create"):
         return None
+    try:
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)   # OpenCV 5 : avertissement à chaque image
+    except AttributeError:
+        pass
     cap = cv2.VideoCapture(video_path)
     try:
         n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -466,15 +470,16 @@ def face_anchor(video_path: str, samples: int = 8) -> dict | None:
             if faces is None or not len(faces):
                 continue
             x, y, fw, fh = max(faces, key=lambda f: f[2] * f[3])[:4]
-            hits.append(((x + fw / 2) / w, (y + fh / 2) / h, fw / w))
+            hits.append((float(x + fw / 2) / w, float(y + fh / 2) / h, float(fw) / w))
     except Exception:  # noqa: BLE001 - vidéo illisible par OpenCV
         return None
     finally:
         cap.release()
     if len(hits) < max(1, samples // 4):
         return None
-    xs, ys, ws = (sorted(v[k] for v in hits) for k in range(3))
+    xs, ys, ws = (sorted(float(v[k]) for v in hits) for k in range(3))
     mid = len(hits) // 2
+    # des flottants Python : le résultat part en JSON (cache et réponse)
     return {"x": round(xs[mid], 3), "y": round(ys[mid], 3), "w": round(ws[mid], 3), "samples": len(hits)}
 
 

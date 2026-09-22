@@ -447,7 +447,7 @@ def _face(proj: TimelineProject, m: dict) -> dict | None:
     try:
         with open(cache, "w", encoding="utf-8") as f:
             json.dump({"face": face}, f)
-    except OSError:
+    except (OSError, TypeError, ValueError):
         pass
     return face
 
