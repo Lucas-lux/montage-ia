@@ -34,6 +34,8 @@ import tempfile
 import threading
 
 from engine.pipeline.ass_edit import build_ass_edited
+from engine.pipeline.fonts import subtitles_filter
+from engine.timeline import animations
 from engine.pipeline.render import NO_LIBASS, _encoder_works, has_filter, hw_encoder
 
 EPS = 1e-3
@@ -219,13 +221,20 @@ def _read(c: dict, dur: float, fps: int) -> list[str]:
 
 
 def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int, label: str,
-                  blur: bool = False) -> list[str]:
+                  blur: bool = False, workdir: str = "", matte_src: str = "") -> list[str]:
     """Chaîne d'un clip visuel : [src] -> image du cadre (transparente autour),
     durée exacte (prolongations de transition comprises). Avec `blur`, le
     fond est l'image du clip elle-même, agrandie et floutée."""
     dur = float(c["dur"]) + float(c.get("_pre", 0.0)) + float(c.get("_post", 0.0))
     g = _placement(c, m, W / f, H / f, f)
-    chain: list[str] = _read(c, dur, fps)
+    pre: list[str] = []
+    read_src = src
+    if matte_src:
+        pre = _cutout_parts(c, m, src, matte_src, dur, fps, label)
+        read_src = f"[{label}a]"
+    if workdir and (animations.has_anim(c) or c.get("follow")):
+        return pre + _animated_segment(c, m, g, src, read_src, W, H, f, fps, label, dur, blur, workdir, bool(pre))
+    chain: list[str] = [] if pre else _read(c, dur, fps)
 
     rot = g["rot"] % 360
     if abs(rot) < 0.01:
@@ -234,7 +243,7 @@ def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int
         vx0, vy0 = max(0.0, left), max(0.0, top)
         vx1, vy1 = min(float(W), left + g["sw"]), min(float(H), top + g["sh"])
         if vx1 - vx0 < 2 or vy1 - vy0 < 2:
-            return _transparent(W, H, fps, dur, label)       # entièrement hors cadre
+            return _transparent(W, H, fps, dur, label)       # entièrement hors cadre (sans lire la source)
         sx0, sx1 = (vx0 - left) / g["k"], (vx1 - left) / g["k"]
         sy0, sy1 = (vy0 - top) / g["k"], (vy1 - top) / g["k"]
         if c.get("flip_h"):
@@ -281,11 +290,148 @@ def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int
                 f"scale={W}:{H},eq=brightness=-0.06,format=yuva420p,setsar=1[{label}b]")
     else:
         base = f"color=c=black@0:s={W}x{H}:r={fps}:d={_f(dur)},format=yuva420p[{label}b]"
-    return [
-        f"{src}{','.join(chain)}[{label}c]",
+    return pre + [
+        f"{read_src}{','.join(chain)}[{label}c]",
         base,
         f"[{label}b][{label}c]overlay=x={px}:y={py}:eof_action=repeat:format=auto,setsar=1,"
         f"trim=duration={_f(dur)}[{label}]",
+    ]
+
+
+def _animated_segment(c: dict, m: dict, g: dict, src: str, read_src: str, W: int, H: int, f: float, fps: int,
+                      label: str, dur: float, blur: bool, workdir: str, already_read: bool = False) -> list[str]:
+    """Clip animé (entrée, sortie, boucle) : l'image entière du clip, tournée
+    dans un carré transparent, puis floutée, rendue transparente et mise à
+    l'échelle, posée à sa place. Un fichier `sendcmd` donne à ces filtres, à
+    chaque image, les valeurs calculées par engine/timeline/animations.py —
+    le même calcul que l'aperçu."""
+    pre = float(c.get("_pre", 0.0))
+    t0 = float(c["start"]) - pre                  # instant (timeline) de la 1re image du segment
+    sw, sh = _even(g["sw"]), _even(g["sh"])
+    side = _even(math.hypot(sw, sh) + 2)
+    op = float(c.get("opacity", 1.0))
+    L = label
+
+    def values(t: float) -> dict:
+        st = animations.state(c, t)
+        kx, ky = max(0.002, st["s"] * st["sx"]), max(0.002, st["s"] * st["sy"])
+        w, h = max(2, _even(side * kx)), max(2, _even(side * ky))
+        fx, fy = follow_offset(c, m, g, W, H, t)
+        return {"a": round(math.radians(g["rot"] + st["r"]), 6), "sigma": round(st["b"] * f, 3),
+                "aa": round(max(0.0, min(1.0, st["o"] * op)), 4), "w": w, "h": h,
+                "x": round(g["cx"] + fx + st["dx"] * W - w / 2, 2),
+                "y": round(g["cy"] + fy + st["dy"] * H - h / 2, 2)}
+
+    wins = animations.windows(c)
+    if c.get("follow"):
+        wins = [(float(c["start"]) - pre, float(c["start"]) + float(c["dur"]) + 1)]
+    frames = int(round(dur * fps))
+    first = values(t0)
+    rows, prev, blurry = [], first, first["sigma"] > 0
+    for k in range(1, frames + 1):
+        t = t0 + k / fps
+        if not any(a - 1.5 / fps <= t <= b + 1.5 / fps for a, b in wins):
+            continue
+        v = values(t)
+        if v == prev:
+            continue
+        blurry = blurry or v["sigma"] > 0
+        cmds = [f"rotate@{L} a {v['a']}", f"colorchannelmixer@{L} aa {v['aa']}", f"scale@{L} w {v['w']}",
+                f"scale@{L} h {v['h']}", f"overlay@{L} x {v['x']}", f"overlay@{L} y {v['y']}"]
+        rows.append((k / fps, v, cmds))
+        prev = v
+    lines = []
+    for tk, v, cmds in rows:
+        if blurry:
+            # sigmaV suit sigma à l'initialisation seulement : on règle les deux
+            cmds.append(f"gblur@{L} sigma {v['sigma']}, gblur@{L} sigmaV {v['sigma']}")
+        lines.append(f"{max(0.0, tk - 0.0005):.4f} " + ", ".join(cmds) + ";")
+    cmd_file = f"cmd_{L}.txt"
+    with open(os.path.join(workdir, cmd_file), "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+    chain = ([] if already_read else _read(c, dur, fps)) + [f"sendcmd=f={cmd_file}", f"scale={sw}:{sh}:flags=bicubic"]
+    if c.get("flip_h"):
+        chain.append("hflip")
+    if c.get("flip_v"):
+        chain.append("vflip")
+    eq = _eq(c)
+    if eq:
+        chain.append(eq)
+    chain += ["format=yuva420p", f"rotate@{L}=a={first['a']}:ow={side}:oh={side}:c=black@0"]
+    if blurry:
+        chain.append(f"gblur@{L}=sigma={first['sigma']}:sigmaV={first['sigma']}")
+    # la taille change à chaque image : l'échelle vient en dernier (les filtres
+    # d'avant ne savent pas changer de taille en cours de route)
+    chain += [f"colorchannelmixer@{L}=aa={first['aa']}", f"scale@{L}=w={first['w']}:h={first['h']}", "setsar=1"]
+    if blur:
+        bw, bh = _even(W / 6), _even(H / 6)
+        base = (f"{src}{','.join(_read(c, dur, fps))},"
+                f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=5:2,"
+                f"scale={W}:{H},eq=brightness=-0.06,format=yuva420p,setsar=1[{L}b]")
+    else:
+        base = f"color=c=black@0:s={W}x{H}:r={fps}:d={_f(dur)},format=yuva420p[{L}b]"
+    return [
+        f"{read_src}{','.join(chain)}[{L}c]",
+        base,
+        f"[{L}b][{L}c]overlay@{L}=x={first['x']}:y={first['y']}:eval=frame:eof_action=repeat:format=auto,setsar=1,"
+        f"trim=duration={_f(dur)}[{L}]",
+    ]
+
+
+# ------------------------------------------------------------------ sujet
+
+def matte_of(c: dict, m: dict) -> str | None:
+    """Masque du sujet d'un clip « arrière-plan supprimé », s'il est prêt."""
+    sub = m.get("subject") or {}
+    path = sub.get("matte")
+    return path if c.get("cutout") and sub.get("status") == "done" and path and os.path.isfile(path) else None
+
+
+def subject_at(track: list, t: float) -> tuple[float, float] | None:
+    """Centre du sujet (0..1 dans l'image source) au temps source `t`."""
+    if not track:
+        return None
+    if t <= track[0][0]:
+        return track[0][1], track[0][2]
+    for a, b in zip(track, track[1:]):
+        if t <= b[0]:
+            u = (t - a[0]) / ((b[0] - a[0]) or 1)
+            return a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u
+    return track[-1][1], track[-1][2]
+
+
+def follow_offset(c: dict, m: dict, g: dict, W: float, H: float, t: float) -> tuple[float, float]:
+    """« Suivre le sujet » : décalage (pixels de sortie) qui garde le sujet à la
+    place qu'il occupe en moyenne sur le clip, sans découvrir le bord du cadre.
+    Même calcul que l'aperçu (player.js, `followOffset`)."""
+    track = (m.get("subject") or {}).get("track") or []
+    if not c.get("follow") or not track:
+        return 0.0, 0.0
+    speed = float(c.get("speed") or 1.0)
+    a = float(c.get("in", 0.0))
+    b = a + float(c["dur"]) * speed
+    ref = [p for p in track if a - 0.05 <= p[0] <= b + 0.05] or track
+    rx = sum(p[1] for p in ref) / len(ref)
+    ry = sum(p[2] for p in ref) / len(ref)
+    now = subject_at(track, a + (t - float(c["start"])) * speed)
+    dx, dy = -(now[0] - rx) * g["sw"], -(now[1] - ry) * g["sh"]
+    # le clip doit continuer de couvrir ce qu'il couvrait
+    mx, my = max(0.0, (g["sw"] - W) / 2), max(0.0, (g["sh"] - H) / 2)
+    ox, oy = g["cx"] - W / 2, g["cy"] - H / 2
+    dx = min(mx - ox, max(-mx - ox, dx)) if g["sw"] >= W else dx
+    dy = min(my - oy, max(-my - oy, dy)) if g["sh"] >= H else dy
+    return dx, dy
+
+
+def _cutout_parts(c: dict, m: dict, src: str, matte_src: str, dur: float, fps: int, label: str) -> list[str]:
+    """Source + masque du sujet -> image dont l'arrière-plan est transparent."""
+    w, h = _even(float(m.get("w") or 2)), _even(float(m.get("h") or 2))
+    matte_clip = dict(c, _origin=float(c.get("_a", c.get("in", 0.0))))
+    return [
+        f"{src}{','.join(_read(c, dur, fps))},format=yuva420p[{label}v0]",
+        f"{matte_src}{','.join(_read(matte_clip, dur, fps))},scale={w}:{h}:flags=bilinear,format=gray[{label}m]",
+        f"[{label}v0][{label}m]alphamerge,format=yuva420p[{label}a]",
     ]
 
 
@@ -294,7 +440,7 @@ def _transparent(W: int, H: int, fps: int, dur: float, label: str) -> list[str]:
 
 
 def video_track(t: dict, clips: list[dict], media: dict, inp: Inputs, W: int, H: int, f: float,
-                fps: int, total: float, n: int, blur: bool = False) -> tuple[list[str], str | None]:
+                fps: int, total: float, n: int, blur: bool = False, workdir: str = "") -> tuple[list[str], str | None]:
     """Une piste vidéo : clips (fondus par leurs transitions) et trous
     transparents bout à bout, durée `total`."""
     parts: list[str] = []
@@ -343,8 +489,14 @@ def video_track(t: dict, clips: list[dict], media: dict, inp: Inputs, W: int, H:
             src = f"[{inp.image(m, length, fps)}:v]"
         else:
             src = f"[{c['_input']}:v]"
+        matte = matte_of(cc, m)
+        matte_src = ""
+        if matte and c["kind"] == "image":
+            matte_src = f"[{inp.image(dict(m, path=matte), length, fps)}:v]"
+        elif matte:
+            matte_src = f"[{inp.add(['-ss', _f(float(cc.get('_a', cc['in']))), '-i', matte])}:v]"
         lab = f"t{n}s{k}_{len(group)}"
-        parts += video_segment(cc, m, src, W, H, f, fps, lab, blur=blur)
+        parts += video_segment(cc, m, src, W, H, f, fps, lab, blur=blur, workdir=workdir, matte_src=matte_src)
         group.append((lab, length, cc))
         cursor = start + dur
     close_group()
@@ -553,7 +705,8 @@ def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int,
         tracks = [t for t in reversed(state["tracks"]) if t["kind"] == "video" and not t.get("hidden")]
         for n, t in enumerate(tracks):
             p, lab = video_track(t, [c for c in state["clips"] if c["track"] == t["id"]], media, inp,
-                                 out_w, out_h, f, fps, total, n, blur=bool(canvas.get("blur") and t.get("main")))
+                                 out_w, out_h, f, fps, total, n, blur=bool(canvas.get("blur") and t.get("main")),
+                                 workdir=workdir)
             if not lab:
                 continue
             parts += p
@@ -564,8 +717,9 @@ def build(state: dict, media: dict[str, dict], out_w: int, out_h: int, fps: int,
             raise RuntimeError(NO_LIBASS)
         if caps:
             ass = os.path.join(workdir, "captions.ass")
-            emojis = build_ass_edited(caps, ass, int(canvas["w"]), int(canvas["h"]))
-            parts.append(f"[{prev}]subtitles=captions.ass[subs]")
+            emojis = build_ass_edited(caps, ass, int(canvas["w"]), int(canvas["h"]), fps=fps)
+            sub = subtitles_filter("captions.ass", {c.get("font") for c in caps}, workdir)
+            parts.append(f"[{prev}]{sub}[subs]")
             prev = "subs"
             prev = _emojis(parts, inp, emojis, f, prev)
         parts.append(f"[{prev}]format=yuv420p,setsar=1[vout]")

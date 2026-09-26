@@ -363,7 +363,8 @@ class Project:
                 self._step(3, "Incrustation…")
                 burn_and_overlay(cut_path, ass_path, emojis, out, encoder=enc,
                                  duration=self.duration, width=self.out_w, height=self.out_h,
-                                 on_progress=lambda f: self._sub(3, f))
+                                 on_progress=lambda f: self._sub(3, f),
+                                 fonts={c.get("font") for c in usable})
 
             for tmp in (cut_path, ass_path):
                 _try_remove(tmp)

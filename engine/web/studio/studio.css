@@ -394,6 +394,11 @@ input[type=checkbox]:checked::after {
 .cap.dragging { cursor: grabbing; }
 .cap.ghost { opacity: .45; }
 .cap .txt { display: inline-block; }
+/* pile d'un texte (textfx.js) : couches d'effets sous le texte principal, même mise en page */
+.tstack { position: relative; display: inline-block; transform-origin: 50% 50%; }
+.tstack > .txt { position: relative; display: inline-block; }
+.tstack > .tl { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+.tstack w { display: inline-block; }
 .cap w { display: inline-block; transition: color .06s; }
 .cap.sel::after { content: ""; position: absolute; inset: -6px; border: 1px solid var(--accent); border-radius: 3px; pointer-events: none; }
 .cap .rs {
@@ -563,6 +568,72 @@ input[type=checkbox]:checked::after {
 .ctx button:disabled { opacity: .35; cursor: default; background: none; }
 .ctx button .k { margin-left: auto; color: var(--ink-3); font-size: 11px; }
 .ctx .cs { height: 1px; background: var(--line); margin: 4px 2px; }
+.check.wbw { margin: 0 0 12px; padding: 8px 10px; border-radius: var(--r-ctl); background: var(--panel-3);
+             font-size: 12.5px; align-items: flex-start; }
+.check.wbw b { font-weight: 650; }
+/* ---- sujet : choix d'un clic sur l'aperçu */
+.pickveil { position: absolute; inset: 0; z-index: 20; cursor: crosshair; background: rgba(242, 58, 82, .08);
+            outline: 2px dashed var(--accent); outline-offset: -2px; }
+.pickhint { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); padding: 6px 10px; border-radius: 8px;
+            background: rgba(18, 19, 23, .85); color: #fff; font-size: 12px; white-space: nowrap; pointer-events: none; }
+/* ---- sons */
+.sndtools { display: flex; gap: 6px; margin-bottom: 10px; }
+.sndtools .btn.primary { flex: 1; }
+.sndcats { margin: 8px 0 6px; flex-wrap: wrap; }
+.sndcats .chip { font-size: 11.5px; }
+.sndgroup { font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3);
+            padding: 10px 2px 4px; }
+.sndrow {
+  display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 7px; cursor: grab;
+  font-size: 12.5px; color: var(--ink);
+}
+.sndrow:hover { background: var(--panel-3); }
+.sndrow .nm { flex: 1; min-width: 0; }
+.sndrow .dur { color: var(--ink-3); font-size: 11px; }
+.sndrow .src { display: inline-flex; color: var(--ink-3); }
+.sndrow .play.on { color: var(--accent); }
+.sndmaker .sndparams { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 12px; max-height: 46vh; overflow: auto; }
+.sndmaker .chips .chip { font-size: 11.5px; }
+/* ---- animations (inspecteur) */
+.animgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.animcard {
+  display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; background: var(--panel-3);
+  border: 1.5px solid transparent; transition: border-color .12s;
+}
+.animcard:hover { border-color: var(--line-2); }
+.animcard.on { border-color: var(--accent); }
+.animstage {
+  height: 44px; display: grid; place-items: center; overflow: hidden;
+  background: linear-gradient(135deg, #3B4A63 0%, #1F2A3A 55%, #463357 100%);
+}
+.animpv { display: inline-block; will-change: transform, opacity; }
+.animpv.txt { color: #fff; font: 800 19px/1 "Montserrat Black", Arial, sans-serif; -webkit-text-stroke: 1px #000;
+              paint-order: stroke fill; }
+.animpv.media { width: 34px; height: 22px; border-radius: 3px;
+                background: linear-gradient(90deg, #F23A52, #FFC371 50%, #00E5FF); }
+.animcard .an { padding: 3px 5px 4px; font-size: 10.5px; font-weight: 600; color: var(--ink); text-align: center; }
+.animcard.on .an { color: var(--accent); }
+/* ---- sélecteur de police */
+.fontbtn {
+  width: 100%; height: 30px; padding: 0 10px; border-radius: var(--r-ctl); border: 1px solid var(--line-2);
+  background: var(--panel-2); color: var(--ink); font-size: 15px; text-align: left; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.fontbtn:hover { border-color: var(--ink-3); }
+.fontpop {
+  position: fixed; z-index: 72; width: 300px; max-height: min(520px, 80vh); display: flex; flex-direction: column;
+  gap: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 10px;
+  box-shadow: var(--shadow-pop); padding: 10px;
+}
+.fontpop .fpcats { flex-wrap: wrap; }
+.fontpop .fpcats button { font-size: 11.5px; }
+.fplist { overflow: auto; min-height: 120px; margin: 0 -4px; padding: 0 4px; }
+.fpgroup { font-size: 11px; font-weight: 620; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em;
+           padding: 8px 6px 4px; }
+.fpitem { display: block; width: 100%; text-align: left; padding: 5px 8px; border-radius: 6px; font-size: 19px;
+          line-height: 1.25; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fpitem:hover { background: var(--panel-3); }
+.fpitem.on { background: var(--accent-soft); color: var(--accent); }
 .cutpop {
   position: fixed; z-index: 75; width: 270px; background: var(--panel); border: 1px solid var(--line-2);
   border-radius: 10px; box-shadow: var(--shadow-pop); padding: 12px;
@@ -579,6 +650,14 @@ input[type=checkbox]:checked::after {
 .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
 /* ---- montage automatique */
 .btn.big { height: 38px; font-size: 13.5px; }
+.aiready {
+  display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; padding: 8px 10px;
+  border-radius: var(--r-ctl); background: var(--accent-soft); color: var(--ink); font-size: 12.5px; line-height: 1.45;
+}
+.aiready > i { display: inline-flex; flex-shrink: 0; margin-top: 1px; color: var(--accent); }
+.btn.attn { box-shadow: 0 0 0 3px var(--accent-soft); animation: attn 1.6s ease-in-out 3; }
+@keyframes attn { 50% { box-shadow: 0 0 0 7px var(--accent-soft); } }
+@media (prefers-reduced-motion: reduce) { .btn.attn { animation: none; } }
 .optgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-top: 4px; }
 .check.opt { padding: 3px 0; }
 .check.opt span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

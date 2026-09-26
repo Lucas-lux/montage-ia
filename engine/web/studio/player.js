@@ -13,6 +13,7 @@
    « remplir » couvre le cadre, « adapter » y tient entier ; `scale` multiplie
    cette taille, `x`/`y` placent son centre, `rotation` le tourne. */
 
+import * as AN from "./anim.js";
 import * as M from "./model.js";
 import { buildChain, fxKey } from "./voice.js";
 import { S, emit, on, setTime } from "./store.js";
@@ -237,7 +238,7 @@ export function sync(t, { layout = false } = {}) {
       const fx = show ? transitionFx(c, ext, t) : null;
       it.wrap.style.visibility = show && !(fx && fx.hide) ? "visible" : "hidden";
       it.wrap.style.zIndex = (z.get(c.track) || 1) * 2 + (fx && fx.top ? 1 : 0);
-      if (show || layout || !it.placed) place(it, c, m, fx);
+      if (show || layout || !it.placed) place(it, c, m, fx, t);
       if (show && tr && tr.main && S.doc.canvas.blur && !(fx && fx.hide)) blurSrc.push({ it, c, m });
     }
     if (c.kind === "image") continue;
@@ -377,7 +378,8 @@ function drawBlur(list) {
 
 function item(c, m) {
   let it = P.items.get(c.id);
-  const url = m.urls.proxy;
+  // arrière-plan supprimé : la vidéo (ou l'image) détourée, transparente autour du sujet
+  const url = c.cutout && m.urls.cutout ? m.urls.cutout : m.urls.proxy;
   if (it && it.url === url && it.kind === c.kind) return it;
   if (it) destroy(c.id, it);
   let el, wrap = null;
@@ -424,6 +426,38 @@ function destroy(id, it) {
   P.items.delete(id);
 }
 
+/** « Suivre le sujet » : décalage (pixels du cadre) qui garde le sujet à sa
+ *  place moyenne sur le clip, sans découvrir le bord. Même calcul que l'export
+ *  (engine/timeline/render.py, `follow_offset`). */
+export function followOffset(c, m, g, W, H, t) {
+  const track = (m.subject || {}).track || [];
+  if (!c.follow || !track.length) return [0, 0];
+  const speed = c.speed || 1, a = c.in || 0, b = a + c.dur * speed;
+  let ref = track.filter((p) => p[0] >= a - 0.05 && p[0] <= b + 0.05);
+  if (!ref.length) ref = track;
+  const rx = ref.reduce((s, p) => s + p[1], 0) / ref.length;
+  const ry = ref.reduce((s, p) => s + p[2], 0) / ref.length;
+  const ts = a + (t - c.start) * speed;
+  let now = track[track.length - 1];
+  if (ts <= track[0][0]) now = track[0];
+  else {
+    for (let i = 0; i + 1 < track.length; i++) {
+      const p = track[i], q = track[i + 1];
+      if (ts <= q[0]) {
+        const u = (ts - p[0]) / ((q[0] - p[0]) || 1);
+        now = [ts, p[1] + (q[1] - p[1]) * u, p[2] + (q[2] - p[2]) * u];
+        break;
+      }
+    }
+  }
+  let dx = -(now[1] - rx) * g.w, dy = -(now[2] - ry) * g.h;
+  const mx = Math.max(0, (g.w - W) / 2), my = Math.max(0, (g.h - H) / 2);
+  const ox = g.cx - W / 2, oy = g.cy - H / 2;
+  if (g.w >= W) dx = Math.min(mx - ox, Math.max(-mx - ox, dx));
+  if (g.h >= H) dy = Math.min(my - oy, Math.max(-my - oy, dy));
+  return [dx, dy];
+}
+
 /** Taille et place d'un clip visuel dans l'aperçu (mêmes règles que l'export). */
 export function geometry(c, m, W, H) {
   const w = m.w || W, hh = m.h || H;
@@ -432,20 +466,31 @@ export function geometry(c, m, W, H) {
   return { w: w * s, h: hh * s, cx: (c.x ?? 0.5) * W, cy: (c.y ?? 0.5) * H };
 }
 
-function place(it, c, m, fx) {
+/** Place un clip visuel ; `t` : instant, pour ses animations (même état qu'à
+ *  l'export : déplacement, échelle, rotation, opacité, flou). */
+function place(it, c, m, fx, t = S.t) {
   const k = S.k || 1;
   const { w: W, h: H } = S.doc.canvas;
   const g = geometry(c, m, W, H);
+  const an = AN.hasAnim(c) ? AN.state(c, t) : null;
   const st = it.wrap.style;
   st.width = g.w * k + "px";
   st.height = g.h * k + "px";
   st.left = (g.cx - g.w / 2) * k + "px";
   st.top = (g.cy - g.h / 2) * k + "px";
-  st.opacity = (c.opacity ?? 1) * (fx && fx.op !== undefined ? fx.op : 1);
-  const move = fx && fx.tx ? `translateX(${fx.tx.toFixed(1)}px) ` : "";
+  st.opacity = (c.opacity ?? 1) * (fx && fx.op !== undefined ? fx.op : 1) * (an ? an.o : 1);
+  const [fox, foy] = c.follow ? followOffset(c, m, g, W, H, t) : [0, 0];
+  const tx = (fx && fx.tx ? fx.tx : 0) + (an ? an.dx * W * k : 0) + fox * k;
+  const ty = (an ? an.dy * H * k : 0) + foy * k;
+  const move = tx || ty ? `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) ` : "";
+  // comme l'export : l'image est tournée, puis mise à l'échelle dans les axes de l'écran
+  const grow = an && (an.s !== 1 || an.sx !== 1 || an.sy !== 1)
+    ? `scale(${(an.s * an.sx).toFixed(4)}, ${(an.s * an.sy).toFixed(4)}) ` : "";
   const zoom = fx && fx.zoom ? ` scale(${fx.zoom.toFixed(3)})` : "";
-  st.transform = `${move}rotate(${c.rotation || 0}deg)${zoom} scale(${c.flip_h ? -1 : 1}, ${c.flip_v ? -1 : 1})`;
+  const rot = (c.rotation || 0) + (an ? an.r : 0);
+  st.transform = `${move}${grow}rotate(${rot}deg)${zoom} scale(${c.flip_h ? -1 : 1}, ${c.flip_v ? -1 : 1})`;
   let filter = cssFilter(c);
+  if (an && an.b > 0.01) filter += ` blur(${(an.b * k).toFixed(2)}px)`;
   if (fx && fx.bright !== undefined) filter += ` brightness(${fx.bright.toFixed(3)})`;
   if (fx && fx.white) filter += ` brightness(${(1 + 3 * fx.white).toFixed(3)}) saturate(${(1 - fx.white).toFixed(3)})`;
   st.filter = filter.trim();

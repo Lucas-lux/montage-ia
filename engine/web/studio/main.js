@@ -6,6 +6,8 @@
      "layout"  la taille de l'aperçu a changé */
 
 import { api } from "./api.js";
+import { loadAnimations } from "./anim.js";
+import { loadFonts } from "./fonts.js";
 import { S, emit, on, loadDoc, undo, redo, saveNow, changed, snapshot } from "./store.js";
 import { $, fmt, h, svg, toast, typing, tc } from "./util.js";
 
@@ -130,7 +132,7 @@ function initLayout() {
 
 export function showTab(name) {
   [...$("leftTabs").children].forEach((t) => t.classList.toggle("on", t.dataset.tab === name));
-  ["media", "text", "captions", "auto"].forEach((n) => $("tab-" + n).classList.toggle("hidden", n !== name));
+  ["media", "text", "captions", "sounds", "auto"].forEach((n) => $("tab-" + n).classList.toggle("hidden", n !== name));
   emit("tab", { name });
 }
 
@@ -202,6 +204,8 @@ async function boot() {
   const [presets, proj] = await Promise.all([
     api("/api/timeline/presets"),
     api("/api/timeline/" + pid),
+    loadFonts(),
+    loadAnimations(api),
   ]);
   PRESETS.push(...presets.canvas);
   loadDoc(proj);
@@ -218,7 +222,7 @@ async function boot() {
   const mods = await Promise.all([
     import("./bin.js"), import("./timeline.js"), import("./player.js"),
     import("./inspector.js"), import("./panels.js"), import("./autoedit.js"), import("./exporter.js"),
-    import("./stage.js"), import("./voiceover.js"),
+    import("./stage.js"), import("./voiceover.js"), import("./sounds.js"),
   ].map((p) => p.catch((err) => { console.error(err); return null; })));
   mods.forEach((m) => m && m.init && m.init());
 

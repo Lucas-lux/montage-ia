@@ -9,7 +9,7 @@
 
 import { api, post } from "./api.js";
 import * as autoedit from "./autoedit.js";
-import { startPolling } from "./bin.js";
+import { importing, setAutoTimeline, startPolling } from "./bin.js";
 import { emojiGeometry } from "./captions.js";
 import { I as Insp, applyLook, styleGrid } from "./inspector.js";
 import { showTab } from "./main.js";
@@ -50,35 +50,51 @@ export function init() {
   on("presets", renderCapGen);
   on("passage", ({ entry, x, y }) => openPassage(entry, x, y));
   on("doc", () => renderPassages());
-  // Arrivée depuis « Short automatique » : la première vidéo prête lance tout.
+  // Arrivée depuis « Short automatique » : les vidéos importées rejoignent la
+  // timeline, mais le montage attend qu'on clique sur « Monter la vidéo ».
   if (new URLSearchParams(location.hash.slice(1)).get("auto") === "1") {
     X.autoArmed = true;
+    setAutoTimeline(true);
     showTab("media");
-    toast("Short automatique : importe ta vidéo, le montage se fait tout seul.", 6000);
-    on("media", armedStart);
-    armedStart();
+    toast("Short automatique : importe tes vidéos, puis lance le montage avec « Monter la vidéo ».", 6000);
+    on("media", armedReady);
+    on("doc", armedReady);
+    armedReady();
   }
 }
 
 /* ======================================================== short automatique */
 
-function armedStart() {
-  if (!X.autoArmed || X.busy) return;
-  const ready = [...S.media.values()].find((m) => m.status === "ready" && m.kind === "video");
-  if (!ready) return;
-  X.autoArmed = false;
-  history.replaceState(null, "", "#p=" + S.pid);
-  if (!S.doc.clips.some((c) => c.kind === "video")) {
-    edit((doc) => {
-      M.appendMedia(doc, ready, 0);
-      // un short sans nom prend celui de sa vidéo
-      if (!doc.name || doc.name === "Nouveau montage") doc.name = ready.name.replace(/\.[^.]+$/, "");
-    }, "add");
-    const input = document.getElementById("name");
-    if (input) input.value = S.doc.name;
+/** Short automatique : dès que les vidéos importées sont prêtes et posées sur
+ *  la timeline, l'onglet Outils IA s'ouvre sur « Monter la vidéo ». Rien ne
+ *  part sans ce clic : on peut d'abord ranger, couper ou changer les réglages. */
+function armedReady() {
+  if (!X.autoArmed) return;
+  const vids = [...S.media.values()].filter((m) => m.kind === "video");
+  const waiting = vids.filter((m) => m.status === "pending" || m.status === "processing").length;
+  const main = M.mainTrack(S.doc);
+  const placed = main ? M.trackClips(S.doc, main.id).filter((c) => c.kind === "video").length : 0;
+  if (waiting || importing() || !placed) {
+    autoedit.setReady(waiting || importing() ? { waiting: Math.max(1, waiting) } : null);
+    return;
   }
+  X.autoArmed = false;
+  setAutoTimeline(false);
+  history.replaceState(null, "", "#p=" + S.pid);
+  // un short sans nom prend celui de sa première vidéo
+  if (!S.doc.name || S.doc.name === "Nouveau montage") {
+    const first = S.media.get(M.trackClips(S.doc, main.id).find((c) => c.kind === "video").media);
+    if (first) {
+      S.doc.name = first.name.replace(/\.[^.]+$/, "");
+      changed({ reason: "name" });
+      const input = document.getElementById("name");
+      if (input) input.value = S.doc.name;
+    }
+  }
+  autoedit.setReady({ count: placed });
   showTab("auto");
-  autoedit.run();
+  toast(placed > 1 ? `${placed} vidéos prêtes : clique sur « Monter la vidéo » quand tu veux.`
+    : "Vidéo prête : clique sur « Monter la vidéo » quand tu veux.", 6000);
 }
 
 /* ============================================================== transcription */
@@ -138,27 +154,78 @@ export async function ensureTranscripts(ids, status) {
 /* Styles de titre. Même vocabulaire que les sous-titres (police, contour,
    fond…) mais sans surlignage : un titre est un texte libre. `y` place le
    texte quand on le crée. */
-const T = (label, hint, look) => ({ label, hint, group: "", mode: "none", pop: false, bold: true, upper: false,
-                                    shadow: 0, box: false, box_alpha: 0.25, hl: look.color || "#FFFFFF", ...look });
+const T = (label, hint, look, group = "base") => ({ label, hint, group, mode: "none", pop: false, bold: true,
+  upper: false, shadow: 0, box: false, box_alpha: 0.25, hl: look.color || "#FFFFFF", ...look });
+// polices livrées (engine/data/fonts) : déjà grasses, pas de gras ajouté
+const B = (look) => ({ bold: false, ...look });
+const TITLE_GROUPS = [
+  { name: "base", label: "Essentiels" }, { name: "anime", label: "Animés" }, { name: "neon", label: "Néon et lueur" },
+  { name: "relief", label: "Relief et 3D" }, { name: "degrade", label: "Dégradés" },
+  { name: "manuscrit", label: "Manuscrits" }, { name: "retro", label: "Rétro et jeux" }, { name: "sobre", label: "Sobres" },
+];
 const TITLE_STYLES = [
   T("Titre", "blanc, gras, contour", { font: "Arial Black", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 6, shadow: 2, y: 0.3 }),
   T("Bandeau", "texte sur fond rouge", { font: "Arial", size: 72, color: "#FFFFFF", outline_col: "#F23A52", outline: 14, box: true, box_alpha: 0, upper: true, y: 0.72 }),
   T("Impact", "énorme, majuscules", { font: "Impact", size: 150, color: "#FFE500", outline_col: "#000000", outline: 9, upper: true, y: 0.5 }),
+  T("Accroche", "Montserrat, ombre douce", B({ font: "Montserrat Black", size: 120, color: "#FFFFFF", outline_col: "#000000", outline: 6, shadow: 8, shadow_blur: 10, upper: true, y: 0.3 })),
+  T("Géant", "Anton, énorme", B({ font: "Anton", size: 190, color: "#FFFFFF", outline_col: "#000000", outline: 8, upper: true, y: 0.45 })),
   T("Condensé", "haut et serré", { font: "Bahnschrift", size: 130, color: "#FFFFFF", outline_col: "#000000", outline: 5, upper: true, y: 0.35 }),
-  T("Néon", "cyan lumineux", { font: "Arial", size: 96, color: "#00FFFF", outline_col: "#FF00AA", outline: 4, shadow: 6, y: 0.4 }),
-  T("Or", "doré", { font: "Cambria", size: 100, color: "#FFD84D", outline_col: "#3A2800", outline: 5, shadow: 3, y: 0.4 }),
-  T("Rose", "pop", { font: "Arial Black", size: 100, color: "#FFFFFF", outline_col: "#FF3B81", outline: 8, upper: true, y: 0.45 }),
-  T("Glace", "bleu froid", { font: "Bahnschrift", size: 104, color: "#E8F7FF", outline_col: "#0B3D91", outline: 6, shadow: 2, y: 0.4 }),
-  T("Feu", "orange et rouge", { font: "Impact", size: 120, color: "#FFE08A", outline_col: "#B3200A", outline: 7, shadow: 3, upper: true, y: 0.5 }),
-  T("Légende", "sobre, petit", { font: "Segoe UI", size: 54, color: "#FFFFFF", outline_col: "#000000", outline: 10, box: true, box_alpha: 0.35, y: 0.88 }),
-  T("Journal", "fond blanc, texte sombre", { font: "Georgia", size: 70, color: "#17181C", outline_col: "#FFFFFF", outline: 12, box: true, box_alpha: 0.05, y: 0.2 }),
   T("Alerte", "fond jaune", { font: "Arial Black", size: 76, color: "#17181C", outline_col: "#FFE500", outline: 12, box: true, box_alpha: 0, upper: true, y: 0.2 }),
   T("Étiquette", "petit, en haut à gauche", { font: "Segoe UI Black", size: 50, color: "#FFFFFF", outline_col: "#17181C", outline: 10, box: true, box_alpha: 0.1, upper: true, x: 0.24, y: 0.1 }),
-  T("Élégant", "serif, léger", { font: "Georgia", size: 84, color: "#FFFFFF", outline_col: "#1A1410", outline: 2, shadow: 3, bold: false, y: 0.4 }),
-  T("Manuscrit", "écrit à la main", { font: "Ink Free", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, shadow: 2, y: 0.35 }),
-  T("Cursive", "calligraphie", { font: "Segoe Script", size: 96, color: "#FFF3D6", outline_col: "#4A1F00", outline: 4, shadow: 3, y: 0.4 }),
-  T("Terminal", "monospace vert", { font: "Consolas", size: 70, color: "#00FF66", outline_col: "#0B0F0B", outline: 10, box: true, box_alpha: 0.1, y: 0.5 }),
-  T("Ombre", "sans contour", { font: "Trebuchet MS", size: 100, color: "#FFFFFF", outline_col: "#000000", outline: 0, shadow: 8, y: 0.4 }),
+  // animés
+  T("Pop", "surgit", B({ font: "Luckiest Guy", size: 130, color: "#FFE500", outline_col: "#000000", outline: 8, upper: true, y: 0.35,
+    anim_in: { type: "pop", dur: 0.4 }, anim_out: { type: "zoom_out_out", dur: 0.3 } }), "anime"),
+  T("Machine à écrire", "tapé lettre par lettre", B({ font: "Syne Mono", size: 80, color: "#D8FFE0", outline_col: "#0B0F0B", outline: 12, box: true, box_alpha: 0.1, y: 0.4,
+    anim_in: { type: "typewriter", dur: 1.2 } }), "anime"),
+  T("Chute", "tombe et rebondit", B({ font: "Bangers", size: 150, color: "#FFFFFF", outline_col: "#000000", outline: 7, upper: true, extrude: 8, extrude_col: "#F23A52", y: 0.35,
+    anim_in: { type: "drop", dur: 0.8 } }), "anime"),
+  T("Cinéma", "sort du flou, s'efface", B({ font: "Cinzel Bold", size: 96, color: "#F5E6C8", outline_col: "#000000", outline: 0, shadow: 6, shadow_blur: 12, spacing: 10, y: 0.5,
+    anim_in: { type: "blur", dur: 1.0 }, anim_out: { type: "fade_out", dur: 0.8 } }), "anime"),
+  T("Lettre à lettre", "apparaît lettre par lettre", B({ font: "Montserrat Black", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, glow: 16, glow_col: "#00E5FF", y: 0.4,
+    anim_in: { type: "letters", dur: 1.0 } }), "anime"),
+  T("Tourbillon", "arrive en tournant", B({ font: "Titan One", size: 120, color: "#FF3B81", outline_col: "#FFFFFF", outline: 7, y: 0.4,
+    anim_in: { type: "spin", dur: 0.7 } }), "anime"),
+  T("Battement", "bat comme un cœur", B({ font: "Lilita One", size: 130, color: "#FF2B55", outline_col: "#FFFFFF", outline: 7, y: 0.4,
+    anim_loop: { type: "heartbeat", speed: 1 } }), "anime"),
+  T("Flottant", "flotte doucement", B({ font: "Fredoka Bold", size: 110, color: "#FFFFFF", outline_col: "#2B6CFF", outline: 8, y: 0.3,
+    anim_in: { type: "slide_up", dur: 0.5 }, anim_loop: { type: "float", speed: 1 } }), "anime"),
+  // néon et lueur
+  T("Néon rose", "lueur rose", B({ font: "Montserrat Black", size: 110, color: "#FFFFFF", outline_col: "#FF2BD6", outline: 3, glow: 30, glow_col: "#FF2BD6", y: 0.4 }), "neon"),
+  T("Néon bleu", "lueur cyan", B({ font: "Audiowide", size: 104, color: "#FFFFFF", outline_col: "#00C8FF", outline: 3, glow: 30, glow_col: "#00C8FF", y: 0.4 }), "neon"),
+  T("Enseigne", "néon qui clignote", B({ font: "Monoton", size: 110, color: "#FFE500", outline: 0, glow: 26, glow_col: "#FF9F1C", upper: true, y: 0.4,
+    anim_loop: { type: "blink", speed: 0.6 } }), "neon"),
+  T("Braise", "orange incandescent", B({ font: "Kanit ExtraBold", size: 120, color: "#FFE08A", outline_col: "#C21E00", outline: 4, glow: 24, glow_col: "#FF4D1A", upper: true, y: 0.4 }), "neon"),
+  T("Halo", "texte lumineux", B({ font: "Poppins ExtraBold", size: 110, color: "#FFFFFF", outline: 0, glow: 34, glow_col: "#FFFFFF", y: 0.4 }), "neon"),
+  // relief et 3D
+  T("Pop 3D", "jaune sur relief rose", B({ font: "Bangers", size: 150, color: "#FFE500", outline_col: "#1B1B1B", outline: 6, extrude: 18, extrude_col: "#C2185B", upper: true, y: 0.4 }), "relief"),
+  T("Bloc 3D", "blanc sur relief rouge", B({ font: "Russo One", size: 120, color: "#FFFFFF", outline_col: "#000000", outline: 5, extrude: 16, extrude_col: "#F23A52", y: 0.4 }), "relief"),
+  T("Or massif", "doré en relief", B({ font: "Alfa Slab One", size: 120, color: "#FFE27A", color2: "#FFA000", outline_col: "#3A2800", outline: 5, extrude: 12, extrude_col: "#6B4A00", y: 0.4 }), "relief"),
+  T("BD", "double contour", B({ font: "Bangers", size: 140, color: "#FFFFFF", outline_col: "#000000", outline: 7, outline2: 8, outline2_col: "#FFE500", upper: true, y: 0.4 }), "relief"),
+  T("Autocollant", "contour blanc épais", B({ font: "Fredoka Bold", size: 120, color: "#17181C", outline_col: "#FFFFFF", outline: 12, shadow: 6, shadow_blur: 10, y: 0.4 }), "relief"),
+  // dégradés
+  T("Coucher de soleil", "corail vers doré", B({ font: "Poppins ExtraBold", size: 120, color: "#FF5F6D", color2: "#FFC371", outline_col: "#2B0A18", outline: 6, y: 0.4 }), "degrade"),
+  T("Océan", "bleu profond", B({ font: "Montserrat Black", size: 120, color: "#00C6FF", color2: "#0072FF", outline_col: "#FFFFFF", outline: 6, y: 0.4 }), "degrade"),
+  T("Aurore", "violet vers bleu", B({ font: "Rubik Black", size: 120, color: "#B721FF", color2: "#21D4FD", outline_col: "#14002B", outline: 5, glow: 12, glow_col: "#7C5CFF", y: 0.4 }), "degrade"),
+  T("Or", "doré", { font: "Cambria", size: 100, color: "#FFD84D", outline_col: "#3A2800", outline: 5, shadow: 3, y: 0.4 }, "degrade"),
+  // manuscrits
+  T("Marqueur", "feutre", B({ font: "Permanent Marker", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, y: 0.35 }), "manuscrit"),
+  T("Signature", "calligraphie", B({ font: "Great Vibes", size: 150, color: "#FFFFFF", outline_col: "#000000", outline: 2, shadow: 4, shadow_blur: 6, y: 0.4 }), "manuscrit"),
+  T("Tendre", "rose, lueur douce", B({ font: "Pacifico", size: 110, color: "#FFF0F5", outline_col: "#FF3B81", outline: 5, glow: 14, glow_col: "#FF8FB1", y: 0.4 }), "manuscrit"),
+  T("Craie", "écrit à la main", B({ font: "Caveat Bold", size: 130, color: "#FFFFFF", outline: 0, shadow: 5, shadow_blur: 6, y: 0.35 }), "manuscrit"),
+  T("Manuscrit", "écrit à la main", { font: "Ink Free", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, shadow: 2, y: 0.35 }, "manuscrit"),
+  // rétro et jeux
+  T("Arcade", "pixels", B({ font: "Press Start 2P", size: 70, color: "#39FF14", outline_col: "#000000", outline: 6, upper: true, y: 0.4 }), "retro"),
+  T("VHS", "cassette", B({ font: "VT323", size: 150, color: "#E8FFF0", outline: 0, glow: 12, glow_col: "#00FFB3", shadow: 5, shadow_col: "#FF0055", y: 0.4 }), "retro"),
+  T("Glitch", "tremble et se décale", B({ font: "Rubik Glitch", size: 120, color: "#FFFFFF", outline_col: "#000000", outline: 4, shadow: 5, shadow_col: "#00E5FF", y: 0.4,
+    anim_loop: { type: "glitch", speed: 1 } }), "retro"),
+  T("Frisson", "horreur", B({ font: "Creepster", size: 130, color: "#B8FF3C", outline_col: "#1A0000", outline: 5, glow: 14, glow_col: "#6BFF00", y: 0.4 }), "retro"),
+  T("Terminal", "monospace vert", { font: "Consolas", size: 70, color: "#00FF66", outline_col: "#0B0F0B", outline: 10, box: true, box_alpha: 0.1, y: 0.5 }, "retro"),
+  // sobres
+  T("Légende", "sobre, petit", { font: "Segoe UI", size: 54, color: "#FFFFFF", outline_col: "#000000", outline: 10, box: true, box_alpha: 0.35, y: 0.88 }, "sobre"),
+  T("Journal", "fond blanc, texte sombre", { font: "Georgia", size: 70, color: "#17181C", outline_col: "#FFFFFF", outline: 12, box: true, box_alpha: 0.05, y: 0.2 }, "sobre"),
+  T("Élégant", "serif, léger", B({ font: "DM Serif Display", size: 96, color: "#FFFFFF", outline_col: "#1A1410", outline: 2, shadow: 4, shadow_blur: 6, y: 0.4 }), "sobre"),
+  T("Minimal", "fin, espacé", B({ font: "Lexend Bold", size: 72, color: "#FFFFFF", outline: 0, shadow: 4, shadow_blur: 8, spacing: 14, upper: true, y: 0.45 }), "sobre"),
+  T("Contour seul", "lettres évidées", B({ font: "Bebas Neue", size: 170, color: "#FFFFFF", outline_col: "#FFFFFF", outline: 4, hollow: true, y: 0.4 }), "sobre"),
 ];
 
 export function addText(style, text = "Ton texte") {
@@ -190,7 +257,7 @@ function buildText() {
   put($("tab-text"),
     h("button.btn.primary.wide", { html: svg("plus", 14) + "Ajouter un texte", onclick: () => addText(TITLE_STYLES[0]) }),
     h("div.hint", { style: { margin: "6px 0 12px" } }, "Posé à la tête de lecture. Double-clic sur l'aperçu pour l'écrire."),
-    styleGrid(TITLE_STYLES, [], { words: ["Ton", "texte"], pick: (st) => addText(st) }));
+    styleGrid(TITLE_STYLES, TITLE_GROUPS, { words: ["Ton", "texte"], pick: (st) => addText(st) }));
 }
 
 /* ============================================================== sous-titres */
@@ -220,13 +287,19 @@ function renderCapGen() {
   emo.onchange = () => setS("emojis", emo.checked);
   const rep = h("input", { type: "checkbox", checked: X.replace });
   rep.onchange = () => { X.replace = rep.checked; };
+  const wbw = h("input", { type: "checkbox", checked: !!st.word_by_word });
+  wbw.onchange = () => { setS("word_by_word", wbw.checked); renderCapGen(); };
   const hasAuto = S.doc.clips.some((c) => c.kind === "text" && c.auto);
   const current = Insp.presets.find((p) => p.name === X.capStyle);
   box.innerHTML = "";
   put(box,
     h("button.btn.primary.wide", { id: "capGo", html: svg("cc", 14) + (hasAuto ? "Régénérer les sous-titres" : "Générer les sous-titres"),
                                    onclick: () => generateCaptions() }),
-    h("div.hint", { id: "capMsg", style: { margin: "6px 0 10px" } }, "D'après la voix des clips. Ils suivent ensuite les coupes."),
+    h("div.hint", { id: "capMsg", style: { margin: "6px 0 8px" } }, "D'après la voix des clips. Ils suivent ensuite les coupes."),
+    h("label.check.wbw", { title: "Un seul mot à l'écran à la fois, affiché jusqu'au mot suivant" }, wbw,
+      h("span", {}, h("b", {}, "Mot à mot"), " — un seul mot à l'écran",
+        hasAuto && !!st.word_by_word !== S.doc.clips.some((c) => c.kind === "text" && c.auto && c.hold)
+          ? h("span.meta", {}, " (régénère pour l'appliquer)") : null)),
     section({ title: "Style", key: "cap.style", count: current ? current.label : undefined },
       styleGrid(Insp.presets, Insp.groups, {
         same: (p) => p.name === X.capStyle,
@@ -246,7 +319,7 @@ function renderCapGen() {
         },
       }) : null),
     section({ title: "Réglages", key: "cap.settings", open: false },
-      slider("Mots par ligne", st.words_per_line || 4, 1, 8, (v) => setS("words_per_line", v)),
+      st.word_by_word ? null : slider("Mots par ligne", st.words_per_line || 4, 1, 8, (v) => setS("words_per_line", v)),
       slider("Caractères max par ligne", st.max_chars || 18, 8, 40, (v) => setS("max_chars", v)),
       h("label.check", { style: { marginBottom: "8px" } }, emo, "Émojis sur les mots importants"),
       hasAuto ? h("label.check", {}, rep, "Remplacer les sous-titres existants") : null));
@@ -281,7 +354,8 @@ export async function generateCaptions({ quiet = false, replace } = {}) {
     const st = S.doc.settings || {};
     const res = await post(`/api/timeline/${S.pid}/captions`, {
       clips: voiceClips(S.doc.clips),
-      settings: { style: X.capStyle, words_per_line: st.words_per_line, max_chars: st.max_chars, emojis: st.emojis },
+      settings: { style: X.capStyle, words_per_line: st.words_per_line, max_chars: st.max_chars, emojis: st.emojis,
+                  word_by_word: !!st.word_by_word },
     });
     if (!res.captions.length) { if (!quiet) toast("Aucune parole trouvée dans les clips."); say(""); return 0; }
     const n = edit((doc) => {

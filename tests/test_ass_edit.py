@@ -139,3 +139,65 @@ def test_emojis_en_pixels_de_sortie(tmp_path):
         {"char": "🔥", "x": 280, "y": round(960 + dy), "size": 124, "start": 1.0, "end": 2.5},
         {"char": "💡", "x": 540, "y": 1486, "size": 600, "start": 4.0, "end": 5.0},
     ]
+
+
+# ------------------------------------------------------ effets et animations
+
+def test_effets_en_couches(tmp_path):
+    out = tmp_path / "caps.ass"
+    build_ass_edited([caption("none", glow=20, glow_col="#FF00AA", outline2=6, extrude=8,
+                              shadow=6, shadow_blur=8)], str(out))
+    lines = dialogues(out)
+    # relief (4 copies de 2 px), ombre douce, lueur, second contour, texte
+    assert len(lines) == 4 + 1 + 1 + 1 + 1
+    layers = [int(ln.split(",")[0].split(": ")[1]) for ln in lines]
+    assert layers == sorted(layers)                      # de la plus basse à la plus haute
+    glow = next(ln for ln in lines if r"\3c&HAA00FF&" in ln)
+    assert r"\blur10" in glow and r"\bord11" in glow     # contour 6 + lueur 20 × 0,25
+    assert lines[-1].endswith("salut à tous")
+
+
+def test_degrade_et_evide(tmp_path):
+    out = tmp_path / "caps.ass"
+    build_ass_edited([caption("none", color="#FF0000", color2="#0000FF")], str(out))
+    line = dialogues(out)[0]
+    assert r"{\1c&H0000FF&}s" in line and r"{\1c&HFF0000&}s" in line   # première et dernière lettre
+    build_ass_edited([caption("none", hollow=True)], str(out))
+    assert r"\1a&HFF&" in dialogues(out)[0]
+
+
+def test_apparition_progressive_et_estompe(tmp_path):
+    out = tmp_path / "caps.ass"
+    build_ass_edited([caption("reveal")], str(out))
+    first = dialogues(out)[0]
+    # au premier mot, les deux suivants sont transparents
+    assert first.count(r"\1a&HFF&") == 2
+    build_ass_edited([caption("dim")], str(out))
+    assert r"\1a&H99&" in dialogues(out)[0]                # 40 % d'opacité
+
+
+def test_animation_image_par_image(tmp_path):
+    out = tmp_path / "caps.ass"
+    cap = caption("none", start=1.0, end=3.0, anim_in={"type": "slide_up", "dur": 0.5})
+    build_ass_edited([cap], str(out), fps=30)
+    lines = dialogues(out)
+    # une ligne par image pendant l'entrée (1,0 → 1,5 s), puis le texte au repos
+    assert 15 <= len(lines) <= 17
+    starts = [ln.split(",")[1] for ln in lines]
+    assert starts[0] == "0:00:01.00" and starts[1] == "0:00:01.02"   # bornes à mi-chemin entre deux images
+    ys = [float(re.search(r"\\pos\(([\d.]+),([\d.]+)\)", ln).group(2)) for ln in lines]
+    assert ys[0] > ys[5] > ys[-1] == pytest.approx(0.82 * 1920)      # le texte monte jusqu'à sa place
+    assert r"\1a&HFF&" in lines[0] and r"\1a&H00&" in lines[-1]      # et apparaît
+
+
+def test_flou_d_un_texte_a_contour(tmp_path):
+    out = tmp_path / "caps.ass"
+    cap = caption("none", start=0.0, end=2.0, outline=5, anim_in={"type": "blur", "dur": 0.5})
+    build_ass_edited([cap], str(out), fps=30)
+    first = [ln for ln in dialogues(out) if ln.split(",")[1] == "0:00:00.00"]
+    # libass ne floute que le contour : contour seul, puis remplissage sans contour
+    assert len(first) == 2
+    assert r"\1a&HFF&" in first[0] and r"\bord0" in first[1]
+    assert all(r"\blur" in ln for ln in first)
+
+

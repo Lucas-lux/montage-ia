@@ -22,6 +22,7 @@ import math
 import secrets
 
 from engine.pipeline.style_presets import BASE as CAPTION_BASE
+from engine.pipeline.style_presets import COLOR_FIELDS, MODES
 from engine.pipeline.style_presets import PRESETS as CAPTION_PRESETS
 
 VERSION = 1
@@ -53,6 +54,7 @@ SETTINGS_DEFAULTS: dict = {
     "fillers": False,        # couper aussi les tics de langage
     "words_per_line": 4,
     "max_chars": 18,
+    "word_by_word": False,   # sous-titres « mot à mot » : un seul mot à l'écran
     "style": "hype",
     "emojis": True,
     "language": None,        # langue parlée, None = détectée
@@ -74,6 +76,7 @@ _TEXT_LOOK = dict(CAPTION_BASE)
 _TEXT_EXTRA = {"emoji": "", "emoji_size": 0.0, "emoji_dx": 0.0, "emoji_dy": 0.0,
                "emoji_moved": False, "moved": False, "hidden": False, "auto": False,
                "gone": False, "lang": "", "tr_hidden": False,
+               "hold": False,                  # mot à mot : reste affiché jusqu'au suivant
                "ai": ""}                       # "hook" / "text" : posé par le montage automatique
 # Réglages d'image d'un clip vidéo ou image.
 FILTERS = ("brightness", "contrast", "saturation", "temperature")
@@ -309,6 +312,9 @@ def normalize_clip(c: dict, track: dict, media: dict | None) -> dict | None:
     else:
         out.update(_text_fields(c))
 
+    if kind in ("video", "image", "text"):
+        out.update(_anims(c, "text" if kind == "text" else "media"))
+
     if dur < MIN_DUR:
         return None
     out["dur"] = _t(dur)
@@ -316,6 +322,17 @@ def normalize_clip(c: dict, track: dict, media: dict | None) -> dict | None:
     for key in ("fade_in", "fade_out"):
         if key in out:
             out[key] = round(min(out[key], dur), 3)
+    return out
+
+
+def _anims(c: dict, target: str) -> dict:
+    """Animations d'entrée, de sortie et en boucle (engine/timeline/animations.py)."""
+    from engine.timeline import animations
+    out = {}
+    for key, kind in (("anim_in", "in"), ("anim_out", "out"), ("anim_loop", "loop")):
+        a = animations.normalize(c.get(key), kind, target)
+        if a:
+            out[key] = a
     return out
 
 
@@ -330,6 +347,10 @@ def _transform(c: dict) -> dict:
         "flip_h": _bool(c.get("flip_h")),
         "flip_v": _bool(c.get("flip_v")),
     }
+    # sujet détouré (engine/pipeline/matting.py) : arrière-plan retiré, cadre qui suit le sujet
+    for key in ("cutout", "follow"):
+        if _bool(c.get(key)):
+            out[key] = True
     # Réglages d'image (-1..1, 0 = neutre) : seuls les réglages actifs sont gardés.
     f = c.get("filters")
     if isinstance(f, dict):
@@ -349,12 +370,14 @@ def _text_fields(c: dict) -> dict:
             out[key] = _bool(v, default)
         elif isinstance(default, (int, float)):
             out[key] = round(_num(v, float(default), -10000, 10000), 4)
-        elif key in ("color", "hl", "outline_col"):
-            out[key] = _color(v, default)
+        elif key in COLOR_FIELDS:
+            # `color2` vide = pas de dégradé
+            out[key] = "" if (key == "color2" and not v) else _color(v, default or "#FFFFFF")
         else:
             out[key] = _str(v, default, 60)
-    if out["mode"] not in ("word", "sweep", "none"):
+    if out["mode"] not in MODES:
         out["mode"] = "word"
+    out["opacity"] = min(1.0, max(0.0, out["opacity"]))
     for key, default in _TEXT_EXTRA.items():
         v = c.get(key, default)
         if isinstance(default, bool):
@@ -445,6 +468,7 @@ def normalize_settings(s) -> dict:
         "pad": round(_num(s.get("pad"), d["pad"], 0.0, 0.5), 3),
         "fillers": _bool(s.get("fillers"), d["fillers"]),
         "words_per_line": _int(s.get("words_per_line"), d["words_per_line"], 1, 12),
+        "word_by_word": _bool(s.get("word_by_word"), d["word_by_word"]),
         "max_chars": _int(s.get("max_chars"), d["max_chars"], 6, 60),
         "style": style if style in CAPTION_PRESETS else d["style"],
         "emojis": _bool(s.get("emojis"), d["emojis"]),

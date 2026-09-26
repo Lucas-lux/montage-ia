@@ -33,11 +33,13 @@ from fastapi.staticfiles import StaticFiles
 from engine import store
 from engine.core import Options, default_output
 from engine.pipeline.style_presets import catalog, groups
+from engine.pipeline import fonts
 from engine.pipeline.translate import available as translate_available
 from engine.pipeline.translate import translate_captions
 from engine.project import Project
 from engine.timeline import api as timeline_api
 from engine.tools import audio as audio_tool
+from engine.tools import cutout as cutout_tool
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(HERE, "web")
@@ -61,6 +63,12 @@ class _Static(StaticFiles):
 
 
 app.mount("/web", _Static(directory=WEB_DIR), name="web")
+# Polices livrées avec l'application, déclarées en @font-face par l'éditeur.
+if os.path.isdir(fonts.BUNDLED_DIR):
+    app.mount("/fonts", StaticFiles(directory=fonts.BUNDLED_DIR), name="fonts")
+# Métriques des polices (lecture des polices du système, ~1 s) : prêtes avant
+# la première ouverture du studio.
+threading.Thread(target=fonts.metrics, name="polices", daemon=True).start()
 # Le studio lit le dossier de travail au moment de chaque requête : les tests
 # le déplacent en cours de route.
 timeline_api.configure(lambda: WORK_DIR)
@@ -147,6 +155,13 @@ def studio() -> HTMLResponse:
 @app.get("/api/styles")
 def styles() -> dict:
     return {"styles": catalog(), "groups": groups()}
+
+
+@app.get("/api/fonts")
+def font_list() -> dict:
+    """Polices livrées (nom, fichier sous /fonts, catégorie) et leurs catégories."""
+    return {"fonts": fonts.bundled(), "categories": fonts.categories(), "system": fonts.SYSTEM_FONTS,
+            "metrics": fonts.metrics()}
 
 
 # --------------------------------------------------------------------- projets
@@ -448,6 +463,98 @@ async def extract_audio(
     TOOL_JOBS[tid] = job
     _spawn(_run_extract_audio, job, src, upload, **kw)
     return {"job_id": tid}
+
+
+# ------------------------------------------- outil : supprimer l'arrière-plan
+
+CUTOUT_SOURCES: dict[str, dict] = {}
+
+
+@app.post("/api/tools/cutout/source")
+async def cutout_source(file: Optional[UploadFile] = File(None), path: Optional[str] = Form(None)) -> dict:
+    """Image ou vidéo à détourer : envoyée, ou lue sur place (chemin local).
+    Renvoie une image d'aperçu pour choisir le sujet d'un clic."""
+    from engine.pipeline import matting
+    tid = uuid.uuid4().hex
+    tdir = os.path.join(TOOLS_DIR, tid)
+    os.makedirs(tdir, exist_ok=True)
+    if file is not None and file.filename:
+        name = _safe(os.path.basename(file.filename))
+        src = os.path.join(tdir, "_source_" + name)
+        with open(src, "wb") as out_f:
+            while chunk := await file.read(1024 * 1024):
+                out_f.write(chunk)
+        upload = True
+    elif path:
+        src = path.strip().strip('"')
+        if not os.path.isfile(src):
+            shutil.rmtree(tdir, ignore_errors=True)
+            raise HTTPException(400, f"Fichier introuvable : {src}")
+        name = os.path.basename(src)
+        upload = False
+    else:
+        shutil.rmtree(tdir, ignore_errors=True)
+        raise HTTPException(400, "Aucune image ni vidéo fournie (fichier ou chemin).")
+    try:
+        info = cutout_tool.prepare(src, os.path.join(tdir, "preview.jpg"))
+    except (ValueError, RuntimeError) as exc:
+        shutil.rmtree(tdir, ignore_errors=True)
+        raise HTTPException(400, str(exc)) from exc
+    CUTOUT_SOURCES[tid] = {"src": src, "info": info, "upload": upload, "dir": tdir, "name": name}
+    return {"id": tid, "kind": info["kind"], "w": info["w"], "h": info["h"], "duration": info.get("duration", 0),
+            "name": name, "preview": f"/api/tools/cutout/{tid}/preview",
+            "formats": cutout_tool.FORMATS[info["kind"]], "model": matting.info()}
+
+
+@app.get("/api/tools/cutout/{tid}/preview")
+def cutout_preview(tid: str):
+    s = CUTOUT_SOURCES.get(tid)
+    path = os.path.join(s["dir"], "preview.jpg") if s else ""
+    if not s or not os.path.isfile(path):
+        raise HTTPException(404, "Aperçu introuvable.")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+def _run_cutout(job: dict, s: dict, point, t: float, fmt: str, bg: str) -> None:
+    job.update(status="running", message="Détourage…")
+    try:
+        res = cutout_tool.run(s["src"], s["info"], point, t, fmt, bg, job["output"],
+                              on_progress=lambda f: job.update(pct=round(100 * f, 1)))
+        job.update(status="done", pct=100, message="Terminé.", result=res)
+    except Exception as exc:  # noqa: BLE001 - message remonté tel quel au front
+        job.update(status="error", message=str(exc)[:600])
+        try:
+            os.remove(job["output"])
+        except OSError:
+            pass
+
+
+@app.post("/api/tools/cutout/{tid}/run")
+def cutout_run(tid: str, body: dict = Body(default={})) -> dict:
+    from engine.pipeline import matting
+    s = CUTOUT_SOURCES.get(tid)
+    if not s:
+        raise HTTPException(404, "Source introuvable : choisis de nouveau le fichier.")
+    if not matting.model_path():
+        raise HTTPException(409, "Modèle de détourage absent : télécharge-le d'abord.")
+    kind = s["info"]["kind"]
+    fmt = str(body.get("format") or ("png" if kind == "image" else "webm"))
+    if fmt not in cutout_tool.FORMATS[kind]:
+        raise HTTPException(400, f"Format inconnu : {fmt}")
+
+    def num(key, default, lo, hi):
+        try:
+            return min(hi, max(lo, float(body.get(key, default))))
+        except (TypeError, ValueError):
+            return default
+    point = (num("x", 0.5, 0, 1), num("y", 0.45, 0, 1))
+    t = 0.0 if kind == "image" else num("t", min(1.0, s["info"]["duration"] * 0.2), 0, s["info"]["duration"])
+    out = cutout_tool.output_name(s["name"] if s["upload"] else s["src"], fmt, s["dir"] if s["upload"] else None)
+    jid = uuid.uuid4().hex
+    job = {"status": "queued", "pct": 0, "message": "En attente…", "output": out}
+    TOOL_JOBS[jid] = job
+    _spawn(_run_cutout, job, s, point, t, fmt, str(body.get("bg") or "#00B140"))
+    return {"job_id": jid}
 
 
 @app.get("/api/tools/jobs/{tid}")

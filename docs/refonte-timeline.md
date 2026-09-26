@@ -137,6 +137,15 @@ Chaque étape donne une application utilisable et fait l'objet d'un commit.
 - [x] Arrêt sur image, marqueurs.
 - [x] Son : normalisation du volume, réduction du bruit.
 
+### 11. Application de bureau et confort (septembre 2026)
+- [x] Fenêtre d'application Windows (pywebview + WebView2), sans console ni
+      navigateur ; import par les boîtes de dialogue de Windows et glisser-déposer
+      avec les vrais chemins : aucun envoi, aucune copie.
+- [x] Proxies décodés par la carte NVIDIA (NVDEC + `scale_cuda`), rotation
+      comprise, repli sur le processeur.
+- [x] Diviser et garder la droite (`Q`) ou la gauche (`W`).
+- [x] « Short automatique » : le montage attend le clic sur « Monter la vidéo ».
+
 ### 10. Montage automatique par IA
 - [x] Analyse de la voix : phrases, score (mots forts, questions, chiffres,
       énergie, débit), salutations, formules de fin, tics, faux départs.

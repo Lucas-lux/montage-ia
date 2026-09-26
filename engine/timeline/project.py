@@ -163,6 +163,13 @@ class TimelineProject:
                     todo.append(m["id"])
         for mid in todo:
             self.queue_media(mid)
+        # détourages interrompus par l'arrêt : on les relance
+        for m in self.state["media"]:
+            sub = m.get("subject") or {}
+            if sub.get("status") in ("queued", "running") and m.get("status") == "ready":
+                jobs.SUBJECT.submit((self.id, m["id"], sub.get("x"), sub.get("y"), sub.get("t")), detect_subject,
+                                    self, m["id"], float(sub.get("x", 0.5)), float(sub.get("y", 0.5)),
+                                    float(sub.get("t", 0.0)))
         # transcriptions interrompues par l'arrêt : on les relance
         from engine.timeline import ai
         for m in self.state["media"]:
@@ -249,7 +256,11 @@ class TimelineProject:
         base = f"/api/timeline/{self.id}/media/{m['id']}"
         v = int(m.get("rev") or 0)
         view = {k: v2 for k, v2 in m.items() if k != "proxy_file"}
+        sub = m.get("subject") or {}
+        sv = f"{v}.{sub.get('rev', 0)}"
+        ext = "png" if m.get("kind") == "image" else "webm"
         view["urls"] = {
+            "cutout": f"{base}/cutout?v={sv}&f={ext}" if sub.get("status") == "done" else "",
             "proxy": f"{base}/proxy?v={v}" if m.get("proxy_file") else "",
             "thumbs": f"{base}/thumbs?v={v}" if (m.get("thumbs") or {}).get("count") else "",
             "wave": f"{base}/wave?v={v}" if (m.get("waveform") or {}).get("count") else "",
@@ -315,6 +326,38 @@ def process_media(proj: TimelineProject, mid: str) -> None:
             _project_thumb(proj, os.path.join(folder, "poster.jpg"))
     except Exception as exc:  # noqa: BLE001 - rangé dans le média, affiché par l'éditeur
         proj.update_media(mid, status="error", error=str(exc)[:400])
+
+
+def detect_subject(proj: TimelineProject, mid: str, x: float, y: float, t: float) -> None:
+    """Détoure le sujet désigné d'un média (file `jobs.SUBJECT`) : masque,
+    aperçu transparent et trajectoire, rangés avec le média."""
+    from engine.pipeline import matting
+    m = proj.media(mid)
+    if m is None or proj.deleted or m.get("status") != "ready":
+        return
+    folder = proj.media_folder(mid)
+    base = {"x": x, "y": y, "t": t, "rev": int((m.get("subject") or {}).get("rev") or 0)}
+    last = [0.0]
+
+    def progress(frac: float) -> None:
+        now = time.monotonic()
+        if now - last[0] > 0.3:
+            last[0] = now
+            proj.update_media(mid, save=False, subject={**base, "status": "running", "progress": round(100 * frac, 1)})
+
+    proj.update_media(mid, subject={**base, "status": "running", "progress": 0})
+    try:
+        proxy = os.path.join(folder, m.get("proxy_file") or "")
+        if m["kind"] == "image":
+            res = matting.process_image(proxy, (x, y), folder)
+            matte = os.path.join(folder, "matte.png")
+        else:
+            res = matting.process_video(proxy, m, (x, y), t, folder, on_progress=progress)
+            matte = os.path.join(folder, "matte.mp4")
+        proj.update_media(mid, subject={**base, "status": "done", "progress": 100, "rev": base["rev"] + 1,
+                                        "matte": matte, "track": res["track"]})
+    except Exception as exc:  # noqa: BLE001 - affiché dans l'inspecteur
+        proj.update_media(mid, subject={**base, "status": "error", "error": str(exc)[:300]})
 
 
 def _project_thumb(proj: TimelineProject, poster: str) -> None:

@@ -1,13 +1,18 @@
 /* Panneau Médias : import (fichiers, dossier, chemins locaux), état de
    préparation de chaque média, ajout à la timeline.
 
-   Deux façons d'importer :
+   Dans l'application de bureau, importer (bouton, dossier, glisser-déposer
+   depuis l'Explorateur) donne les vrais chemins : le moteur lit les fichiers
+   là où ils sont, sans copie, et l'import est immédiat (desktop.js).
+
+   Dans un navigateur, deux façons d'importer :
      - téléverser (bouton, glisser-déposer, dossier) : le fichier est copié
        dans le projet — le navigateur ne peut pas donner son chemin ;
      - « Par chemin » : le moteur lit le fichier là où il est, sans copie.
        C'est le bon choix pour de gros rushs. */
 
 import { api, del, post, upload } from "./api.js";
+import { awaitDroppedPaths, isDesktop, pickFiles, pickFolder } from "./desktop.js";
 import * as M from "./model.js";
 import { S, edit, emit, on, select, setMedia, setTime } from "./store.js";
 import { $, fmt, h, menu, modal, mo, naturalCompare, svg, toast } from "./util.js";
@@ -26,15 +31,22 @@ const B = {
   filter: "all",
   query: "",
   pending: [],          // médias à poser sur la timeline dès qu'ils sont prêts
+  autoTimeline: false,  // short automatique : tout import rejoint la timeline
   poll: 0,
   gen: 0,               // change à chaque ajout ou retrait local de média
 };
 
 /* ----------------------------------------------------------------- import */
 
+/** Short automatique : chaque média importé rejoint aussi la timeline. */
+export function setAutoTimeline(on) { B.autoTimeline = !!on; }
+
+/** Vrai tant qu'un envoi tourne ou qu'un média attend d'être posé. */
+export const importing = () => B.uploads.length > 0 || B.pending.length > 0;
+
 /** Téléverse des fichiers, un par un (progression par fichier). Avec
  *  `toTimeline`, chaque média rejoint la timeline quand il est prêt. */
-export async function importFiles(files, { toTimeline = false } = {}) {
+export async function importFiles(files, { toTimeline = B.autoTimeline } = {}) {
   const list = [...files].filter((f) => isMediaFile(f.name))
     .sort((a, b) => naturalCompare(a.webkitRelativePath || a.name, b.webkitRelativePath || b.name));
   const ignored = files.length - list.length;
@@ -64,7 +76,7 @@ export async function importFiles(files, { toTimeline = false } = {}) {
 }
 
 /** Ajoute des fichiers ou dossiers locaux par leur chemin (aucune copie). */
-export async function importPaths(paths, { recursive = false, toTimeline = false } = {}) {
+export async function importPaths(paths, { recursive = false, toTimeline = B.autoTimeline } = {}) {
   const res = await post(`/api/timeline/${S.pid}/media/paths`, { paths, recursive });
   addMediaViews(res.added);
   if (toTimeline) B.pending.push(...res.added.map((m) => m.id));
@@ -110,7 +122,8 @@ function startPolling() {
 export { startPolling };
 
 const transcribing = () =>
-  [...S.media.values()].some((m) => ["queued", "running"].includes((m.transcript || {}).status));
+  [...S.media.values()].some((m) => ["queued", "running"].includes((m.transcript || {}).status) ||
+                                    ["queued", "running"].includes((m.subject || {}).status));
 
 /** Médias déposés sur la timeline avant d'être prêts : posés dans l'ordre. */
 function flushPending() {
@@ -120,7 +133,8 @@ function flushPending() {
     if (m.status === "error" || m.status === "missing") { B.pending.shift(); continue; }
     if (m.status !== "ready") return;
     B.pending.shift();
-    addToTimeline(m, { quiet: true, at: M.duration(S.doc) + 1e6 });
+    // vidéos et images à la suite ; un son part du début, sur une piste audio
+    addToTimeline(m, { quiet: true, at: m.kind === "audio" ? 0 : M.duration(S.doc) + 1e6 });
   }
 }
 
@@ -154,6 +168,18 @@ function init() {
   dirIn.webkitdirectory = true;
   fileIn.onchange = () => { importFiles(fileIn.files); fileIn.value = ""; };
   dirIn.onchange = () => { importFiles(dirIn.files); dirIn.value = ""; };
+  // Application : boîtes de dialogue de Windows, fichiers lus sur place.
+  // Navigateur (null) : sélecteur de fichiers, envoi.
+  const chooseFiles = async () => {
+    const paths = await pickFiles("media", true);
+    if (paths === null) fileIn.click();
+    else if (paths.length) importPaths(paths.sort(naturalCompare)).catch((e) => toast(e.message, 4000));
+  };
+  const chooseFolder = async () => {
+    const dir = await pickFolder();
+    if (dir === null) dirIn.click();
+    else if (dir) importPaths([dir], { recursive: true }).catch((e) => toast(e.message, 4000));
+  };
 
   const search = h("input", { type: "text", placeholder: "Rechercher…", "aria-label": "Rechercher un média",
                               oninput: (e) => { B.query = e.target.value.trim().toLowerCase(); renderGrid(); } });
@@ -165,14 +191,15 @@ function init() {
   root.append(
     h("div.importbar", {},
       h("div.split", {},
-        h("button.btn.primary", { onclick: () => fileIn.click(), title: "Vidéos, sons, images (copiés dans le projet)",
-                                  html: svg("plus", 14) + "Importer" }),
+        h("button.btn.primary", { onclick: chooseFiles, html: svg("plus", 14) + "Importer",
+                                  title: isDesktop ? "Vidéos, sons, images (lus sur place, sans copie)"
+                                    : "Vidéos, sons, images (copiés dans le projet)" }),
         h("button.btn.primary", { title: "Autres façons d'importer", "aria-label": "Autres façons d'importer",
           html: svg("caret", 14), onclick: (e) => {
             const r = e.currentTarget.getBoundingClientRect();
             menu(r.right - 220, r.bottom + 4, [
-              { label: "Fichiers…", icon: "file", onclick: () => fileIn.click() },
-              { label: "Un dossier entier…", icon: "folder", onclick: () => dirIn.click() },
+              { label: "Fichiers…", icon: "file", onclick: chooseFiles },
+              { label: "Un dossier entier…", icon: "folder", onclick: chooseFolder },
               { label: "Par chemin (sans copie)…", icon: "pathin", onclick: pathDialog },
             ]);
           } })),
@@ -183,7 +210,8 @@ function init() {
     h("div.dropzone", { id: "binEmpty" },
       h("b", {}, "Dépose tes rushs ici"),
       "fichiers ou dossier entier",
-      h("div.hint", { style: { marginTop: "8px" } }, "Gros fichiers : « Par chemin » les lit sur place.")),
+      h("div.hint", { style: { marginTop: "8px" } }, isDesktop ? "Lus sur place : rien n'est copié."
+        : "Gros fichiers : « Par chemin » les lit sur place.")),
     fileIn, dirIn);
 
   initDrop();
@@ -197,7 +225,7 @@ export { init };
 function pathDialog() {
   const ta = h("textarea", { rows: 5, placeholder: "C:\\Users\\moi\\Vidéos\\rush.mp4\nD:\\Tournage\\jour1" });
   const rec = h("input", { type: "checkbox" });
-  const tl = h("input", { type: "checkbox" });
+  const tl = h("input", { type: "checkbox", checked: B.autoTimeline });
   modal({
     title: "Ajouter par chemin",
     body: h("div", {},
@@ -243,9 +271,18 @@ function initDrop() {
     depth = 0;
     veil.classList.add("hidden");
     // Déposé sur la timeline : les médias y vont aussi, à la suite.
-    const onTimeline = !!e.target.closest?.("#tl");
+    const toTimeline = !!e.target.closest?.("#tl") || B.autoTimeline;
+    if (isDesktop) {
+      // la fenêtre renvoie les chemins complets : lus sur place, sans envoi
+      const files = [...e.dataTransfer.files];
+      awaitDroppedPaths(
+        (paths) => importPaths(paths.sort(naturalCompare), { recursive: true, toTimeline })
+          .catch((err) => toast(err.message, 4000)),
+        () => importFiles(files, { toTimeline }));
+      return;
+    }
     const files = await filesFrom(e.dataTransfer);
-    importFiles(files, { toTimeline: onTimeline });
+    importFiles(files, { toTimeline });
   });
 }
 

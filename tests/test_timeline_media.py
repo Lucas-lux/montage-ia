@@ -91,6 +91,52 @@ def test_proxy_size():
     assert mt.proxy_size(3840, 2160, 1920) == (1920, 1080)
 
 
+def test_filtre_du_proxy_sur_la_carte():
+    assert mt.gpu_proxy_filter(960, 540, 30) == \
+        "fps=30,scale_cuda=960:540:format=nv12,hwdownload,format=nv12,format=yuv420p"
+    # vidéo de téléphone en portrait : réduite couchée, redressée ensuite
+    assert mt.gpu_proxy_filter(540, 960, 30, 90) == \
+        "fps=30,scale_cuda=960:540:format=nv12,hwdownload,format=nv12,transpose=clock,format=yuv420p"
+    assert ",transpose=cclock," in mt.gpu_proxy_filter(540, 960, 30, 270)
+    assert ",hflip,vflip," in mt.gpu_proxy_filter(960, 540, 30, 180)
+
+
+def test_rotation_a_redresser(files, tmp_path):
+    assert mt.display_turn(str(files["video"])) == 0
+    try:
+        for rot in ("90", "-90", "180"):
+            ff("-display_rotation", rot, "-i", files["video"], "-c", "copy", tmp_path / f"r{rot}.mp4")
+        ff("-display_rotation", "90", "-display_hflip", "-i", files["video"], "-c", "copy", tmp_path / "miroir.mp4")
+    except subprocess.CalledProcessError:
+        pytest.skip("ffmpeg sans -display_rotation")
+    # même sens que l'autorotation de ffmpeg (transpose=clock pour -90)
+    assert [mt.display_turn(str(tmp_path / f"r{r}.mp4")) for r in ("90", "-90", "180")] == [270, 90, 180]
+    assert mt.display_turn(str(tmp_path / "miroir.mp4")) is None     # laissé au processeur
+
+
+@pytest.mark.parametrize("error, gpu_after", [
+    ("Device creation failed: -542398533.", False),       # pas de carte NVIDIA
+    ("No such filter: 'scale_cuda'", False),              # ffmpeg sans CUDA
+    ("Impossible to convert between the formats", True),  # ce fichier-là seulement
+])
+def test_proxy_repli_sur_le_processeur(monkeypatch, tmp_path, error, gpu_after):
+    calls = []
+
+    def fake_run(args, **kw):
+        calls.append(args)
+        if "-hwaccel" in args:
+            raise RuntimeError("ffmpeg a échoué :\n" + error)
+
+    monkeypatch.setitem(mt._GPU, "ok", True)
+    monkeypatch.setattr(mt, "display_turn", lambda path: 0)
+    monkeypatch.setattr(mt, "_run_ffmpeg", fake_run)
+    info = {"kind": "video", "w": 3840, "h": 2160, "fps": 60, "duration": 5, "has_audio": True}
+    mt.make_proxy("src.mp4", str(tmp_path / "p.mp4"), info)
+    assert len(calls) == 2 and "-hwaccel" not in calls[1]
+    assert "scale=960:540,fps=30,format=yuv420p" in calls[1]
+    assert mt._GPU["ok"] is gpu_after
+
+
 def test_thumbs_layout():
     lay = mt.thumbs_layout(10.0, "video")
     assert lay["interval"] == 0.5 and lay["count"] == 20 and lay["cols"] == 20

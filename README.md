@@ -15,6 +15,21 @@ API key.
 
 ## Features
 
+- **Effects like CapCut** — 53 bundled fonts, text effects (glow, neon, 3D,
+  gradient, double outline, soft shadow…), 71 caption styles, *word by word*
+  captions, and 51 in / out / loop animations for texts, videos and images.
+  What you see in the preview is what the export renders, frame for frame.
+- **Sound effects** — a library of 69 effects synthesised on your PC, plus your
+  own: create them with the built-in synthesiser, import them or record them.
+- **Subject & background** — click on yourself in the preview: the background
+  is removed (MODNet, local), the clip can be reframed on you or follow you.
+  The toolbox removes the background of any image or video (PNG, WebM, ProRes
+  4444 with transparency, or on a colour).
+- **A real desktop app on Windows** — Montage IA opens in its own window (the
+  system's Edge WebView2 engine), no browser and no console. Rushes you import
+  or drag from Explorer are read where they are: nothing is copied or uploaded,
+  so importing is instant, and proxies are decoded on the NVIDIA GPU when there
+  is one (about 3× faster on 4K phone footage).
 - **Timeline studio** — a CapCut-style multitrack editor. Import clips, images,
   music or a whole folder; arrange, split, trim and delete (the main track closes
   the gaps); stack video overlays; detach a clip's audio in one click; add music,
@@ -94,8 +109,11 @@ python scripts/download_models.py --llm   # optional: language model of the auto
 python app.py        # or start.bat (Windows) / sh start.sh (macOS, Linux)
 ```
 
-Your browser opens on <http://127.0.0.1:8765>. Keep the terminal open: it is the
-engine and its log. Press `Ctrl+C` there to quit.
+On Windows the app opens in its own window (Edge WebView2, preinstalled on
+Windows 10 and 11); closing it quits. `python app.py --browser` (or
+`MONTAGE_IA_BROWSER=1`) uses your browser instead. On macOS and Linux your
+browser opens on <http://127.0.0.1:8765>. In both cases the terminal shows the
+engine's log; `Ctrl+C` there quits.
 
 The **first analysis downloads the Whisper model** (large-v3-turbo, ~1.6 GB) —
 once. To fetch it in advance: `python scripts/download_models.py --whisper`.
@@ -107,14 +125,33 @@ once. To fetch it in advance: `python scripts/download_models.py --whisper`.
 ## Using the studio (timeline)
 
 *Nouveau projet → Montage* opens an empty timeline in the format of your choice
-(9:16, 16:9, 1:1, 4:5…). *Short automatique → Dans la timeline* does the same, then
-runs the automatic edit as soon as your video is imported.
+(9:16, 16:9, 1:1, 4:5…). *Short automatique → Dans la timeline* does the same and
+puts the videos you import on the timeline; nothing runs until you check the
+settings and click *Monter la vidéo*.
 
 - **Media** — *Importer* (files), *Dossier* (a whole folder, drag-and-drop works
-  too) or *Par chemin* (local files read in place, no copy — best for big rushes).
-  Each file gets a light proxy, a thumbnail strip and a waveform in the background.
+  too) or *Par chemin* (local paths). In the Windows app every import is read in
+  place, with no copy; in a browser, imported files are uploaded into the project
+  (the browser can't give their path) and *Par chemin* avoids the copy. Each file
+  gets a light proxy (decoded on the NVIDIA GPU when available), a thumbnail strip
+  and a waveform in the background.
+- **Texts** — *Texte* has about forty title styles (animated, neon, 3D,
+  gradients, handwritten, retro…). In the inspector: 53 fonts with a searchable
+  picker, *Effets* (glow, second outline, 3D, soft shadow, gradient, outline
+  only, spacing, italic, rotation, opacity, or one-click presets) and
+  *Animations* (in, out, loop — hover a card to preview it).
+- **Animations** — videos and images have the same *Animations* section (fade,
+  slides, zoom, bounce, spin, blur, slow zoom, pan, pulse…).
+- **Sounds** — the *Sons* tab lists the effects by category: click to listen,
+  `+` (or drag) to add at the playhead. *Créer un son* opens the synthesiser;
+  *Importer* and the microphone button fill *Mes sons*.
+- **Subject** — select a video or image clip, *Sujet → Choisir le sujet*, click
+  on the person: after a background pass (about twice the clip's duration on a
+  CPU) you can remove the background, reframe the clip on the subject or make
+  the frame follow them.
 - **Timeline** — drag media onto a track or click `+`. Drag clips to move them,
-  drag their edges to trim, `Ctrl+B` to split, `Suppr` to delete. The main track
+  drag their edges to trim, `Ctrl+B` to split, `Q` / `W` to split and keep the
+  right / left part (as in CapCut), `Suppr` to delete. The main track
   is magnetic; other tracks are free. Drag a clip above the top track (or below the
   last audio track) to create a new track. `Ctrl`+wheel zooms, `N` toggles
   snapping, `Alt`+click picks a clip without its linked audio.
@@ -128,7 +165,8 @@ runs the automatic edit as soon as your video is imported.
   (see below). *Supprimer les blancs* on the selection, the main track or
   everything, based on the voice (transcription, optional filler words) or on the
   sound level, with a red preview before applying. *Sous-titres* generates
-  captions from the voice; they follow later cuts and moves. Styles, positions,
+  captions from the voice (or *Mot à mot*: one word at a time); they follow later
+  cuts and moves. 71 styles, highlight modes, positions,
   emojis, merge, split and English translation as in the short editor.
 - **Voice-over** — the microphone button in the timeline toolbar (or `R`) opens
   the recorder: pick a microphone, watch the level, *3, 2, 1* and the take starts
@@ -269,6 +307,11 @@ The bundle includes Python, the engine, the ffmpeg found in your `PATH`, the CUD
 libraries and the translation model. Projects are stored in
 `%LOCALAPPDATA%\MontageIA\work`. Other options: `--app-only`, `--no-cuda`, `--clean`.
 
+The app has no console: it opens its own window (Edge WebView2; without it, it
+falls back to the browser) and writes its log to
+`%LOCALAPPDATA%\MontageIA\logs\montage-ia.log`. Launching it again brings the
+open window to the front.
+
 > The bundled ffmpeg decides which NVIDIA driver NVENC needs (ffmpeg 8.x needs
 > driver 570+). Exports fall back to libx264 when NVENC can't start.
 
@@ -333,6 +376,9 @@ workflow file).
 | `MONTAGE_IA_WORK` | `./work` (installed app: `%LOCALAPPDATA%\MontageIA\work`) | Projects, previews, exports |
 | `MONTAGE_IA_TRANSLATE` | `./models/translate` | Translation models folder |
 | `HF_HOME` | Hugging Face default cache | Where Whisper is downloaded |
+| `MONTAGE_IA_BROWSER` | unset | `1`: on Windows, use the browser instead of the app window |
+| `MONTAGE_IA_GPU_PROXY` | unset | `0`: never decode proxies on the GPU |
+| `MONTAGE_IA_DEVTOOLS` · `MONTAGE_IA_DEBUG_PORT` | unset | App window: `1` enables devtools · remote debugging port (Playwright over CDP) |
 
 ## Tests
 
@@ -367,7 +413,8 @@ export ──ffmpeg──▶ cut + 9:16 crop ─▶ burn .ass captions + colour 
 ## Project layout
 
 ```
-app.py                     desktop entry point: starts the engine, opens the browser
+app.py                     desktop entry point: starts the engine, shows the interface
+desktop.py                 Windows app window (pywebview + WebView2): native dialogs, dropped paths
 engine/
   server.py                FastAPI: projects, analyse, recut, translate, export
   project.py               editing state of one video: words, cuts, captions, export
@@ -376,13 +423,17 @@ engine/
   web/index.html           home, short editor and toolbox
   web/studio.html          timeline studio (modules in web/studio/)
     studio/model.js        timeline logic, pure (tested with node --test)
+    studio/desktop.js      real file paths from the app window (imports without copy)
+    studio/anim.js         animations (same maths as timeline/animations.py) · textfx.js text layers and effects
+    studio/sounds.js       sound effects panel and synthesiser · fonts.js bundled fonts and picker
     studio/timeline.js     tracks, clips, gestures · player.js real-time preview
     studio/inspector.js    clip and project settings · panels.js AI tools, captions
   timeline/
     project.py · model.py  timeline projects on disk · validation of the editor state
     media.py · jobs.py     proxies, thumbnails, waveforms · background queues
     ai.py                  transcription, silences, captions from the timeline
-    render.py              export: tracks, transforms, audio mix, captions
+    render.py              export: tracks, transforms, audio mix, captions, animations, cutout
+    animations.py          in / out / loop animations (definitions in web/studio/animations.json)
     convert.py             open a short project in the timeline
   pipeline/
     probe.py               ffprobe (handles rotated phone videos)
@@ -392,10 +443,14 @@ engine/
     style_presets.py       caption presets shared by the editor and the renderer
     ass_edit.py            .ass file from the edited captions
     translate.py           local caption translation (CTranslate2 + SentencePiece)
+    matting.py             subject cutout (MODNet), click to choose, tracking
+    fonts.py               bundled fonts, real text size as libass draws it
     emoji.py · emoji_overlay.py   keyword → emoji, colour emoji PNGs
     render.py              ffmpeg: cut/concat, preview proxy, burn-in, encoder fallback
   tools/
     audio.py               toolbox: extract a video's audio (also a command line)
+    cutout.py              toolbox: remove the background of an image or a video
+    sfx.py                 sound effects: synthesised library, « Mes sons »
 scripts/download_models.py fetch the translation (and optionally Whisper) models
 build/                     PyInstaller + Inno Setup recipes for the Windows app
 tests/                     pytest suite (+ tests/js, run by node --test)
@@ -413,6 +468,7 @@ tests/                     pytest suite (+ tests/js, run by node --test)
 | « Ce ffmpeg ne sait pas incruster de sous-titres » | Your ffmpeg has no libass (Homebrew's default one): see the prerequisites. |
 | macOS: « Montage IA » can't be opened | See *macOS app* above (*Open Anyway* in Privacy & Security). |
 | `ffmpeg` not found | Install it (see prerequisites) and open a new terminal. |
+| Windows: the app opens in the browser, or its window stays on « Démarrage du moteur… » | The Edge WebView2 runtime is missing or broken: install it from Microsoft (<https://go.microsoft.com/fwlink/p/?LinkId=2124703>). Details in `%LOCALAPPDATA%\MontageIA\logs\montage-ia.log`. |
 | A project shows *Analyse non terminée* | The analysis was interrupted (app closed, crash). Click the card to run it again — the video is already imported. |
 
 ## Roadmap

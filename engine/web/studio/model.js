@@ -17,6 +17,7 @@
        chaque coupe ou déplacement. */
 
 export const MIN_DUR = 0.04;
+export const HOLD_GAP = 0.8;          // mot à mot : pause au-delà de laquelle le mot disparaît (comme ai.py)
 export const IMAGE_DUR = 3;
 export const TEXT_DUR = 3;
 const EPS = 1e-4;
@@ -280,6 +281,8 @@ export function splitClip(doc, clip, t) {
   if (hasSource(clip)) right.in = r4(clip.in + left * (clip.speed || 1));
   if ("fade_out" in clip) { right.fade_in = 0; clip.fade_out = 0; }   // fondus aux bouts d'origine
   delete right.trans;                  // la transition d'entrée reste au début du clip
+  delete right.gap;                    // passage retiré avant le clip : à gauche,
+  delete clip.tail;                    // celui d'après : à droite
   if (clip.kind === "text") {
     const words = clip.words || [];
     clip.words = words.filter((w) => w.start < t);
@@ -300,6 +303,31 @@ export function splitAt(doc, t, ids) {
   const all = linkedIds(doc, base);
   return doc.clips.filter((c) => all.has(c.id) && c.start < t - MIN_DUR && clipEnd(c) > t + MIN_DUR)
     .map((c) => splitClip(doc, c, t)).filter(Boolean);
+}
+
+/** Divise à `t` et ne garde qu'un côté des clips visés (et de leurs
+ *  partenaires liés), comme « Supprimer à gauche / à droite » dans CapCut.
+ *  `keep` : "right" retire ce qui précède `t`, "left" ce qui suit. Sur la
+ *  piste principale le trou se referme ; ailleurs le morceau gardé reste en
+ *  place. Renvoie les morceaux gardés. */
+export function splitKeep(doc, t, ids, keep) {
+  const drop = new Set();
+  const kept = [];
+  const all = linkedIds(doc, [...ids]);
+  for (const c of doc.clips.filter((x) => all.has(x.id) && x.start < t - MIN_DUR && clipEnd(x) > t + MIN_DUR)) {
+    const right = splitClip(doc, c, t);
+    if (!right) continue;
+    if (keep === "right") {
+      if (c.trans) right.trans = c.trans;     // la transition d'entrée suit le début gardé
+      drop.add(c.id);
+      kept.push(right);
+    } else {
+      drop.add(right.id);
+      kept.push(c);
+    }
+  }
+  if (drop.size) deleteClips(doc, drop);
+  return kept;
 }
 
 /* ---------------------------------------------------------------- supprimer */
@@ -549,6 +577,16 @@ export function reflowCaptions(doc) {
     for (let i = 0; i + 1 < row.length; i++) {
       const a = row[i], b = row[i + 1];
       if (clipEnd(a) > b.start + EPS) a.dur = r4(Math.max(MIN_DUR, b.start - a.start));
+    }
+  }
+  // mot à mot : un mot reste affiché jusqu'au suivant (pas de clignotement entre deux mots)
+  const holds = new Set(doc.clips.filter((c) => c.kind === "text" && c.hold && !c.gone).map((c) => c.track));
+  for (const tid of holds) {
+    const row = trackClips(doc, tid).filter((c) => !c.gone);
+    for (let i = 0; i + 1 < row.length; i++) {
+      const a = row[i], b = row[i + 1];
+      const gap = b.start - clipEnd(a);
+      if (a.hold && gap > EPS && gap <= HOLD_GAP) a.dur = r4(b.start - a.start);
     }
   }
 }

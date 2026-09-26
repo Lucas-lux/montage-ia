@@ -30,6 +30,35 @@ export function split() {
   select(rights.map((c) => c.id));
 }
 
+/** Divise à la tête de lecture et ne garde qu'un côté (CapCut : « Supprimer à
+ *  gauche » Q, « Supprimer à droite » W). Vise la sélection, sinon le clip de
+ *  la piste principale sous la tête de lecture ; les clips liés suivent. */
+export function splitKeep(keep) {
+  const free = (c) => !(M.track(S.doc, c.track) || {}).locked;
+  const main = M.mainTrack(S.doc);
+  const ids = S.sel.size ? selectionIds()
+    : new Set(S.doc.clips.filter((c) => main && c.track === main.id && c.start <= S.t && M.clipEnd(c) > S.t)
+      .map((c) => c.id));
+  S.doc.clips.forEach((c) => { if (ids.has(c.id) && !free(c)) ids.delete(c.id); });
+  const kept = ids.size ? edit((doc) => {
+    const k = M.splitKeep(doc, S.t, ids, keep);
+    reflow(doc);
+    return k;
+  }, "split") : [];
+  if (!kept.length) {
+    if (ids.size) { S.hist.pop(); emit("history"); }
+    toast(S.sel.size ? "La tête de lecture n'est pas sur la sélection."
+      : "Aucun clip à diviser sous la tête de lecture.");
+    return;
+  }
+  select(kept.map((c) => c.id));
+  // la partie droite gardée prend la place de la gauche : on s'y place
+  if (keep === "right") {
+    const lead = kept.find((c) => M.isMain(S.doc, c.track)) || kept[0];
+    setTime(lead.start, { from: "jump" });
+  }
+}
+
 export function remove() {
   if (!S.sel.size) return;
   const ids = selectionIds();
@@ -191,6 +220,52 @@ export async function freezeFrame(dur = 2) {
     return piece;
   }, "freeze");
   if (img) { select([img.id]); toast("Arrêt sur image ajouté (2 s)."); }
+}
+
+/* ------------------------------------------------------------------ sujet */
+
+/** Point de l'image source (0..1) sous un clic sur l'aperçu, ou null hors du clip. */
+export function sourcePoint(c, m, clientX, clientY, geometry) {
+  const r = document.getElementById("stage").getBoundingClientRect();
+  const k = S.k || 1, W = S.doc.canvas.w, H = S.doc.canvas.h;
+  const g = geometry(c, m, W, H);
+  let dx = (clientX - r.left) / k - g.cx, dy = (clientY - r.top) / k - g.cy;
+  const a = -((c.rotation || 0) * Math.PI) / 180;
+  [dx, dy] = [dx * Math.cos(a) - dy * Math.sin(a), dx * Math.sin(a) + dy * Math.cos(a)];
+  if (c.flip_h) dx = -dx;
+  if (c.flip_v) dy = -dy;
+  const u = 0.5 + dx / g.w, v = 0.5 + dy / g.h;
+  return u >= 0 && u <= 1 && v >= 0 && v <= 1 ? [u, v] : null;
+}
+
+/** Cadre le clip sur son sujet : centré sur sa position moyenne, agrandi s'il
+ *  est petit, sans jamais découvrir le bord du cadre. */
+export function frameSubject(ids, geometry) {
+  const W = S.doc.canvas.w, H = S.doc.canvas.h;
+  let done = 0;
+  edit((doc) => doc.clips.forEach((c) => {
+    if (!ids.has(c.id)) return;
+    const m = S.media.get(c.media);
+    const track = ((m && m.subject) || {}).track || [];
+    if (!track.length) return;
+    const a = c.in || 0, b = a + c.dur * (c.speed || 1);
+    let ref = track.filter((p) => p[0] >= a - 0.05 && p[0] <= b + 0.05);
+    if (!ref.length) ref = track;
+    const avg = (i) => ref.reduce((s, p) => s + p[i], 0) / ref.length;
+    const [rx, ry, bh] = [avg(1), avg(2), avg(4)];
+    let g = geometry(c, m, W, H);
+    // un sujet petit dans l'image est rapproché (jusqu'à 2,5×)
+    const zoom = Math.min(2.5, Math.max(1, (0.72 * H) / Math.max(1, bh * g.h)));
+    if (zoom > 1.05 && c.fit !== "contain") c.scale = M.r4((c.scale || 1) * zoom);
+    g = geometry(c, m, W, H);
+    let cx = W / 2 - (rx - 0.5) * g.w, cy = H * 0.5 - (ry - 0.5) * g.h;
+    if (g.w >= W) cx = Math.min(g.w / 2, Math.max(W - g.w / 2, cx));
+    if (g.h >= H) cy = Math.min(g.h / 2, Math.max(H - g.h / 2, cy));
+    c.x = M.r4(cx / W);
+    c.y = M.r4(cy / H);
+    done++;
+  }), "frame");
+  if (done) toast("Clip cadré sur son sujet.");
 }
 
 /* -------------------------------------------------------------- transitions */

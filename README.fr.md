@@ -15,6 +15,23 @@ compte, pas d'envoi en ligne, pas de clé d'API.
 
 ## Fonctionnalités
 
+- **Des effets comme dans CapCut** — 53 polices livrées, effets de texte
+  (lueur, néon, 3D, dégradé, double contour, ombre douce…), 71 styles de
+  sous-titres, sous-titres *mot à mot*, et 51 animations d'entrée, de sortie et
+  en boucle pour les textes, vidéos et images. Ce qu'on voit dans l'aperçu est
+  ce que l'export rend, image par image.
+- **Effets sonores** — une bibliothèque de 69 effets fabriqués sur ton PC, et
+  les tiens : créés avec le synthétiseur intégré, importés ou enregistrés.
+- **Sujet et arrière-plan** — clique sur toi dans l'aperçu : l'arrière-plan est
+  supprimé (MODNet, en local), le clip peut être recadré sur toi ou te suivre.
+  La boîte à outils supprime l'arrière-plan de n'importe quelle image ou vidéo
+  (PNG, WebM, ProRes 4444 transparents, ou sur une couleur).
+- **Une vraie application de bureau sous Windows** — Montage IA s'ouvre dans sa
+  propre fenêtre (moteur Edge WebView2 du système), sans navigateur ni console.
+  Les rushs importés ou glissés depuis l'Explorateur sont lus là où ils sont :
+  rien n'est copié ni envoyé, l'import est immédiat, et les proxies sont décodés
+  par la carte NVIDIA quand il y en a une (environ 3× plus vite sur de la 4K de
+  téléphone).
 - **Studio timeline** — un éditeur multipiste à la CapCut. Importe des clips, des
   images, de la musique ou un dossier entier ; place, divise, rogne et supprime (la
   piste principale referme les trous) ; superpose des vidéos ; sépare le son d'un
@@ -78,8 +95,11 @@ python scripts/download_models.py     # modèle de traduction des sous-titres (~
 python app.py        # ou start.bat (Windows) / sh start.sh (macOS, Linux)
 ```
 
-Le navigateur s'ouvre sur <http://127.0.0.1:8765>. Laisse le terminal ouvert :
-c'est le moteur et son journal. `Ctrl+C` dedans pour quitter.
+Sous Windows, l'application s'ouvre dans sa propre fenêtre (Edge WebView2, déjà
+présent sur Windows 10 et 11) ; la fermer quitte. `python app.py --browser` (ou
+`MONTAGE_IA_BROWSER=1`) passe par le navigateur. Sous macOS et Linux, le
+navigateur s'ouvre sur <http://127.0.0.1:8765>. Dans tous les cas, le terminal
+affiche le journal du moteur ; `Ctrl+C` dedans pour quitter.
 
 La **première analyse télécharge le modèle Whisper** (large-v3-turbo, ~1,6 Go) —
 une seule fois. Pour le récupérer d'avance : `python scripts/download_models.py --whisper`.
@@ -92,15 +112,34 @@ une seule fois. Pour le récupérer d'avance : `python scripts/download_models.p
 ## Utiliser le studio (timeline)
 
 *Nouveau projet → Montage* ouvre une timeline vide au format choisi (9:16, 16:9,
-1:1, 4:5…). *Short automatique → Dans la timeline* fait de même, puis coupe les
-blancs et pose les sous-titres dès que ta vidéo est importée.
+1:1, 4:5…). *Short automatique → Dans la timeline* fait de même et pose les vidéos
+importées sur la timeline ; rien ne part tant que tu n'as pas vérifié les réglages
+et cliqué sur *Monter la vidéo*.
 
 - **Médias** — *Importer* (fichiers), *Dossier* (un dossier entier, glisser-déposer
-  compris) ou *Par chemin* (fichiers lus sur place, sans copie — le bon choix pour de
-  gros rushs). Chaque fichier reçoit en tâche de fond un proxy léger, une bande de
-  vignettes et une forme d'onde.
+  compris) ou *Par chemin* (chemins locaux). Dans l'application Windows, tout import
+  est lu sur place, sans copie ; dans un navigateur, les fichiers importés sont
+  envoyés dans le projet (le navigateur ne peut pas donner leur chemin) et *Par
+  chemin* évite la copie. Chaque fichier reçoit en tâche de fond un proxy léger
+  (décodé par la carte NVIDIA si possible), une bande de vignettes et une forme
+  d'onde.
+- **Textes** — l'onglet *Texte* propose une quarantaine de styles de titres
+  (animés, néon, 3D, dégradés, manuscrits, rétro…). Dans l'inspecteur : 53
+  polices avec recherche, *Effets* (lueur, second contour, 3D, ombre douce,
+  dégradé, contour seul, espacement, italique, rotation, opacité, ou en un clic)
+  et *Animations* (entrée, sortie, boucle — survole une carte pour la voir).
+- **Animations** — les vidéos et images ont la même section *Animations*
+  (fondu, glissements, zoom, rebond, tourbillon, flou, zoom lent, panoramique…).
+- **Sons** — l'onglet *Sons* range les effets par catégorie : clic pour écouter,
+  `+` (ou glisser) pour les poser à la tête de lecture. *Créer un son* ouvre le
+  synthétiseur ; *Importer* et le bouton micro remplissent *Mes sons*.
+- **Sujet** — sélectionne un clip vidéo ou image, *Sujet → Choisir le sujet*,
+  clique sur la personne : après un calcul en tâche de fond (environ deux fois
+  la durée du clip sur processeur), tu peux supprimer l'arrière-plan, cadrer le
+  clip sur le sujet ou faire suivre le sujet par le cadre.
 - **Timeline** — glisse un média sur une piste ou clique sur `+`. Glisse un clip pour
-  le déplacer, ses bords pour le rogner, `Ctrl+B` pour diviser, `Suppr` pour
+  le déplacer, ses bords pour le rogner, `Ctrl+B` pour diviser, `Q` / `W` pour
+  diviser et garder la partie droite / gauche (comme dans CapCut), `Suppr` pour
   supprimer. La piste principale est magnétique ; les autres sont libres. Glisser un
   clip au-dessus de la première piste (ou sous la dernière piste audio) crée une
   piste. `Ctrl`+molette zoome, `N` coupe l'aimantation, `Alt`+clic prend un clip sans
@@ -214,6 +253,11 @@ L'application embarque Python, le moteur, le ffmpeg trouvé dans le `PATH`, les
 bibliothèques CUDA et le modèle de traduction. Les projets vont dans
 `%LOCALAPPDATA%\MontageIA\work`. Autres options : `--app-only`, `--no-cuda`, `--clean`.
 
+L'application n'a pas de console : elle ouvre sa propre fenêtre (Edge WebView2 ;
+sans lui, elle repasse par le navigateur) et écrit son journal dans
+`%LOCALAPPDATA%\MontageIA\logs\montage-ia.log`. La relancer ramène la fenêtre
+ouverte au premier plan.
+
 > C'est le ffmpeg embarqué qui fixe le pilote NVIDIA nécessaire à NVENC (ffmpeg 8.x
 > demande le pilote 570+). Si NVENC ne démarre pas, l'export passe en libx264.
 
@@ -225,6 +269,9 @@ bibliothèques CUDA et le modèle de traduction. Les projets vont dans
 | `MONTAGE_IA_WORK` | `./work` (app installée : `%LOCALAPPDATA%\MontageIA\work`) | Projets, aperçus, exports |
 | `MONTAGE_IA_TRANSLATE` | `./models/translate` | Dossier des modèles de traduction |
 | `HF_HOME` | cache Hugging Face par défaut | Où Whisper est téléchargé |
+| `MONTAGE_IA_BROWSER` | absente | `1` : sous Windows, le navigateur au lieu de la fenêtre de l'application |
+| `MONTAGE_IA_GPU_PROXY` | absente | `0` : jamais de proxy décodé par la carte graphique |
+| `MONTAGE_IA_DEVTOOLS` · `MONTAGE_IA_DEBUG_PORT` | absentes | Fenêtre de l'application : `1` active les outils de développement · port de débogage (Playwright via CDP) |
 
 ## Tests
 
@@ -259,7 +306,8 @@ export ──ffmpeg──▶ coupe + recadrage 9:16 ─▶ sous-titres .ass + é
 ## Organisation du code
 
 ```
-app.py                     point d'entrée : démarre le moteur, ouvre le navigateur
+app.py                     point d'entrée : démarre le moteur, affiche l'interface
+desktop.py                 fenêtre de l'application Windows (pywebview + WebView2) : boîtes de dialogue, chemins déposés
 engine/
   server.py                FastAPI : projets, analyse, recoupe, traduction, export
   project.py               état d'édition d'une vidéo : mots, coupes, sous-titres, export
@@ -268,6 +316,7 @@ engine/
   web/index.html           accueil, éditeur short et boîte à outils
   web/studio.html          studio timeline (modules dans web/studio/)
     studio/model.js        logique de timeline, pure (testée par node --test)
+    studio/desktop.js      vrais chemins des fichiers dans la fenêtre de l'application (import sans copie)
     studio/timeline.js     pistes, clips, gestes · player.js aperçu temps réel
     studio/inspector.js    réglages de clip et de projet · panels.js outils IA, sous-titres
   timeline/

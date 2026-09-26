@@ -1,0 +1,489 @@
+{
+ "categories": {
+  "impact": "Impact",
+  "createur": "Créateurs",
+  "fun": "Fun",
+  "manuscrite": "Manuscrites",
+  "retro": "Rétro et tech",
+  "elegante": "Élégantes"
+ },
+ "fonts": [
+  {
+   "name": "Anton",
+   "file": "Anton.ttf",
+   "family": "Anton",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/anton.txt"
+  },
+  {
+   "name": "Bebas Neue",
+   "file": "BebasNeue.ttf",
+   "family": "Bebas Neue",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/bebasneue.txt"
+  },
+  {
+   "name": "Archivo Black",
+   "file": "ArchivoBlack.ttf",
+   "family": "Archivo Black",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/archivoblack.txt"
+  },
+  {
+   "name": "Montserrat Black",
+   "file": "MontserratBlack.ttf",
+   "family": "Montserrat",
+   "weight": 900,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/montserrat.txt"
+  },
+  {
+   "name": "Poppins ExtraBold",
+   "file": "PoppinsExtraBold.ttf",
+   "family": "Poppins",
+   "weight": 800,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/poppins.txt"
+  },
+  {
+   "name": "Oswald Bold",
+   "file": "OswaldBold.ttf",
+   "family": "Oswald",
+   "weight": 700,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/oswald.txt"
+  },
+  {
+   "name": "Kanit ExtraBold",
+   "file": "KanitExtraBold.ttf",
+   "family": "Kanit",
+   "weight": 800,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/kanit.txt"
+  },
+  {
+   "name": "Rubik Black",
+   "file": "RubikBlack.ttf",
+   "family": "Rubik",
+   "weight": 900,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/rubik.txt"
+  },
+  {
+   "name": "Russo One",
+   "file": "RussoOne.ttf",
+   "family": "Russo One",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/russoone.txt"
+  },
+  {
+   "name": "Teko SemiBold",
+   "file": "TekoSemiBold.ttf",
+   "family": "Teko",
+   "weight": 600,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/teko.txt"
+  },
+  {
+   "name": "Staatliches",
+   "file": "Staatliches.ttf",
+   "family": "Staatliches",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/staatliches.txt"
+  },
+  {
+   "name": "Alfa Slab One",
+   "file": "AlfaSlabOne.ttf",
+   "family": "Alfa Slab One",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/alfaslabone.txt"
+  },
+  {
+   "name": "Black Ops One",
+   "file": "BlackOpsOne.ttf",
+   "family": "Black Ops One",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/blackopsone.txt"
+  },
+  {
+   "name": "Passion One",
+   "file": "PassionOne.ttf",
+   "family": "Passion One",
+   "weight": 400,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/passionone.txt"
+  },
+  {
+   "name": "Inter ExtraBold",
+   "file": "InterExtraBold.ttf",
+   "family": "Inter",
+   "weight": 800,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/inter.txt"
+  },
+  {
+   "name": "Nunito Black",
+   "file": "NunitoBlack.ttf",
+   "family": "Nunito",
+   "weight": 900,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/nunito.txt"
+  },
+  {
+   "name": "Lexend Bold",
+   "file": "LexendBold.ttf",
+   "family": "Lexend",
+   "weight": 700,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/lexend.txt"
+  },
+  {
+   "name": "Outfit ExtraBold",
+   "file": "OutfitExtraBold.ttf",
+   "family": "Outfit",
+   "weight": 800,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/outfit.txt"
+  },
+  {
+   "name": "Montserrat Bold",
+   "file": "MontserratBold.ttf",
+   "family": "Montserrat",
+   "weight": 700,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/montserrat.txt"
+  },
+  {
+   "name": "Poppins SemiBold",
+   "file": "PoppinsSemiBold.ttf",
+   "family": "Poppins",
+   "weight": 600,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/poppins.txt"
+  },
+  {
+   "name": "Bangers",
+   "file": "Bangers.ttf",
+   "family": "Bangers",
+   "weight": 400,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/bangers.txt"
+  },
+  {
+   "name": "Luckiest Guy",
+   "file": "LuckiestGuy.ttf",
+   "family": "Luckiest Guy",
+   "weight": 400,
+   "category": "fun",
+   "license": "Apache-2.0",
+   "license_file": "licenses/luckiestguy.txt"
+  },
+  {
+   "name": "Titan One",
+   "file": "TitanOne.ttf",
+   "family": "Titan One",
+   "weight": 400,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/titanone.txt"
+  },
+  {
+   "name": "Lilita One",
+   "file": "LilitaOne.ttf",
+   "family": "Lilita One",
+   "weight": 400,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/lilitaone.txt"
+  },
+  {
+   "name": "Fredoka Bold",
+   "file": "FredokaBold.ttf",
+   "family": "Fredoka",
+   "weight": 700,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/fredoka.txt"
+  },
+  {
+   "name": "Baloo 2 ExtraBold",
+   "file": "Baloo2ExtraBold.ttf",
+   "family": "Baloo 2",
+   "weight": 800,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/baloo2.txt"
+  },
+  {
+   "name": "Chewy",
+   "file": "Chewy.ttf",
+   "family": "Chewy",
+   "weight": 400,
+   "category": "fun",
+   "license": "Apache-2.0",
+   "license_file": "licenses/chewy.txt"
+  },
+  {
+   "name": "Righteous",
+   "file": "Righteous.ttf",
+   "family": "Righteous",
+   "weight": 400,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/righteous.txt"
+  },
+  {
+   "name": "Bungee",
+   "file": "Bungee.ttf",
+   "family": "Bungee",
+   "weight": 400,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/bungee.txt"
+  },
+  {
+   "name": "Knewave",
+   "file": "Knewave.ttf",
+   "family": "Knewave",
+   "weight": 400,
+   "category": "fun",
+   "license": "OFL-1.1",
+   "license_file": "licenses/knewave.txt"
+  },
+  {
+   "name": "Permanent Marker",
+   "file": "PermanentMarker.ttf",
+   "family": "Permanent Marker",
+   "weight": 400,
+   "category": "manuscrite",
+   "license": "Apache-2.0",
+   "license_file": "licenses/permanentmarker.txt"
+  },
+  {
+   "name": "Caveat Bold",
+   "file": "CaveatBold.ttf",
+   "family": "Caveat",
+   "weight": 700,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/caveat.txt"
+  },
+  {
+   "name": "Pacifico",
+   "file": "Pacifico.ttf",
+   "family": "Pacifico",
+   "weight": 400,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/pacifico.txt"
+  },
+  {
+   "name": "Lobster",
+   "file": "Lobster.ttf",
+   "family": "Lobster",
+   "weight": 400,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/lobster.txt"
+  },
+  {
+   "name": "Dancing Script Bold",
+   "file": "DancingScriptBold.ttf",
+   "family": "Dancing Script",
+   "weight": 700,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/dancingscript.txt"
+  },
+  {
+   "name": "Satisfy",
+   "file": "Satisfy.ttf",
+   "family": "Satisfy",
+   "weight": 400,
+   "category": "manuscrite",
+   "license": "Apache-2.0",
+   "license_file": "licenses/satisfy.txt"
+  },
+  {
+   "name": "Great Vibes",
+   "file": "GreatVibes.ttf",
+   "family": "Great Vibes",
+   "weight": 400,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/greatvibes.txt"
+  },
+  {
+   "name": "Kalam Bold",
+   "file": "KalamBold.ttf",
+   "family": "Kalam",
+   "weight": 700,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/kalam.txt"
+  },
+  {
+   "name": "Shadows Into Light",
+   "file": "ShadowsIntoLight.ttf",
+   "family": "Shadows Into Light",
+   "weight": 400,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/shadowsintolight.txt"
+  },
+  {
+   "name": "Gochi Hand",
+   "file": "GochiHand.ttf",
+   "family": "Gochi Hand",
+   "weight": 400,
+   "category": "manuscrite",
+   "license": "OFL-1.1",
+   "license_file": "licenses/gochihand.txt"
+  },
+  {
+   "name": "Press Start 2P",
+   "file": "PressStart2P.ttf",
+   "family": "Press Start 2P",
+   "weight": 400,
+   "category": "retro",
+   "license": "OFL-1.1",
+   "license_file": "licenses/pressstart2p.txt"
+  },
+  {
+   "name": "Monoton",
+   "file": "Monoton.ttf",
+   "family": "Monoton",
+   "weight": 400,
+   "category": "retro",
+   "license": "OFL-1.1",
+   "license_file": "licenses/monoton.txt"
+  },
+  {
+   "name": "Audiowide",
+   "file": "Audiowide.ttf",
+   "family": "Audiowide",
+   "weight": 400,
+   "category": "retro",
+   "license": "OFL-1.1",
+   "license_file": "licenses/audiowide.txt"
+  },
+  {
+   "name": "VT323",
+   "file": "VT323.ttf",
+   "family": "VT323",
+   "weight": 400,
+   "category": "retro",
+   "license": "OFL-1.1",
+   "license_file": "licenses/vt323.txt"
+  },
+  {
+   "name": "Creepster",
+   "file": "Creepster.ttf",
+   "family": "Creepster",
+   "weight": 400,
+   "category": "retro",
+   "license": "OFL-1.1",
+   "license_file": "licenses/creepster.txt"
+  },
+  {
+   "name": "Rubik Glitch",
+   "file": "RubikGlitch.ttf",
+   "family": "Rubik Glitch",
+   "weight": 400,
+   "category": "retro",
+   "license": "OFL-1.1",
+   "license_file": "licenses/rubikglitch.txt"
+  },
+  {
+   "name": "Syne Mono",
+   "file": "SyneMono.ttf",
+   "family": "Syne Mono",
+   "weight": 400,
+   "category": "retro",
+   "license": "OFL-1.1",
+   "license_file": "licenses/synemono.txt"
+  },
+  {
+   "name": "Playfair Display ExtraBold",
+   "file": "PlayfairDisplayExtraBold.ttf",
+   "family": "Playfair Display",
+   "weight": 800,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/playfairdisplay.txt"
+  },
+  {
+   "name": "Abril Fatface",
+   "file": "AbrilFatface.ttf",
+   "family": "Abril Fatface",
+   "weight": 400,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/abrilfatface.txt"
+  },
+  {
+   "name": "DM Serif Display",
+   "file": "DMSerifDisplay.ttf",
+   "family": "DM Serif Display",
+   "weight": 400,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/dmserifdisplay.txt"
+  },
+  {
+   "name": "Cinzel Bold",
+   "file": "CinzelBold.ttf",
+   "family": "Cinzel",
+   "weight": 700,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/cinzel.txt"
+  },
+  {
+   "name": "Yeseva One",
+   "file": "YesevaOne.ttf",
+   "family": "Yeseva One",
+   "weight": 400,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/yesevaone.txt"
+  },
+  {
+   "name": "Cormorant Garamond Bold",
+   "file": "CormorantGaramondBold.ttf",
+   "family": "Cormorant Garamond",
+   "weight": 700,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/cormorantgaramond.txt"
+  }
+ ]
+}

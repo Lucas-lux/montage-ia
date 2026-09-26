@@ -2,14 +2,17 @@
 
    Même géométrie que libass à l'export (engine/pipeline/ass_edit.py) :
    `x`/`y` (0..1) placent le CENTRE du bloc, `size`/`outline`/`shadow` sont en
-   pixels de la sortie, le contour ASS (vers l'extérieur) devient un
-   -webkit-text-stroke deux fois plus épais à moitié caché par le remplissage.
+   pixels de la sortie. Le texte lui-même (couches d'effets, surlignage) est
+   construit par textfx.js ; ses animations (anim.js) sont rejouées à chaque
+   image sans reconstruire la page.
 
    Deux couches : les textes actifs à l'instant courant, et les textes
    sélectionnés hors de leur temps (en fantôme, pour les placer à l'aveugle). */
 
-import { fontStack } from "./fonts.js";
+import * as AN from "./anim.js";
+import { baselineShift, emScale, fontStack } from "./fonts.js";
 import * as M from "./model.js";
+import { applyState, buildText, hexA, wordStates } from "./textfx.js";
 import { S, begin, cancelBegin, changed, end, on, select, snapshot } from "./store.js";
 import { $, clamp, h } from "./util.js";
 
@@ -20,11 +23,7 @@ export function emojiGeometry(size) {
   return [esz, -(size * 0.75 + esz * 0.5 + 14)];
 }
 
-export function hexA(hex, alpha) {
-  const hx = (hex || "#000000").replace("#", "");
-  const n = parseInt(hx.length === 3 ? hx.split("").map((x) => x + x).join("") : hx, 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${clamp(alpha, 0, 1)})`;
-}
+export { hexA };
 
 /** Textes à afficher à l'instant t, du plus bas au plus haut. */
 function activeTexts(t) {
@@ -56,15 +55,36 @@ export function renderCaptions(t, force) {
     const words = M.liveWords(c);
     return c.id + ":" + wordIndex(words, t) + ":" + (S.sel.has(c.id) ? 1 : 0) + ":" + styleKey(c);
   }).join("|") + "|" + S.k + "|" + S.sel.size;
-  if (!force && key === C.key) return;
-  C.key = key;
-  layer.innerHTML = "";
-  act.forEach((c) => layer.appendChild(buildCap(c, wordIndex(M.liveWords(c), t), false)));
+  if (force || key !== C.key) {
+    C.key = key;
+    layer.innerHTML = "";
+    act.forEach((c) => layer.appendChild(buildCap(c, wordIndex(M.liveWords(c), t), false)));
+  }
+  // animations : rejouées à chaque image sur les éléments déjà construits
+  for (const el of layer.children) {
+    const c = act.find((x) => x.id === el.dataset.id);
+    if (c && el._root) animate(el._root, c, t);
+  }
 }
 
+/** Anime un texte à l'instant t (même état que l'export, image par image). */
+function animate(root, c, t) {
+  const st = AN.hasAnim(c) ? AN.state(c, t) : { ...AN.IDENTITY };
+  const n = { char: root._units.char.length ? Math.max(...root._units.char.map((u) => u.i)) + 1 : 0,
+              word: M.liveWords(c).length };
+  applyState(root, c, st, S.k || 1, S.doc.canvas, (per) => AN.unitState(st, per, n[per]));
+}
+
+/** Les lettres sont séparées seulement si une animation lettre à lettre en a besoin. */
+const perChar = (c) => ["anim_in", "anim_out", "anim_loop"].some((k) =>
+  c[k] && (AN.DEFS.anims[c[k].type] || {}).per === "char");
+
 const LOOK = ["font", "size", "bold", "upper", "color", "hl", "outline_col", "outline", "shadow", "box",
-              "box_alpha", "mode", "pop", "x", "y", "emoji", "emoji_size", "emoji_dx", "emoji_dy"];
-const styleKey = (c) => LOOK.map((f) => c[f]).join(",") + ":" + M.liveWords(c).map((w) => w.text).join(" ");
+              "box_alpha", "mode", "pop", "x", "y", "emoji", "emoji_size", "emoji_dx", "emoji_dy",
+              "italic", "spacing", "color2", "shadow_col", "shadow_blur", "glow", "glow_col", "outline2",
+              "outline2_col", "extrude", "extrude_col", "hollow"];
+const styleKey = (c) => LOOK.map((f) => c[f]).join(",") + ":" + perChar(c) + ":" +
+  M.liveWords(c).map((w) => w.text).join(" ");
 
 export function buildCap(c, wordIdx, ghost) {
   const k = S.k || 1;
@@ -76,31 +96,18 @@ export function buildCap(c, wordIdx, ghost) {
   el.style.left = (c.x * 100) + "%";
   el.style.top = (c.y * 100) + "%";
   el.style.fontFamily = fontStack(c.font);
-  el.style.fontSize = (c.size * k) + "px";
+  el.style.fontSize = (c.size * k * emScale(c.font)) + "px";
+  el.style.lineHeight = (c.size * k) + "px";          // interligne de libass : la taille elle-même
   el.style.fontWeight = c.bold ? 700 : 400;
 
-  const inner = h("span.txt");
-  if (c.box) {
-    inner.style.background = hexA(c.outline_col, 1 - (c.box_alpha || 0));
-    inner.style.padding = (c.outline * k * 0.55) + "px " + (c.outline * k * 1.1) + "px";
-    inner.style.borderRadius = (c.outline * k * 0.5) + "px";
-  } else if (c.outline > 0) {
-    inner.style.webkitTextStroke = (c.outline * k * 2) + "px " + c.outline_col;
-    inner.style.paintOrder = "stroke fill";
-  }
-  if (c.shadow > 0) inner.style.textShadow = `${c.shadow * k}px ${c.shadow * k}px ${c.shadow * k}px rgba(0,0,0,.75)`;
-  words.forEach((w, i) => {
-    const s = document.createElement("w");
-    s.textContent = c.upper ? w.text.toUpperCase() : w.text;
-    const lit = c.mode === "word" ? i === wordIdx : c.mode === "sweep" ? (wordIdx >= 0 && i <= wordIdx) : false;
-    s.style.color = lit ? c.hl : c.color;
-    // mot actif agrandi comme libass (le mot prend vraiment plus de place :
-    // il ne recouvre pas les espaces voisins, la ligne s'élargit un peu)
-    if (lit && c.pop && c.mode === "word") s.style.fontSize = "1.12em";
-    inner.appendChild(s);
-    if (i < words.length - 1) inner.appendChild(document.createTextNode(" "));
-  });
-  el.appendChild(inner);
+  // mot actif agrandi comme libass (le mot prend vraiment plus de place :
+  // il ne recouvre pas les espaces voisins, la ligne s'élargit un peu)
+  const states = ["word", "sweep", "reveal", "dim"].includes(c.mode) ? wordStates(c, words.length, wordIdx) : null;
+  const { root, main: inner } = buildText(c, k, words.map((w) => w.text), states, perChar(c));
+  root.style.top = baselineShift(c.font) * c.size * k + "px";
+  el.appendChild(root);
+  el._root = root;
+  if (ghost) animate(root, { ...c, anim_in: null, anim_out: null, anim_loop: null }, c.start);
 
   if (c.emoji) {
     const em = h("span.emoji", {}, c.emoji);
@@ -114,7 +121,7 @@ export function buildCap(c, wordIdx, ghost) {
   rs.onpointerdown = (e) => startDrag(e, c, "resize");
   el.appendChild(rs);
   el.onpointerdown = (e) => {
-    if (e.target !== el && e.target !== inner && e.target.tagName !== "W") return;
+    if (e.target !== el && !root.contains(e.target)) return;
     startDrag(e, c, "move");
   };
   el.ondblclick = (e) => { e.preventDefault(); e.stopPropagation(); editInline(el, inner, c); };
@@ -171,7 +178,7 @@ function startDrag(e, c, mode) {
       it.c.emoji_size = g[0];
       if (!it.c.emoji_moved) it.c.emoji_dy = g[1];
       const n = nodeFor(it.c.id);
-      if (n) n.style.fontSize = it.c.size * S.k + "px";
+      if (n) { n.style.fontSize = it.c.size * S.k * emScale(it.c.font) + "px"; n.style.lineHeight = it.c.size * S.k + "px"; }
     } else {
       const it = st.items[0];
       it.c.emoji_dx = M.r4(it.dx + ddx / S.k);
@@ -275,31 +282,16 @@ export function setText(c, text) {
 export function stylePreview(look, { words = ["Ton", "texte", "ici"], height = 58 } = {}) {
   const px = clamp((look.size || 86) * 0.2, 12, 19);
   const k = px / (look.size || 86);
-  const inner = h("span.txt", { style: { display: "inline-block", lineHeight: 1.15 } });
-  if (look.box) {
-    inner.style.background = hexA(look.outline_col, 1 - (look.box_alpha || 0));
-    inner.style.padding = `${Math.max(1, look.outline * k * 0.55)}px ${Math.max(2, look.outline * k * 1.1)}px`;
-    inner.style.borderRadius = Math.max(2, look.outline * k * 0.5) + "px";
-  } else if (look.outline > 0) {
-    inner.style.webkitTextStroke = Math.max(1, look.outline * k * 2) + "px " + look.outline_col;
-    inner.style.paintOrder = "stroke fill";
-  }
-  if (look.shadow > 0) inner.style.textShadow = `1px 1px 2px rgba(0,0,0,.8)`;
-  words.forEach((w, i) => {
-    const lit = look.mode === "word" ? i === 1 : look.mode === "sweep" ? i <= 1 : false;
-    const el = document.createElement("w");
-    el.textContent = look.upper ? w.toUpperCase() : w;
-    el.style.color = lit ? look.hl : look.color;
-    el.style.display = "inline-block";
-    if (lit && look.pop && look.mode === "word") el.style.fontSize = "1.12em";
-    inner.appendChild(el);
-    if (i < words.length - 1) inner.appendChild(document.createTextNode(" "));
-  });
+  const states = ["word", "sweep", "reveal", "dim"].includes(look.mode) ? wordStates(look, words.length, 1) : null;
+  const { root } = buildText(look, k, words, states);
+  applyState(root, look, { ...AN.IDENTITY }, k, { w: 1, h: 1 }, null);
   return h("div.stylepv", {
-    style: { height: height + "px", fontFamily: fontStack(look.font), fontSize: px + "px",
-             fontWeight: look.bold === false ? 400 : 700 },
-  }, inner);
+    style: { height: height + "px", fontFamily: fontStack(look.font), fontSize: px * emScale(look.font) + "px",
+             lineHeight: px + "px", fontWeight: look.bold === false ? 400 : 700 },
+  }, root);
 }
 
 on("select", () => renderCaptions(S.t, true));
 on("layout", () => renderCaptions(S.t, true));
+// une police vient d'arriver : mesures (ligne de base) et rendu à refaire
+document.fonts.addEventListener("loadingdone", () => { if (S.doc) renderCaptions(S.t, true); });

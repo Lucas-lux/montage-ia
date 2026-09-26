@@ -11,6 +11,11 @@ Chaque média reçoit donc :
   * une forme d'onde : un octet (pic 0..255) par centième de seconde ;
   * une affiche pour le panneau Médias.
 
+Avec une carte NVIDIA, la vidéo est décodée et réduite par la carte (NVDEC +
+`scale_cuda`) : trois fois plus rapide sur une vidéo 4K HEVC de téléphone. Au
+moindre refus (codec non pris en charge, pas de carte), on repasse par le
+processeur.
+
 Le proxy garde la même origine des temps que la source (0 = début) : un point
 d'entrée `in` vaut autant pour l'aperçu que pour l'export, qui relit
 l'original.
@@ -22,6 +27,7 @@ import math
 import os
 import re
 import subprocess
+import sys
 from array import array
 
 from engine.pipeline.render import _run_ffmpeg
@@ -185,6 +191,41 @@ def proxy_name(kind: str) -> str:
     return {"video": "proxy.mp4", "audio": "proxy.m4a", "image": "proxy.jpg"}[kind]
 
 
+# Proxy décodé par la carte graphique : essayé à chaque vidéo tant qu'un échec
+# n'a pas montré que la machine ou ffmpeg n'en sont pas capables.
+_GPU = {"ok": sys.platform != "darwin" and os.environ.get("MONTAGE_IA_GPU_PROXY") != "0"}
+_NO_GPU = ("unrecognized hwaccel", "device creation failed", "no such filter", "cannot load",
+           "cuda_error", "no device available", "cuinit", "unrecognized option")
+_TURN = {90: ",transpose=clock", 180: ",hflip,vflip", 270: ",transpose=cclock"}
+
+
+def display_turn(path: str) -> int | None:
+    """Rotation (0, 90, 180, 270, sens horaire) que ffmpeg applique pour
+    redresser la vidéo. None si l'image est aussi retournée en miroir : ce cas
+    rare reste au processeur, qui le redresse tout seul."""
+    res = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_streams",
+                          "-print_format", "json", path],
+                         capture_output=True, text=True, encoding="utf-8", errors="replace")
+    streams = json.loads(res.stdout or "{}").get("streams") or [{}]
+    for side in streams[0].get("side_data_list") or []:
+        if "rotation" not in side:
+            continue
+        m = [float(x) for x in re.findall(r"-?\d+", re.sub(r"^\s*\d+:", "", side.get("displaymatrix") or "",
+                                                           flags=re.M))]
+        if len(m) >= 5 and m[0] * m[4] - m[1] * m[3] < 0:
+            return None
+        return round(-float(side["rotation"]) / 90) % 4 * 90
+    return 0
+
+
+def gpu_proxy_filter(w: int, h: int, fps: int, turn: int = 0) -> str:
+    """Filtre du proxy décodé par la carte : cadence et réduction sur la carte,
+    puis rotation sur le processeur (quelques centaines de pixels, c'est gratuit).
+    `w` x `h` : taille du proxy à l'écran, rotation faite."""
+    sw, sh = (h, w) if turn in (90, 270) else (w, h)
+    return f"fps={fps},scale_cuda={sw}:{sh}:format=nv12,hwdownload,format=nv12{_TURN.get(turn, '')},format=yuv420p"
+
+
 def make_proxy(src: str, out: str, info: dict, on_progress=None) -> None:
     kind = info["kind"]
     if kind == "image":
@@ -199,16 +240,28 @@ def make_proxy(src: str, out: str, info: dict, on_progress=None) -> None:
     w, h = proxy_size(info["w"], info["h"])
     fps = min(PROXY_FPS_MAX, round(info.get("fps") or 30))
     gop = max(1, round(fps / 2))
-    args = ["-i", src, "-map", "0:v:0"]
+    maps = ["-map", "0:v:0"] + (["-map", "0:a:0"] if info.get("has_audio") else [])
+    enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-tune", "fastdecode",
+           "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-bf", "0"]
     if info.get("has_audio"):
-        args += ["-map", "0:a:0"]
-    args += ["-vf", f"scale={w}:{h},fps={fps},format=yuv420p",
-             "-c:v", "libx264", "-preset", "veryfast", "-crf", "27", "-tune", "fastdecode",
-             "-g", str(gop), "-keyint_min", str(gop), "-sc_threshold", "0", "-bf", "0"]
-    if info.get("has_audio"):
-        args += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
-    args += ["-movflags", "+faststart", out]
-    _run_ffmpeg(args, duration=info["duration"], on_progress=on_progress)
+        enc += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
+    enc += ["-movflags", "+faststart", out]
+    turn = display_turn(src) if _GPU["ok"] else None
+    if turn is not None:
+        try:
+            # rotation d'origine remise à zéro : c'est le filtre qui redresse,
+            # le proxy sort droit et sans métadonnée de rotation
+            _run_ffmpeg(["-hwaccel", "cuda", "-hwaccel_output_format", "cuda", "-display_rotation", "0", "-i", src,
+                         *maps, "-vf", gpu_proxy_filter(w, h, fps, turn), *enc],
+                        duration=info["duration"], on_progress=on_progress)
+            return
+        except RuntimeError as exc:
+            # pas de carte, ou ffmpeg sans CUDA : inutile de réessayer ; un
+            # codec que la carte ne lit pas (ProRes…) ne concerne que ce fichier
+            if any(hint in str(exc).lower() for hint in _NO_GPU):
+                _GPU["ok"] = False
+    _run_ffmpeg(["-i", src, *maps, "-vf", f"scale={w}:{h},fps={fps},format=yuv420p", *enc],
+                duration=info["duration"], on_progress=on_progress)
 
 
 # ----------------------------------------------------------- vignettes, affiche

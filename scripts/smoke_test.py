@@ -32,6 +32,7 @@ import urllib.request
 
 PORT = 8791
 MAC_LOG = os.path.expanduser("~/Library/Logs/Montage IA/montage-ia.log")
+WIN_LOG = os.path.join(os.environ.get("LOCALAPPDATA", ""), "MontageIA", "logs", "montage-ia.log")
 BASE = f"http://127.0.0.1:{PORT}"
 
 
@@ -140,6 +141,15 @@ def main() -> int:
             if "Interface" not in log:
                 raise SystemExit(f"app Mac : journal {MAC_LOG} vide ou absent")
             say("app Mac : Dock et barre des menus, journal dans ~/Library/Logs")
+        if sys.platform == "win32" and os.environ.get("MONTAGE_IA_BROWSER") != "1":
+            # l'app Windows s'ouvre dans sa propre fenêtre (WebView2), pas dans le navigateur
+            try:
+                with urllib.request.urlopen(BASE + "/api/app", timeout=5) as r:
+                    say(f"fenêtre de l'application : WebView2 {json.loads(r.read())['webview2']}")
+            except OSError:
+                if not exe.endswith(".py"):
+                    raise SystemExit("app Windows : démarrée sans sa fenêtre (voir le journal)")
+                say("fenêtre de l'application absente (pywebview non installé ?) : navigateur")
         llm = api("/api/llm")
         say(f"IA locale : {'présente' if llm['available'] else 'absente (règles)'}")
 
@@ -239,9 +249,10 @@ def main() -> int:
         if not ok:
             print("----- sortie de l'application -----")
             print((out_log or b"").decode("utf-8", "replace")[-6000:])
-            if os.path.isfile(MAC_LOG):
-                print("----- journal ~/Library/Logs/Montage IA -----")
-                print(open(MAC_LOG, encoding="utf-8", errors="replace").read()[-8000:])
+            for path in (MAC_LOG, WIN_LOG):
+                if os.path.isfile(path):
+                    print(f"----- journal {path} -----")
+                    print(open(path, encoding="utf-8", errors="replace").read()[-8000:])
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from engine.timeline import ai, autoedit, jobs
 from engine.timeline import media as mediatools
 from engine.timeline import model
 from engine.timeline.project import TimelineProject
+from engine.tools import sfx
 
 router = APIRouter()
 
@@ -249,6 +250,123 @@ def media_relink(pid: str, mid: str, body: dict = Body(...)) -> dict:
         raise HTTPException(404, "Média introuvable.")
     proj.queue_media(mid)
     return {"ok": True}
+
+
+# ------------------------------------------------------------ effets sonores
+# Bibliothèque synthétisée et « Mes sons » : communs à tous les projets, dans
+# le dossier de travail (engine/tools/sfx.py).
+
+_SOUNDS: dict[str, sfx.Sounds] = {}
+
+
+def sounds() -> sfx.Sounds:
+    root = os.path.join(_work_dir(), "sounds")
+    if root not in _SOUNDS:
+        _SOUNDS[root] = sfx.Sounds(root)
+    return _SOUNDS[root]
+
+
+def _sound_view(it: dict) -> dict:
+    return {**it, "url": f"/api/sounds/{it['id']}/audio"}
+
+
+@router.get("/api/sounds")
+def sound_list() -> dict:
+    S = sounds()
+    return {**sfx.catalog(), "library": [_sound_view(x) for x in S.library()],
+            "mine": [_sound_view(x) for x in S.mine()]}
+
+
+@router.get("/api/sounds/{sid}/audio")
+def sound_audio(sid: str):
+    try:
+        path = sounds().file(sid)
+    except KeyError:
+        raise HTTPException(404, "Son introuvable.") from None
+    return FileResponse(path, media_type="audio/wav", headers={"Cache-Control": "no-cache"})
+
+
+@router.post("/api/sounds/preview")
+def sound_preview(body: dict = Body(...)) -> dict:
+    """Son créé (moteur + réglages), à écouter avant de l'enregistrer."""
+    try:
+        return _sound_view(sounds().preview(str(body.get("engine") or ""), body.get("params") or {}))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/api/sounds/mine")
+def sound_save(body: dict = Body(...)) -> dict:
+    try:
+        return _sound_view(sounds().save_synth(body.get("name"), str(body.get("engine") or ""),
+                                               body.get("params") or {}))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.post("/api/sounds/mine/upload")
+async def sound_upload(request: Request, name: str = Query("Mon son"), source: str = Query("import")) -> dict:
+    """Son importé (fichier envoyé) ou enregistré au micro : converti en WAV."""
+    tmp = os.path.join(sounds().tmp_dir, "upload_" + model.new_id("u"))
+    try:
+        with open(tmp, "wb") as f:
+            async for chunk in request.stream():
+                f.write(chunk)
+        if os.path.getsize(tmp) < 100:
+            raise ValueError("fichier vide")
+        entry = sounds().save_file(os.path.splitext(_safe_name(name))[0], tmp,
+                                   "record" if source == "record" else "import")
+    except ValueError as exc:
+        raise HTTPException(400, f"Son illisible ({exc}).") from exc
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    return _sound_view(entry)
+
+
+@router.post("/api/sounds/mine/paths")
+def sound_paths(body: dict = Body(...)) -> dict:
+    """Sons importés par leur chemin (application de bureau)."""
+    added, skipped = [], []
+    for raw in (body.get("paths") or [])[:50]:
+        path = str(raw or "").strip().strip('"')
+        if not os.path.isfile(path):
+            skipped.append({"path": path, "reason": "introuvable"})
+            continue
+        try:
+            added.append(_sound_view(sounds().save_file(os.path.splitext(os.path.basename(path))[0], path)))
+        except ValueError as exc:
+            skipped.append({"path": path, "reason": str(exc)[:120]})
+    return {"added": added, "skipped": skipped}
+
+
+@router.patch("/api/sounds/mine/{sid}")
+def sound_rename(sid: str, body: dict = Body(...)) -> dict:
+    it = sounds().rename(sid, body.get("name"))
+    if not it:
+        raise HTTPException(404, "Son introuvable.")
+    return _sound_view(it)
+
+
+@router.delete("/api/sounds/mine/{sid}")
+def sound_delete(sid: str) -> dict:
+    if not sounds().remove(sid):
+        raise HTTPException(404, "Son introuvable.")
+    return {"ok": True}
+
+
+@router.post("/api/timeline/{pid}/sounds/{sid}")
+def sound_to_project(pid: str, sid: str) -> dict:
+    """Copie un effet sonore dans le projet : il devient un média comme un autre."""
+    proj = get(pid)
+    mid = model.new_id("m")
+    try:
+        dest, name = sounds().copy_to(sid, proj.media_folder(mid))
+    except KeyError:
+        raise HTTPException(404, "Son introuvable.") from None
+    return _view(proj, proj.add_media(dest, name=name, copied=True, mid=mid))
 
 
 # --------------------------------------------------------- outils automatiques
@@ -602,6 +720,58 @@ _FILES = {
 _PROXY_TYPES = {".mp4": "video/mp4", ".m4a": "audio/mp4", ".jpg": "image/jpeg"}
 
 
+# ---------------------------------------------------------- sujet et arrière-plan
+
+@router.get("/api/matting")
+def matting_info() -> dict:
+    from engine.pipeline import matting
+    return matting.info()
+
+
+@router.post("/api/matting/download")
+def matting_download() -> dict:
+    from engine.pipeline import matting
+    matting.download_async()
+    return matting.info()
+
+
+@router.post("/api/timeline/{pid}/media/{mid}/subject")
+def subject_pick(pid: str, mid: str, body: dict = Body(...)) -> dict:
+    """Détoure le sujet désigné d'un clic (x, y dans l'image, 0..1 ; t, temps source)."""
+    from engine.pipeline import matting
+    from engine.timeline.project import detect_subject
+    proj = get(pid)
+    m = proj.media(mid)
+    if m is None:
+        raise HTTPException(404, "Média introuvable.")
+    if m.get("kind") not in ("video", "image") or m.get("status") != "ready":
+        raise HTTPException(400, "Ce média ne peut pas être détouré.")
+    if not matting.model_path():
+        raise HTTPException(409, "Modèle de détourage absent : télécharge-le d'abord.")
+    x = model._num(body.get("x"), 0.5, 0.0, 1.0)
+    y = model._num(body.get("y"), 0.5, 0.0, 1.0)
+    t = model._num(body.get("t"), 0.0, 0.0)
+    rev = int((m.get("subject") or {}).get("rev") or 0)
+    proj.update_media(mid, subject={"status": "queued", "progress": 0, "x": x, "y": y, "t": t, "rev": rev})
+    jobs.SUBJECT.submit((pid, mid, x, y, t), detect_subject, proj, mid, x, y, t)
+    return _view(proj, proj.media(mid))
+
+
+@router.delete("/api/timeline/{pid}/media/{mid}/subject")
+def subject_forget(pid: str, mid: str) -> dict:
+    proj = get(pid)
+    m = proj.media(mid)
+    if m is None:
+        raise HTTPException(404, "Média introuvable.")
+    for name in ("matte.mp4", "cutout.webm", "matte.png", "cutout.png"):
+        try:
+            os.remove(os.path.join(proj.media_folder(mid), name))
+        except OSError:
+            pass
+    proj.update_media(mid, subject=None)
+    return _view(proj, proj.media(mid))
+
+
 @router.get("/api/timeline/{pid}/media/{mid}/{what}")
 def media_file(pid: str, mid: str, what: str):
     """Fichiers dérivés d'un média. L'URL porte sa révision : cache permanent."""
@@ -609,7 +779,10 @@ def media_file(pid: str, mid: str, what: str):
     m = proj.media(mid)
     if m is None:
         raise HTTPException(404, "Média introuvable.")
-    if what == "proxy":
+    if what == "cutout":
+        name = "cutout.png" if m.get("kind") == "image" else "cutout.webm"
+        mime = "image/png" if m.get("kind") == "image" else "video/webm"
+    elif what == "proxy":
         name = m.get("proxy_file") or ""
         mime = _PROXY_TYPES.get(os.path.splitext(name)[1], "application/octet-stream")
     elif what in _FILES:

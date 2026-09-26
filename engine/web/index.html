@@ -331,6 +331,19 @@
   .cap.dragging { cursor: grabbing; }
   .cap.ghost { opacity: .5; }
   .cap .txt { display: inline-block; }
+  /* outil de détourage : choix du sujet, résultat sur damier */
+  .cpick { position: relative; display: inline-block; max-width: 100%; cursor: crosshair; line-height: 0; }
+  .cpick img { max-width: 100%; max-height: 420px; border-radius: 8px; }
+  .cdot { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%;
+          background: #F23A52; border: 3px solid #fff; box-shadow: 0 1px 6px rgba(0,0,0,.4); pointer-events: none; }
+  .checker { border-radius: 8px; overflow: hidden; line-height: 0; margin-bottom: 8px;
+             background: repeating-conic-gradient(#d9dadf 0 25%, #fff 0 50%) 0 0 / 20px 20px; }
+  .checker img, .checker video { max-width: 100%; max-height: 420px; display: block; margin: 0 auto; }
+  /* pile d'un texte (studio/textfx.js) : couches d'effets sous le texte principal */
+  .tstack { position: relative; display: inline-block; transform-origin: 50% 50%; }
+  .tstack > .txt { position: relative; display: inline-block; }
+  .tstack > .tl { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+  .tstack w { display: inline-block; }
   .cap w { display: inline-block; transition: color .06s, transform .06s; }
   .cap.sel::after {
     content: ""; position: absolute; inset: -6px; border: 1px solid var(--accent);
@@ -576,6 +589,73 @@
               <span class="meta">Récupère la bande son d'une vidéo en MP3, AAC, Opus, WAV ou FLAC,
                 dans la qualité de ton choix.</span></span>
           </button>
+          <button class="tcard" id="toolCutout">
+            <span class="ic" id="toolCutoutIc"></span>
+            <span class="grow"><b>Supprimer l'arrière-plan</b>
+              <span class="meta">Détoure une personne sur une image ou une vidéo : PNG ou WebM transparent,
+                MOV ProRes 4444, ou sur une couleur. Tout se calcule sur ton PC.</span></span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="view hidden" id="v-tool-cutout">
+      <div class="scroll grow">
+        <div class="narrow">
+          <div class="page-head" style="padding:4px 0 14px">
+            <button class="btn icon quiet" id="cutBack"></button>
+            <h1 class="grow">Supprimer l'arrière-plan</h1>
+          </div>
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Image ou vidéo</h2></div>
+            <div class="cb">
+              <div class="drop" id="cDrop">
+                <b>Dépose une image ou une vidéo ici</b>
+                <span class="meta">ou clique pour la choisir</span>
+                <input type="file" id="cFile" accept="image/*,video/*" class="hidden" />
+              </div>
+              <div class="fname hidden" id="cName"></div>
+              <div class="field" style="margin-top:12px;margin-bottom:0">
+                <div class="head"><span class="label">Ou par chemin</span></div>
+                <input type="text" id="cPath" placeholder="C:\Users\...\photo.jpg" />
+                <div class="meta" style="margin-top:6px">Avec un chemin, le résultat est enregistré à côté du fichier.</div>
+              </div>
+              <button class="btn" id="cLoad" style="width:100%;margin-top:12px">Ouvrir</button>
+            </div>
+          </div>
+          <div class="card hidden" id="cSubject" style="margin-bottom:10px">
+            <div class="ch"><h2>Sujet</h2><span class="meta">clique sur la personne à garder</span></div>
+            <div class="cb">
+              <div class="cpick" id="cPick"><img id="cImg" alt="" draggable="false" /><span class="cdot hidden" id="cDot"></span></div>
+              <div class="meta" id="cHint" style="margin-top:8px">Sans clic : tout ce qui est au premier plan est gardé.</div>
+            </div>
+          </div>
+          <div class="card hidden" id="cFormat" style="margin-bottom:10px">
+            <div class="ch"><h2>Format</h2></div>
+            <div class="cb">
+              <div class="chips" id="cFormats"></div>
+              <div class="field hidden" id="cBgField" style="margin:12px 0 0">
+                <div class="head"><span class="label">Couleur du fond</span></div>
+                <input type="color" id="cBg" value="#00b140" />
+              </div>
+            </div>
+          </div>
+          <div id="cModel"></div>
+          <button class="btn primary hidden" id="cGo" style="width:100%;height:38px;margin-bottom:10px">Supprimer l'arrière-plan</button>
+          <div class="card hidden" id="cStatus">
+            <div class="cb" style="padding-top:14px">
+              <div id="cRunning">
+                <div class="meta" id="cMsg">Démarrage…</div>
+                <div class="track-bar"><i id="cBar"></i></div>
+              </div>
+              <div class="tool-res hidden" id="cResult">
+                <div class="checker" id="cView"></div>
+                <div class="kv"><span>Taille</span><b id="cKvSize"></b></div>
+                <div class="path" id="cOutPath"></div>
+                <a class="btn" id="cDl" download style="width:100%;margin-top:10px"></a>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -919,7 +999,7 @@
             <span class="meta">Une vidéo face caméra : blancs et tics coupés, accroche, zooms,
               textes, sous-titres et son, en une analyse.</span>
             <div class="fmts">
-              <button class="btn sm primary" id="modeShortTl" title="Montage automatique complet, puis retouches dans la timeline">Dans la timeline</button>
+              <button class="btn sm primary" id="modeShortTl" title="Importe tes vidéos dans la timeline, règle, puis lance le montage automatique d'un clic">Dans la timeline</button>
               <button class="btn sm" id="modeShort" title="L'éditeur de sous-titres d'origine">Éditeur simple</button>
             </div></span>
         </div>
@@ -933,6 +1013,52 @@
 <script>
 "use strict";
 const $ = (id) => document.getElementById(id);
+
+/* ------------------------------------------------ application de bureau.
+   Dans la fenêtre Windows de l'application (WebView2), une vidéo choisie ou
+   glissée depuis l'Explorateur arrive avec son vrai chemin : le moteur la lit
+   sur place au lieu de la recevoir par envoi (voir desktop.py). */
+const DESKTOP = !!(window.chrome && window.chrome.webview);
+
+function desktopApi() {
+  const api = () => (window.pywebview && window.pywebview.api && window.pywebview.api.pick_files
+    ? window.pywebview.api : null);
+  if (!DESKTOP || api()) return Promise.resolve(DESKTOP ? api() : null);
+  return new Promise((resolve) => {
+    const done = () => resolve(api());
+    window.addEventListener("pywebviewready", done, { once: true });
+    setTimeout(done, 4000);
+  });
+}
+
+/** Vidéo choisie dans la boîte de Windows ("" si annulé, null hors application). */
+async function pickVideo(kind = "video") {
+  const api = await desktopApi();
+  if (!api) return null;
+  const got = await api.pick_files(kind, false);
+  return got[0] || "";
+}
+
+// Chemin complet d'un fichier déposé, renvoyé par la fenêtre juste après `drop`.
+let dropWait = null;
+window.addEventListener("montage:paths", (e) => {
+  const use = dropWait;
+  dropWait = null;
+  if (use && e.detail && e.detail[0]) use(e.detail[0]);
+});
+// Un fichier lâché à côté d'une zone de dépôt ne remplace pas l'application par la vidéo.
+const carriesFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+window.addEventListener("dragover", (e) => { if (carriesFiles(e)) e.preventDefault(); });
+window.addEventListener("drop", (e) => { if (carriesFiles(e)) e.preventDefault(); });
+
+/** Zone de dépôt en mode chemin : la vidéo reste où elle est, rien n'est envoyé. */
+function usePath(input, label, pathInput, path) {
+  if (!path) return;
+  input.value = "";
+  pathInput.value = path;
+  label.textContent = path.split(/[\\/]/).pop();
+  label.classList.remove("hidden");
+}
 
 /* ---------------------------------------------------------------- icônes.
    SVG en ligne plutôt qu'émojis : une interface d'outil, pas des pictos. */
@@ -1019,7 +1145,7 @@ const post = (url, body) => api(url, {
 /* =============================================================== VUES ==== */
 
 function showView(name) {
-  ["projects", "import", "busy", "edit", "tools", "tool-audio"].forEach((v) =>
+  ["projects", "import", "busy", "edit", "tools", "tool-audio", "tool-cutout"].forEach((v) =>
     $("v-" + v).classList.toggle("hidden", v !== name));
   $("navProjects").classList.toggle("on", name === "projects" || name === "import");
   $("navEditor").classList.toggle("on", name === "edit");
@@ -1194,7 +1320,11 @@ async function loadStyles() {
 }
 
 const drop = $("drop"), fileInput = $("file");
-drop.onclick = () => fileInput.click();
+drop.onclick = async () => {
+  const path = await pickVideo();
+  if (path === null) fileInput.click();
+  else usePath(fileInput, $("fname"), $("path"), path);
+};
 fileInput.onchange = () => showFile(fileInput.files[0]);
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
 drop.ondragleave = () => drop.classList.remove("over");
@@ -1204,6 +1334,7 @@ drop.ondrop = (e) => {
   if (e.dataTransfer.files.length) {
     fileInput.files = e.dataTransfer.files;
     showFile(e.dataTransfer.files[0]);
+    if (DESKTOP) dropWait = (path) => usePath(fileInput, $("fname"), $("path"), path);
   }
 };
 function showFile(f) {
@@ -1487,39 +1618,31 @@ function buildCap(c, wordIdx, ghost) {
   el.style.left = (c.x * 100) + "%";
   el.style.top = (c.y * 100) + "%";
   el.style.fontFamily = `"${c.font}", Arial, sans-serif`;
-  el.style.fontSize = (c.size * k) + "px";
+  // taille comme libass (hauteur totale de la police = taille ; voir studio/fonts.js)
+  el.style.fontSize = (c.size * k * emOf(c.font)) + "px";
+  el.style.lineHeight = (c.size * k) + "px";
   el.style.fontWeight = c.bold ? 700 : 400;   // \b1 / \b0 en ASS
 
-  const inner = document.createElement("span");
-  inner.className = "txt";
-  if (c.box) {
-    inner.style.background = hexA(c.outline_col, 1 - (c.box_alpha || 0));
-    inner.style.padding = (c.outline * k * 0.55) + "px " + (c.outline * k * 1.1) + "px";
-    inner.style.borderRadius = (c.outline * k * 0.5) + "px";
-  } else if (c.outline > 0) {
-    // `Outline` en ASS = épaisseur VERS L'EXTÉRIEUR ; -webkit-text-stroke est
-    // centré sur le contour du glyphe, d'où le facteur 2 (moitié cachée par
-    // le remplissage grâce à paint-order).
-    inner.style.webkitTextStroke = (c.outline * k * 2) + "px " + c.outline_col;
-    inner.style.paintOrder = "stroke fill";
+  let inner;
+  if (FX) {
+    const states = ["word", "sweep", "reveal", "dim"].includes(c.mode) ? FX.wordStates(c, c.words.length, wordIdx) : null;
+    const built = FX.buildText(c, k, c.words.map((w) => w.text), states);
+    inner = built.main;
+    built.root.style.top = FT.baselineShift(c.font) * c.size * k + "px";
+    FX.applyState(built.root, c, { o: 1, dx: 0, dy: 0, s: 1, sx: 1, sy: 1, r: 0, b: 0 }, k, { w: 1, h: 1 }, null);
+    el.appendChild(built.root);
+  } else {
+    inner = document.createElement("span");
+    inner.className = "txt";
+    c.words.forEach((w, i) => {
+      const s = document.createElement("w");
+      s.textContent = c.upper ? w.text.toUpperCase() : w.text;
+      s.style.color = c.color;
+      inner.appendChild(s);
+      if (i < c.words.length - 1) inner.appendChild(document.createTextNode(" "));
+    });
+    el.appendChild(inner);
   }
-  if (c.shadow > 0) {
-    inner.style.textShadow = `${c.shadow * k}px ${c.shadow * k}px ${c.shadow * k}px rgba(0,0,0,.75)`;
-  }
-
-  // Surlignage : mot par mot, ou balayage (approximé mot à mot dans l'aperçu).
-  // L'espace est un noeud texte à part : dans un inline-block il serait avalé.
-  c.words.forEach((w, i) => {
-    const s = document.createElement("w");
-    s.textContent = c.upper ? w.text.toUpperCase() : w.text;
-    const on = c.mode === "word" ? i === wordIdx
-             : c.mode === "sweep" ? (wordIdx >= 0 && i <= wordIdx) : false;
-    s.style.color = on ? c.hl : c.color;
-    if (on && c.pop && c.mode === "word") s.style.transform = "scale(1.12)";
-    inner.appendChild(s);
-    if (i < c.words.length - 1) inner.appendChild(document.createTextNode(" "));
-  });
-  el.appendChild(inner);
 
   if (c.emoji) {
     const em = document.createElement("span");
@@ -1538,7 +1661,8 @@ function buildCap(c, wordIdx, ghost) {
   el.appendChild(h);
 
   el.onpointerdown = (e) => {
-    if (e.target !== el && e.target !== inner && e.target.tagName !== "W") return;
+    if (e.target !== el && !el.contains(e.target)) return;
+    if (e.target.closest(".emoji, .hd")) return;
     startDrag(e, c, "move");
   };
   el.ondblclick = (e) => { e.preventDefault(); editInline(el, inner, c); };
@@ -1646,7 +1770,8 @@ function nodeFor(id) {
 function applySize(c) {
   const n = nodeFor(c.id);
   if (!n) return;
-  n.style.fontSize = (c.size * S.k) + "px";
+  n.style.fontSize = (c.size * S.k * emOf(c.font)) + "px";
+  n.style.lineHeight = (c.size * S.k) + "px";
   const em = n.querySelector(".emoji");
   if (em) {
     em.style.fontSize = (c.emoji_size * S.k) + "px";
@@ -1965,6 +2090,10 @@ function buildStyleChips() {
   });
 }
 
+// Effets des styles (lueur, relief, dégradé…) : copiés avec le reste du style.
+const FX_FIELDS = ["italic", "spacing", "color2", "shadow_col", "shadow_blur", "glow", "glow_col", "outline2",
+                   "outline2_col", "extrude", "extrude_col", "hollow", "rotation", "opacity"];
+
 /** Un preset est le gabarit de TOUTE la vidéo (les réglages fins juste en
  *  dessous, eux, suivent la portée choisie). Il respecte les lignes déplacées. */
 function applyPreset(p) {
@@ -1978,6 +2107,7 @@ function applyPreset(p) {
       box: p.box, box_alpha: p.box_alpha, mode: p.mode, pop: p.pop,
       x: keepX, y: keepY,
     });
+    FX_FIELDS.forEach((f) => { if (p[f] !== undefined) c[f] = p[f]; });
     const g = emojiGeometry(c.size);
     c.emoji_size = g[0];
     if (!c.emoji_moved) { c.emoji_dy = g[1]; c.emoji_dx = 0; }
@@ -2101,7 +2231,7 @@ $("applyAll").onclick = () => {
   if (!c) return;
   snapshot();
   const look = ["font", "size", "bold", "upper", "color", "hl", "outline_col",
-                "outline", "shadow", "box", "box_alpha", "mode", "pop"];
+                "outline", "shadow", "box", "box_alpha", "mode", "pop", ...FX_FIELDS];
   S.caps.forEach((o) => {
     if (o.id === c.id) return;
     look.forEach((f) => o[f] = c[f]);
@@ -2286,7 +2416,7 @@ function mergeProject(fresh) {
   const old = new Map(S.caps.map((c) => [c.anchor, c]));
   const look = ["font", "size", "bold", "upper", "color", "hl", "outline_col", "outline",
                 "shadow", "box", "box_alpha", "mode", "pop", "x", "y", "moved",
-                "emoji", "emoji_size", "emoji_dx", "emoji_dy", "emoji_moved", "hidden"];
+                "emoji", "emoji_size", "emoji_dx", "emoji_dy", "emoji_moved", "hidden", ...FX_FIELDS];
   fresh.captions.forEach((c) => {
     const prev = old.get(c.anchor);
     if (!prev) return;
@@ -2442,14 +2572,18 @@ async function runTool(url, fd, onProgress) {
 }
 
 /** Zone de dépôt : clic ou glisser-déposer ; un chemin collé l'emporte sur le fichier. */
-function dropZone(zone, input, label, pathInput) {
+function dropZone(zone, input, label, pathInput, kind = "video") {
   const show = (f) => {
     if (!f) return;
     label.textContent = f.name;
     label.classList.remove("hidden");
     pathInput.value = "";
   };
-  zone.onclick = () => input.click();
+  zone.onclick = async () => {
+    const path = await pickVideo(kind);
+    if (path === null) input.click();
+    else usePath(input, label, pathInput, path);
+  };
   input.onchange = () => show(input.files[0]);
   zone.ondragover = (e) => { e.preventDefault(); zone.classList.add("over"); };
   zone.ondragleave = () => zone.classList.remove("over");
@@ -2459,6 +2593,7 @@ function dropZone(zone, input, label, pathInput) {
     if (e.dataTransfer.files.length) {
       input.files = e.dataTransfer.files;
       show(e.dataTransfer.files[0]);
+      if (DESKTOP) dropWait = (path) => usePath(input, label, pathInput, path);
     }
   };
   pathInput.oninput = () => {
@@ -2560,6 +2695,141 @@ $("aGo").onclick = async () => {
   }
 };
 
+/* ==================================== OUTIL : SUPPRIMER L'ARRIÈRE-PLAN ==== */
+
+const CUT = { src: null, point: null, fmt: null, busy: false };
+dropZone($("cDrop"), $("cFile"), $("cName"), $("cPath"), "media");
+
+$("cLoad").onclick = async () => {
+  const fd = new FormData();
+  const file = $("cFile").files[0];
+  const path = $("cPath").value.trim();
+  if (file) fd.append("file", file);
+  else if (path) fd.append("path", path);
+  else return toast("Choisis une image ou une vidéo, ou colle un chemin.");
+  $("cLoad").disabled = true;
+  try {
+    CUT.src = await api("/api/tools/cutout/source", { method: "POST", body: fd });
+  } catch (e) { toast(e.message, 5000); return; }
+  finally { $("cLoad").disabled = false; }
+  CUT.point = null;
+  $("cDot").classList.add("hidden");
+  $("cImg").src = CUT.src.preview + "?v=" + Date.now();
+  $("cHint").textContent = CUT.src.kind === "video"
+    ? "Image prise au début de la vidéo. Sans clic : tout ce qui est au premier plan est gardé."
+    : "Sans clic : tout ce qui est au premier plan est gardé.";
+  CUT.fmt = Object.keys(CUT.src.formats)[0];
+  renderCutFormats();
+  renderCutModel(CUT.src.model);
+  ["cSubject", "cFormat", "cGo"].forEach((id) => $(id).classList.remove("hidden"));
+  $("cStatus").classList.add("hidden");
+};
+
+$("cImg").onclick = (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  CUT.point = [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+  const dot = $("cDot");
+  dot.style.left = (CUT.point[0] * 100) + "%";
+  dot.style.top = (CUT.point[1] * 100) + "%";
+  dot.classList.remove("hidden");
+};
+
+function renderCutFormats() {
+  const box = $("cFormats");
+  box.innerHTML = "";
+  for (const [k, label] of Object.entries(CUT.src.formats)) {
+    const b = document.createElement("button");
+    b.className = "chip" + (k === CUT.fmt ? " on" : "");
+    b.textContent = label;
+    b.onclick = () => { CUT.fmt = k; renderCutFormats(); };
+    box.appendChild(b);
+  }
+  $("cBgField").classList.toggle("hidden", !["jpg", "mp4"].includes(CUT.fmt));
+}
+
+function renderCutModel(info) {
+  const box = $("cModel");
+  box.innerHTML = "";
+  $("cGo").disabled = !info.available;
+  if (info.available) return;
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.marginBottom = "10px";
+  card.innerHTML = `<div class="cb" style="padding-top:14px"><div class="meta" style="margin-bottom:8px">
+    Le détourage utilise un modèle d'IA de 26 Mo (MODNet), téléchargé une seule fois.</div></div>`;
+  const b = document.createElement("button");
+  b.className = "btn";
+  b.style.width = "100%";
+  b.textContent = (info.download || {}).status === "running" ? "Téléchargement…" : "Télécharger le modèle (26 Mo)";
+  b.onclick = async () => {
+    b.disabled = true;
+    b.textContent = "Téléchargement…";
+    try { await api("/api/matting/download", { method: "POST" }); } catch (e) { toast(e.message); }
+    const wait = async () => {
+      const i = await api("/api/matting");
+      if (i.available || (i.download || {}).status === "error") {
+        if (!i.available) toast("Téléchargement impossible : " + i.download.message, 5000);
+        renderCutModel(i);
+        return;
+      }
+      setTimeout(wait, 1000);
+    };
+    wait();
+  };
+  card.querySelector(".cb").appendChild(b);
+  box.appendChild(card);
+}
+
+$("cGo").onclick = async () => {
+  if (CUT.busy || !CUT.src) return;
+  CUT.busy = true;
+  $("cGo").disabled = true;
+  $("cStatus").classList.remove("hidden");
+  $("cRunning").classList.remove("hidden");
+  $("cResult").classList.add("hidden");
+  $("cMsg").className = "meta";
+  $("cMsg").textContent = "Démarrage…";
+  $("cBar").style.width = "0%";
+  try {
+    const body = { format: CUT.fmt, bg: $("cBg").value };
+    if (CUT.point) { body.x = CUT.point[0]; body.y = CUT.point[1]; }
+    const { job_id } = await api(`/api/tools/cutout/${CUT.src.id}/run`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const job = await new Promise((resolve, reject) => {
+      const tick = async () => {
+        try {
+          const st = await api("/api/tools/jobs/" + job_id);
+          $("cBar").style.width = (st.pct || 0) + "%";
+          $("cMsg").textContent = st.message + (st.status === "running" ? ` ${Math.round(st.pct || 0)} %` : "");
+          if (st.status === "error") return reject(new Error(st.message));
+          if (st.status === "done") return resolve({ id: job_id, ...st });
+          setTimeout(tick, 600);
+        } catch (e) { reject(e); }
+      };
+      tick();
+    });
+    const url = "/api/tools/result/" + job.id;
+    const view = $("cView");
+    view.innerHTML = "";
+    const el = document.createElement(job.result.kind === "image" ? "img" : "video");
+    el.src = url;
+    if (el.tagName === "VIDEO") { el.controls = true; el.loop = true; }
+    view.appendChild(el);
+    $("cDl").href = url;
+    $("cKvSize").textContent = mo(job.result.size);
+    $("cOutPath").textContent = job.result.output;
+    $("cRunning").classList.add("hidden");
+    $("cResult").classList.remove("hidden");
+    toast("Arrière-plan supprimé.");
+  } catch (e) {
+    $("cMsg").className = "meta err";
+    $("cMsg").textContent = e.message;
+  } finally {
+    CUT.busy = false;
+    $("cGo").disabled = false;
+  }
+};
+
 /* ============================================================== DÉPART ==== */
 $("navProjects").innerHTML = svg(P.grid, 18);
 $("navEditor").innerHTML = svg(P.film, 18);
@@ -2600,6 +2870,11 @@ $("navEditor").onclick = () => { if (S.proj) showView("edit"); };
 $("importBack").onclick = loadProjects;
 $("navTools").onclick = openTools;
 $("toolAudio").onclick = openAudioTool;
+$("toolCutout").onclick = () => showView("tool-cutout");
+$("cutBack").onclick = () => showView("tools");
+$("toolCutoutIc").innerHTML = svg(P.cut, 18);
+$("cutBack").innerHTML = svg(P.back, 16);
+$("cDl").innerHTML = svg(P.down, 15) + "Télécharger";
 $("audioBack").onclick = () => showView("tools");
 $("edBack").onclick = () => { saveNow(); loadProjects(); };
 $("newProject").onclick = openNew;
@@ -2623,8 +2898,29 @@ window.addEventListener("beforeunload", () => {
 });
 
 /** Le projet vit sur le serveur : `#p=<id>` rouvre le même montage. */
+/** Polices livrées avec l'application : déclarées pour l'aperçu, proposées
+ *  dans la liste (même nom que celui qu'utilise l'export). */
+/* Rendu des sous-titres : mêmes modules que le studio (effets, polices,
+   taille réelle comme libass), chargés au démarrage. */
+let FX = null, FT = null;
+async function loadFonts() {
+  try {
+    [FX, FT] = await Promise.all([import("/web/studio/textfx.js"), import("/web/studio/fonts.js")]);
+    await FT.loadFonts();
+    const sel = $("fFont");
+    for (const [k, label] of Object.entries(FT.F.categories)) {
+      const g = document.createElement("optgroup");
+      g.label = label;
+      FT.F.bundled.filter((f) => f.category === k).forEach((f) => g.appendChild(new Option(f.name, f.name)));
+      if (g.children.length) sel.appendChild(g);
+    }
+    document.fonts.addEventListener("loadingdone", () => { if (S.proj) renderStage(true); });
+  } catch (e) { console.error(e); }
+}
+const emOf = (font) => (FT ? FT.emScale(font) : 0.87);
+
 async function boot() {
-  await loadStyles();
+  await Promise.all([loadStyles(), loadFonts()]);
   if (location.hash === "#tools") { history.replaceState(null, "", "/"); return openTools(); }
   const id = new URLSearchParams(location.hash.slice(1)).get("p");
   if (!id) return loadProjects();

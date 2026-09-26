@@ -16,6 +16,7 @@ from __future__ import annotations
 import functools
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -283,8 +284,12 @@ def burn_and_overlay(
     on_progress=None,
     width: int = 0,
     height: int = 0,
+    fonts=None,
 ) -> None:
     """Sous-titres + émojis couleur en une seule passe d'encodage.
+
+    `fonts` : polices des sous-titres (celles livrées avec l'application sont
+    données à libass).
 
     `width`/`height` : définition de la vidéo d'entrée (déjà coupée et
     recadrée), qui choisit l'encodeur et le débit.
@@ -297,7 +302,8 @@ def burn_and_overlay(
 
     work = os.path.dirname(os.path.abspath(ass_path)) or "."
     inputs = ["-i", os.path.abspath(input_path)]
-    chain = [f"[0:v]subtitles={os.path.basename(ass_path)}[b0]"]
+    from engine.pipeline.fonts import subtitles_filter
+    chain = [f"[0:v]{subtitles_filter(os.path.basename(ass_path), fonts or (), work)}[b0]"]
     prev = "b0"
 
     for i, e in enumerate(emojis, start=1):
@@ -313,10 +319,13 @@ def burn_and_overlay(
         )
         prev = f"b{i}"
 
-    _run_ffmpeg(
-        [*inputs, "-map", f"[{prev}]", "-map", "0:a?",
-         *_video_codec_args(encoder, width, height), "-c:a", "copy",
-         "-movflags", "+faststart", os.path.abspath(out_path)],
-        filtergraph=";".join(chain), duration=duration, on_progress=on_progress,
-        cwd=work,
-    )
+    try:
+        _run_ffmpeg(
+            [*inputs, "-map", f"[{prev}]", "-map", "0:a?",
+             *_video_codec_args(encoder, width, height), "-c:a", "copy",
+             "-movflags", "+faststart", os.path.abspath(out_path)],
+            filtergraph=";".join(chain), duration=duration, on_progress=on_progress,
+            cwd=work,
+        )
+    finally:
+        shutil.rmtree(os.path.join(work, "fonts"), ignore_errors=True)   # copie des polices livrées

@@ -87,6 +87,54 @@ test("diviser sans sélection : tout ce qui est sous la tête, sauf pistes verro
   assert.equal(M.splitAt(d, 0.01).length, 0);          // trop près d'un bord
 });
 
+test("diviser et garder la droite : sur la principale, la suite recule avec son son", () => {
+  const d = doc();
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  const [next] = M.appendMedia(d, VIDEO2, 10);
+  const a = M.detachAudio(d, v);
+  v.fade_in = 0.5;
+  v.fade_out = 0.4;
+  v.trans = { type: "fade", dur: 0.5 };
+  const kept = M.splitKeep(d, 4, new Set([v.id]), "right");
+  assert.equal(kept.length, 2);                        // la vidéo ET son son séparé
+  const [kv, ka] = [kept.find((c) => c.kind === "video"), kept.find((c) => c.kind === "audio")];
+  assert.deepEqual([kv.start, kv.in, kv.dur], [0, 4, 6]);
+  assert.deepEqual([ka.start, ka.in, ka.dur], [0, 4, 6]);
+  assert.equal(kv.link, ka.link);
+  assert.deepEqual([kv.fade_in, kv.fade_out], [0, 0.4]);  // le fondu de fin reste, celui du début part
+  assert.deepEqual(kv.trans, { type: "fade", dur: 0.5 });
+  assert.equal(next.start, 6);
+  assert.ok(!d.clips.includes(v) && !d.clips.includes(a));
+});
+
+test("diviser et garder la gauche : la suite se recolle, hors principale rien ne bouge", () => {
+  const d = doc();
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  const [next] = M.appendMedia(d, VIDEO2, 10);
+  const [song] = M.appendMedia(d, SONG, 2);
+  const kept = M.splitKeep(d, 7, new Set([v.id, song.id]), "left");
+  assert.deepEqual(kept.map((c) => c.id).sort(), [v.id, song.id].sort());
+  assert.deepEqual([v.start, v.dur], [0, 7]);
+  assert.equal(next.start, 7);
+  assert.deepEqual([song.start, song.in, song.dur], [2, 0, 5]);   // la musique garde sa place
+  assert.equal(d.clips.length, 3);
+  // tête de lecture hors du clip, ou trop près d'un bord : rien ne change
+  assert.deepEqual(M.splitKeep(d, 8, new Set([v.id]), "left"), []);
+  assert.deepEqual(M.splitKeep(d, 0.01, new Set([v.id]), "right"), []);
+  assert.equal(d.clips.length, 3);
+});
+
+test("diviser un clip dont on a retiré des blancs : chaque passage reste d'un seul côté", () => {
+  const d = doc();
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  M.applyCuts(d, v, [[0, 1], [8, 10]]);
+  M.splitAt(d, 3);
+  assert.deepEqual(M.removedPassages(d).map((p) => [p.side, p.s, p.e, p.t]),
+                   [["gap", 0, 1, 0], ["tail", 8, 10, 7]]);
+  M.restoreAll(d);                                     // la division, elle, reste
+  assert.deepEqual(on(d, "tv1").map((c) => [c.start, c.in, c.dur]), [[0, 0, 4], [4, 4, 6]]);
+});
+
 test("supprimer sur la principale referme le trou et entraîne les sons liés", () => {
   const d = doc();
   const [v1] = M.appendMedia(d, VIDEO, 0);
@@ -216,6 +264,22 @@ const WORDS = [
   { text: "le", start: 4.0, end: 4.2 },           // 1,7 s de blanc avant
   { text: "monde", start: 4.3, end: 4.8 },
 ];
+
+test("mot à mot : chaque mot reste affiché jusqu'au suivant, même après une coupe", () => {
+  const d = doc();
+  d.tracks.unshift({ id: "tt1", kind: "text", name: "Sous-titres", main: false });
+  const [v] = M.appendMedia(d, VIDEO, 0);
+  WORDS.forEach((w, i) => d.clips.push({
+    id: "w" + i, track: "tt1", kind: "text", auto: true, hold: true, start: w.start, dur: w.end - w.start,
+    words: [{ text: w.text, start: w.start, end: w.end, m: "mv", s: w.start, e: w.end }] }));
+  M.reflowCaptions(d);
+  const row = () => on(d, "tt1").filter((c) => !c.gone);
+  // « Bonjour » tient jusqu'à « euh », « tout » s'arrête avant le long blanc (1,7 s)
+  assert.deepEqual(row().map((c) => [c.start, M.r4(c.dur)]).slice(0, 4), [[1, 0.6], [1.6, 0.4], [2, 0.3], [4, 0.3]]);
+  M.applyCuts(d, v, [[0, 0.9]]);                      // 0,9 s coupées au début
+  M.reflowCaptions(d);
+  assert.deepEqual(row().map((c) => [M.r4(c.start), M.r4(c.dur)]).slice(0, 2), [[0.1, 0.6], [0.7, 0.4]]);
+});
 
 test("coupes : mêmes règles que le moteur Python", () => {
   const cuts = M.silenceCuts([{ start: 1, end: 2 }, { start: 3, end: 4 }], 5, 0.5, 0.1);

@@ -1,10 +1,15 @@
 r"""Point d'entrée de l'application de bureau.
 
-Démarre le moteur local, ouvre le navigateur sur l'interface, et reste en vie
-tant que la fenêtre reste ouverte. C'est ce fichier que PyInstaller transforme
-en `MontageIA.exe` sous Windows et en `Montage IA.app` sous macOS (voir
-`build/`). Sur Mac, pas de terminal : l'application vit dans le Dock et la
-barre des menus (`macapp.py`), son journal va dans ~/Library/Logs.
+Démarre le moteur local et affiche l'interface. C'est ce fichier que
+PyInstaller transforme en `MontageIA.exe` sous Windows et en `Montage IA.app`
+sous macOS (voir `build/`).
+
+  - Windows : une vraie fenêtre d'application (`desktop.py`, moteur Edge
+    WebView2), sans console ; son journal va dans %LOCALAPPDATA%\MontageIA\logs.
+    `MONTAGE_IA_BROWSER=1` (ou `--browser`) garde l'ancienne façon : le
+    navigateur, avec la console comme journal et bouton « quitter ».
+  - macOS : l'interface s'ouvre dans le navigateur ; l'application vit dans le
+    Dock et la barre des menus (`macapp.py`), son journal va dans ~/Library/Logs.
 
 Une fois installée, l'application est autonome : ffmpeg et les DLL CUDA
 voyagent dans son dossier. On les branche AVANT le moindre import lourd —
@@ -35,6 +40,29 @@ APP_NAME = "Montage IA"
 DEFAULT_PORT = 8765
 IS_MAC = sys.platform == "darwin"
 FROZEN = bool(getattr(sys, "frozen", False))
+
+
+# Exe fenêtré (Windows) : pas de console, donc ni stdout ni stderr. Le premier
+# print, trace d'erreur ou barre de progression (téléchargement d'un modèle)
+# planterait : ils partent dans le vide, puis dans le journal (`main`). Vaut
+# aussi pour le processus enfant de la transcription, qui relit ce fichier.
+STREAMLESS = sys.stdout is None or sys.stderr is None
+for _name in ("stdout", "stderr"):
+    if getattr(sys, _name) is None:
+        setattr(sys, _name, open(os.devnull, "w", encoding="utf-8"))
+
+
+def _has_console() -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        return bool(ctypes.windll.kernel32.GetConsoleWindow())
+    except (AttributeError, OSError):
+        return True
+
+
+NO_CONSOLE = not _has_console()
 
 
 def _utf8_console() -> None:
@@ -91,10 +119,12 @@ def user_dir() -> str:
 
 
 def log_file() -> str | None:
-    """Journal de l'app macOS (lancée sans terminal) : ~/Library/Logs/Montage IA."""
-    if not (IS_MAC and FROZEN):
+    r"""Journal de l'application lancée sans terminal : app macOS
+    (~/Library/Logs/Montage IA) ou exe Windows fenêtré (%LOCALAPPDATA%\MontageIA\logs)."""
+    if not FROZEN or not (IS_MAC or STREAMLESS):
         return None
-    folder = os.path.join(os.path.expanduser("~"), "Library", "Logs", APP_NAME)
+    folder = (os.path.join(os.path.expanduser("~"), "Library", "Logs", APP_NAME) if IS_MAC
+              else os.path.join(user_dir(), "logs"))
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "montage-ia.log")
     try:
@@ -155,11 +185,17 @@ def wire_runtime() -> None:
         if conf:
             os.environ["FONTCONFIG_FILE"] = conf
 
-    # Modèles de traduction des sous-titres (Opus-MT, quelques dizaines de Mo).
+    # Modèles de traduction des sous-titres (Opus-MT, quelques dizaines de Mo)
+    # et de détourage (MODNet, 26 Mo).
     for p in places:
         translate = os.path.join(p, "models", "translate")
         if os.path.isdir(translate):
             os.environ.setdefault("MONTAGE_IA_TRANSLATE", translate)
+            break
+    for p in places:
+        matting = os.path.join(p, "models", "matting")
+        if os.path.isfile(os.path.join(matting, "modnet.onnx")):
+            os.environ.setdefault("MONTAGE_IA_MATTING", matting)
             break
 
     # Modèle Whisper : embarqué > cache existant de la machine > dossier utilisateur.
@@ -177,7 +213,17 @@ def wire_runtime() -> None:
     if _has_model(os.environ["HF_HOME"]):
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
-    os.environ.setdefault("MONTAGE_IA_WORK", os.path.join(user_dir(), "work"))
+    os.environ.setdefault("MONTAGE_IA_WORK", work_dir())
+
+
+def work_dir() -> str:
+    """Dossier des projets (`MONTAGE_IA_WORK` pour les essais, sinon celui de l'utilisateur)."""
+    return os.environ.get("MONTAGE_IA_WORK") or os.path.join(user_dir(), "work")
+
+
+def native_window() -> bool:
+    """Windows : fenêtre d'application plutôt que navigateur (sauf demande contraire)."""
+    return os.name == "nt" and os.environ.get("MONTAGE_IA_BROWSER") != "1" and "--browser" not in sys.argv
 
 
 def free_port(preferred: int) -> int:
@@ -201,10 +247,10 @@ def _open_browser(url: str, server) -> None:
         time.sleep(0.05)
 
 
-# ------------------------------------------------------- instance unique (Mac)
-# Sur Mac, relancer l'app pendant qu'elle tourne doit rouvrir l'interface, pas
-# démarrer un second moteur (le Dock le fait déjà ; ceci couvre le lancement
-# direct du binaire et un moteur resté sans icône).
+# ------------------------------------------------------------ instance unique
+# Relancer l'application pendant qu'elle tourne doit ramener sa fenêtre
+# (Windows) ou rouvrir l'interface (Mac), pas démarrer un second moteur sur les
+# mêmes projets. Une instance d'essai (autre dossier de projets) est à part.
 
 def _instance_file() -> str:
     return os.path.join(user_dir(), "instance.json")
@@ -214,10 +260,11 @@ def running_instance() -> str | None:
     """URL d'un moteur Montage IA déjà lancé par cet utilisateur, ou None."""
     try:
         with open(_instance_file(), encoding="utf-8") as f:
-            url = json.load(f).get("url") or ""
+            data = json.load(f)
     except (OSError, ValueError):
         return None
-    if not url:
+    url = data.get("url") or ""
+    if not url or os.path.normcase(data.get("work") or work_dir()) != os.path.normcase(work_dir()):
         return None
     try:
         with urllib.request.urlopen(url + "/api/projects", timeout=1.5) as r:
@@ -229,9 +276,19 @@ def running_instance() -> str | None:
 def remember_instance(url: str) -> None:
     try:
         with open(_instance_file(), "w", encoding="utf-8") as f:
-            json.dump({"url": url, "pid": os.getpid()}, f)
+            json.dump({"url": url, "pid": os.getpid(), "work": work_dir()}, f)
     except OSError:
         pass
+
+
+def focus_instance(url: str) -> bool:
+    """Ramène devant la fenêtre d'une instance déjà lancée (Windows)."""
+    try:
+        req = urllib.request.Request(url + "/api/app/focus", data=b"", method="POST")
+        with urllib.request.urlopen(req, timeout=2) as r:
+            return r.status == 200
+    except OSError:
+        return False
 
 
 def forget_instance() -> None:
@@ -257,29 +314,52 @@ def banner(url: str, work: str) -> str:
     )
 
 
-def main() -> None:
-    log = log_file()
-    if log:
-        _to_log(log)
-    mac_app = IS_MAC and FROZEN and os.environ.get("MONTAGE_IA_NO_DOCK") != "1"
-    if IS_MAC:
-        other = running_instance()
-        if other:
-            print(f"Montage IA tourne déjà : {other}")
-            webbrowser.open(other)
-            return
-
-    wire_runtime()
-
-    # Imports APRÈS wire_runtime : le PATH et les variables doivent être posés.
+def start_engine():
+    """Charge le moteur (imports lourds) et le prépare sur un port libre.
+    Renvoie `(serveur uvicorn, url)` ; le serveur n'est pas encore lancé."""
     import uvicorn
     from engine.server import app
 
     port = free_port(int(os.environ.get("MONTAGE_IA_PORT", DEFAULT_PORT)))
-    url = f"http://127.0.0.1:{port}"
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    return server, f"http://127.0.0.1:{port}"
 
-    server = uvicorn.Server(uvicorn.Config(
-        app, host="127.0.0.1", port=port, log_level="warning"))
+
+def main() -> None:
+    log = log_file()
+    if log:
+        _to_log(log)
+    native = native_window()
+    mac_app = IS_MAC and FROZEN and os.environ.get("MONTAGE_IA_NO_DOCK") != "1"
+    if IS_MAC or native:
+        other = running_instance()
+        if other:
+            print(f"Montage IA tourne déjà : {other}")
+            if not (native and focus_instance(other)):
+                webbrowser.open(other)
+            return
+
+    wire_runtime()
+    if os.name == "nt":
+        import desktop
+        desktop.tie_child_processes(no_window=NO_CONSOLE)
+
+    if native:
+        import desktop
+        problem = desktop.unavailable()
+        if not problem:
+            def ready(url: str) -> None:
+                remember_instance(url)
+                print(f"{APP_NAME} : moteur sur {url}, projets dans {os.environ['MONTAGE_IA_WORK']}")
+            try:
+                desktop.run(start_engine, user_dir(), log, on_ready=ready)
+            finally:
+                forget_instance()
+            return
+        print(f"Fenêtre de l'application indisponible : {problem}. Interface dans le navigateur.")
+
+    # Imports APRÈS wire_runtime : le PATH et les variables doivent être posés.
+    server, url = start_engine()
     threading.Thread(target=_open_browser, args=(url, server), daemon=True).start()
 
     print(banner(url, os.environ["MONTAGE_IA_WORK"]))
@@ -292,6 +372,16 @@ def main() -> None:
                 macapp.run(server, url, os.environ["MONTAGE_IA_WORK"], log)
                 return
             print("PyObjC absent : moteur lancé sans icône dans le Dock.")
+        if NO_CONSOLE:
+            # Windows sans WebView2 ni console : une boîte sert de bouton « Quitter ».
+            import desktop
+            engine = threading.Thread(target=server.run, name="moteur", daemon=True)
+            engine.start()
+            desktop.message(f"Montage IA est ouvert dans ton navigateur :\n{url}\n\n"
+                            "Garde cette fenêtre : clique sur OK pour quitter Montage IA.")
+            server.should_exit = True
+            engine.join(timeout=5)
+            return
         server.run()
     finally:
         if IS_MAC:
@@ -315,6 +405,11 @@ if __name__ == "__main__":
             import macapp
             macapp.alert("Montage IA n'a pas pu démarrer",
                          f"{exc}\n\nDétails dans ~/Library/Logs/{APP_NAME}/montage-ia.log")
+        elif FROZEN and NO_CONSOLE:
+            import desktop
+            where = log_file()
+            desktop.message(f"{exc}" + (f"\n\nDétails dans {where}" if where else ""),
+                            "Montage IA n'a pas pu démarrer", desktop.MB_ICONERROR)
         elif FROZEN:
             try:
                 input("\nAppuie sur Entrée pour fermer...")

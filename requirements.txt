@@ -9,6 +9,7 @@ huggingface_hub>=0.23      # téléchargement des modèles (scripts/download_mod
 tokenizers>=0.20           # tokenizer du modèle de langage du montage automatique
 opencv-python-headless>=4.10   # visage (YuNet) : les zooms du montage automatique restent cadrés
 pyobjc-framework-Cocoa>=10; sys_platform == "darwin"   # app macOS : Dock, barre des menus (macapp.py)
+pywebview>=6,<7; sys_platform == "win32"   # app Windows : vraie fenêtre (WebView2), import sans copie (desktop.py)
 pydantic>=2.5
 Pillow>=10.0               # émojis couleur incrustés à l'export
 

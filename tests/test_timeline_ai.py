@@ -92,6 +92,25 @@ def test_sous_titres_suivent_les_clips():
     assert caps[2]["emoji"] == "💰"
 
 
+def test_sous_titres_mot_a_mot():
+    caps = ai.build_captions([video()], MEDIA, words_of, {"word_by_word": True, "words_per_line": 4})
+    assert all(len(c["words"]) == 1 and c["hold"] for c in caps)
+    # chaque mot reste affiché jusqu'au suivant, sauf après une longue pause
+    for a, b in zip(caps, caps[1:]):
+        gap = b["start"] - (a["start"] + a["dur"])
+        assert gap == pytest.approx(0, abs=1e-6) or gap > ai.HOLD_GAP
+
+
+def test_style_anime():
+    from engine.pipeline import style_presets
+    style_presets.PRESETS["_essai"] = {"label": "Essai", "anim_in": {"type": "pop", "dur": 0.3}}
+    try:
+        caps = ai.build_captions([video()], MEDIA, words_of, {"style": "_essai"})
+        assert caps[0]["anim_in"] == {"type": "pop", "dur": 0.3}
+    finally:
+        del style_presets.PRESETS["_essai"]
+
+
 def test_sous_titres_vitesse_son_separe_et_muet():
     fast = ai.build_captions([video(speed=2.0, dur=5.0)], MEDIA, words_of, {})
     assert fast[0]["start"] == pytest.approx(0.5)

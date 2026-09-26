@@ -1,12 +1,15 @@
 """Télécharge les modèles de l'application, une fois pour toutes.
 
-    python scripts/download_models.py              # traduction fr→en (~80 Mo)
+    python scripts/download_models.py              # traduction fr→en (~80 Mo) et détourage (26 Mo)
     python scripts/download_models.py --whisper    # + Whisper large-v3-turbo (~1,6 Go)
     python scripts/download_models.py --convert    # traduction reconvertie depuis l'original
 
 * Traduction : version CTranslate2 d'Opus-MT (Helsinki-NLP, licence Apache-2.0)
   rangée dans models/translate/opus-mt-fr-en. Sans elle l'application marche,
   mais le bouton « Traduire en anglais » reste grisé.
+* Détourage : MODNet (licence Apache-2.0), conversion ONNX `Xenova/modnet`,
+  rangé dans models/matting/modnet.onnx. Sans lui, l'application le télécharge
+  à la première suppression d'arrière-plan.
 * Whisper : facultatif ici — faster-whisper le télécharge de toute façon à la
   première analyse. Le récupérer d'avance évite d'attendre à ce moment-là.
 
@@ -80,6 +83,19 @@ def get_llm() -> None:
     say(f"IA de montage : prête ({llm.download()})")
 
 
+def get_matting() -> None:
+    """Modèle de détourage (MODNet, 26 Mo) dans models/matting/."""
+    dest = os.path.join(ROOT, "models", "matting", "modnet.onnx")
+    if os.path.isfile(dest):
+        print(f"détourage : déjà là ({dest})")
+        return
+    from engine.pipeline import matting
+    src = matting.model_path() or matting.download()
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copyfile(src, dest)
+    print(f"détourage : {os.path.getsize(dest) / 1e6:.0f} Mo -> {dest}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Télécharge les modèles de Montage IA")
     ap.add_argument("--whisper", nargs="?", const="large-v3-turbo", default=None,
@@ -91,6 +107,7 @@ def main() -> None:
     args = ap.parse_args()
 
     get_translation("fr", "en", args.convert)
+    get_matting()
     if args.whisper:
         get_whisper(args.whisper)
     if args.llm:

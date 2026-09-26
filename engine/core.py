@@ -99,8 +99,9 @@ def run_pipeline(
         ow, oh = output_size(info.width, info.height, opts.vertical)
         emojis = [{"char": e, "x": ow // 2, "y": int(oh * 0.72), "size": 150,
                    "start": s, "end": t} for e, s, t in overlays]
+        from engine.pipeline.style_presets import preset
         burn_and_overlay(cut_path, ass_path, emojis, out, encoder=opts.encoder,
-                         duration=kept, width=ow, height=oh)
+                         duration=kept, width=ow, height=oh, fonts=[preset(opts.style)["font"]])
     else:
         report(5, "Finalisation...")
         render_cut(input_path, keep, out, vertical=opts.vertical, encoder=opts.encoder,

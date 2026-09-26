@@ -20,13 +20,14 @@ from engine import store
 from engine.pipeline.ass_edit import emoji_geometry
 from engine.pipeline.captions import clean_words, group_indices
 from engine.pipeline.emoji import emoji_for
-from engine.pipeline.style_presets import preset
+from engine.pipeline.style_presets import preset, preset_anims
 from engine.pipeline.transcribe import transcribe
 from engine.timeline import jobs, media as mediatools
 from engine.timeline import model
 
 EMOJI_MIN_GAP = 3.0       # s entre deux émojis
 LINE_GAP = 1.0            # un blanc plus long termine la ligne
+HOLD_GAP = 0.8            # mot à mot : un mot reste affiché jusqu'au suivant si la pause est plus courte
 
 
 # --------------------------------------------------------------- transcription
@@ -136,6 +137,8 @@ def build_captions(clips: list[dict], media: dict[str, dict], words_of, settings
     """
     s = model.normalize_settings(settings)
     look = preset(s["style"])
+    anims = preset_anims(s["style"])
+    per_line = 1 if s["word_by_word"] else s["words_per_line"]
     esz, edy = emoji_geometry(look["size"])
     out: list[dict] = []
     last_emoji = -1e9
@@ -166,7 +169,7 @@ def build_captions(clips: list[dict], media: dict[str, dict], words_of, settings
                 runs.append([])
             runs[-1].append(w)
         for run in runs:
-            for idx in group_indices([w["text"] for w in run], s["words_per_line"], s["max_chars"]):
+            for idx in group_indices([w["text"] for w in run], per_line, s["max_chars"]):
                 line = [run[i] for i in idx]
                 t0, t1 = line[0]["start"], max(line[-1]["end"], line[0]["start"] + 0.2)
                 emoji = ""
@@ -180,13 +183,17 @@ def build_captions(clips: list[dict], media: dict[str, dict], words_of, settings
                     "id": model.new_id("k"), "kind": "text", "auto": True,
                     "start": round(t0, 4), "dur": round(t1 - t0, 4),
                     "words": line, "emoji": emoji, "emoji_size": esz, "emoji_dx": 0,
-                    "emoji_dy": round(edy, 1), **look,
+                    "emoji_dy": round(edy, 1), **look, **anims,
                 })
+                if s["word_by_word"]:
+                    out[-1]["hold"] = True
     # deux lignes consécutives ne se chevauchent pas
     out.sort(key=lambda c: c["start"])
     for a, b in zip(out, out[1:]):
         if a["start"] + a["dur"] > b["start"]:
             a["dur"] = round(max(0.05, b["start"] - a["start"]), 4)
+        elif a.get("hold") and b["start"] - (a["start"] + a["dur"]) <= HOLD_GAP:
+            a["dur"] = round(b["start"] - a["start"], 4)      # pas de trou entre deux mots
     return out
 
 

@@ -204,6 +204,19 @@ def copy_translate_models() -> None:
     say(f"traduction : {human(tree_size(dest))}  -> models/translate/")
 
 
+def copy_matting_model() -> None:
+    """Modèle de détourage (MODNet, 26 Mo) : embarqué, l'application marche hors ligne."""
+    src = os.path.join(ROOT, "models", "matting", "modnet.onnx")
+    if not os.path.isfile(src):
+        say("détourage : models/matting/modnet.onnx absent — téléchargé au premier usage")
+        say("  Récupère-le :  python scripts/download_models.py")
+        return
+    dest = os.path.join(DIST, "models", "matting")
+    os.makedirs(dest, exist_ok=True)
+    shutil.copyfile(src, os.path.join(dest, "modnet.onnx"))
+    say(f"détourage : {human(os.path.getsize(src))}  -> models/matting/")
+
+
 def run_inno(with_model: bool) -> str | None:
     iscc = next((p for p in ISCC_CANDIDATES if os.path.isfile(p)), None) or shutil.which("ISCC")
     if not iscc:
@@ -242,6 +255,7 @@ def main() -> None:
     run_pyinstaller(args.clean)
     copy_into(find_ffmpeg(), "ffmpeg", "ffmpeg")
     copy_translate_models()
+    copy_matting_model()
 
     if args.no_cuda:
         say("CUDA : ignoré (l'application tournera sur processeur)")

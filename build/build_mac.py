@@ -167,6 +167,11 @@ def add_models(with_model: bool, win) -> None:
     else:
         say("traduction : aucun modèle dans models/translate — fonction désactivée")
         say("  Récupère-le :  python scripts/download_models.py")
+    modnet = os.path.join(ROOT, "models", "matting", "modnet.onnx")
+    if os.path.isfile(modnet):
+        os.makedirs(os.path.join(res, "matting"), exist_ok=True)
+        shutil.copy2(modnet, os.path.join(res, "matting", "modnet.onnx"))
+        say("détourage : 26 Mo  -> Contents/Resources/models/matting/")
     if with_model:
         hf = win.find_model()             # même recherche que sous Windows (build.py)
         if not hf:

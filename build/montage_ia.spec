@@ -10,6 +10,9 @@ du code à inspecter. `app.py` les retrouve au démarrage via le PATH.
 Mode « un dossier » et non « un fichier » : un exe unique de 2 Go se
 décompresserait dans un dossier temporaire à chaque lancement.
 
+Sur Windows, un exe sans console : l'interface s'ouvre dans sa propre fenêtre
+(desktop.py, pywebview + WebView2), le journal va dans un fichier.
+
 Sur macOS, le dossier devient une application (BUNDLE) : pas de terminal,
 icône dans le Dock et la barre des menus (macapp.py), App Nap désactivé.
 """
@@ -35,6 +38,12 @@ hiddenimports = [
 if MAC:
     # Dock et barre des menus (importés dans une fonction : invisibles à l'analyse)
     hiddenimports += ["macapp", "AppKit", "Foundation", "objc", "PyObjCTools.AppHelper"]
+else:
+    # Fenêtre de l'application : pywebview choisit son moteur à l'exécution
+    # (WinForms + Edge WebView2, via pythonnet). Ses DLL et scripts viennent
+    # des hooks de pywebview et de pyinstaller-hooks-contrib.
+    hiddenimports += ["desktop", "webview.platforms.winforms", "webview.platforms.edgechromium",
+                      "webview.dom", "clr", "clr_loader"]
 
 # uvicorn/fastapi résolvent leurs protocoles par nom au démarrage.
 # sentencepiece : tokenizer des modèles de traduction (engine/pipeline/translate.py).
@@ -71,9 +80,9 @@ exe = EXE(
     debug=False,
     strip=False,
     upx=False,
-    # Windows : la fenêtre sert de journal et de bouton « quitter ».
-    # macOS : une application sans terminal (journal dans ~/Library/Logs).
-    console=not MAC,
+    # Pas de console : Windows ouvre sa propre fenêtre (desktop.py), macOS vit
+    # dans le Dock ; le journal va dans un fichier (voir app.log_file).
+    console=False,
     argv_emulation=False,
     icon=os.path.join(SPECPATH, "icon.icns" if MAC else "icon.ico") if os.path.exists(
         os.path.join(SPECPATH, "icon.icns" if MAC else "icon.ico")) else None,

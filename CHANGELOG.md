@@ -3,6 +3,76 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+- **Fonts**: 53 free fonts bundled (Google Fonts, SIL OFL / Apache-2.0: Anton,
+  Bebas Neue, Montserrat, Poppins, Bangers, Luckiest Guy, Permanent Marker,
+  Pacifico, Press Start 2P, Monoton, Playfair Display…), declared by `@font-face`
+  in the editors and handed to libass (`fontsdir`) at export; a searchable font
+  picker with categories, each font drawn in itself.
+- **Text effects**: glow, neon, soft or coloured shadow, second outline, 3D
+  extrusion, left-to-right gradient, outline only, letter spacing, italic,
+  rotation, opacity — as layers of the same line, identical in the preview and
+  in the export (checked side by side), with one-click effect presets.
+- **Animations** (51) for texts, videos and images: in (fade, slides, zoom, pop,
+  bounce, drop, elastic, spin, blur, stretch, typewriter, letter by letter, word
+  by word…), out, and loops (pulse, heartbeat, float, sway, shake, blink,
+  wobble, glitch, slow zoom, pan, shimmer). One JSON definition read by the
+  preview (JavaScript) and the export (Python, checked equal by a test); texts
+  are rendered frame by frame in the `.ass`, videos and images through
+  per-frame `sendcmd` commands. *Animations* section in the inspector with
+  animated cards.
+- **Captions**: *Mot à mot* (one word on screen, held until the next one, also
+  after cuts); new highlight modes *Apparition* (words appear as they are said)
+  and *Mot actif seul* (the others dimmed); 71 caption styles (creators, animated,
+  neon, 3D, gradients, handwritten, retro…) and about forty title styles.
+- **Sound effects**: a « Sons » tab with a library of 69 effects synthesised by
+  the engine (whooshes, pops, notifications, impacts, cartoon, risers, glitch,
+  drums, comedy, ambience) — no third-party audio file — to preview and drop on
+  the timeline; « Mes sons »: create a sound with the synthesiser (12 engines,
+  sliders, random), import a file or record the microphone.
+- **Subject and background**: click on a person in the preview to detour them
+  frame by frame (MODNet, Apache-2.0, 26 MB, bundled; CPU, ~2× real time),
+  then *Supprimer l'arrière-plan*, *Cadrer sur le sujet* (reframe, e.g. 16:9 →
+  9:16) and *Suivre le sujet* (the frame follows them). The preview plays a
+  transparent VP9 proxy; the export applies the matte at full resolution.
+- **Toolbox — Supprimer l'arrière-plan**: image → transparent PNG or JPG on a
+  colour; video → transparent WebM, ProRes 4444 MOV (alpha) or MP4 on a colour.
+- Windows desktop app: Montage IA opens in its own window (pywebview + Edge
+  WebView2) instead of the browser, with no console window. Native file and
+  folder dialogs, and files dragged from Explorer arrive with their real paths:
+  media are read in place, never copied or uploaded, so imports are instant.
+  Closing the window stops the engine (with a confirmation while an export or
+  an analysis runs); launching the app again brings its window to the front;
+  ffmpeg processes end with the app. The log goes to
+  `%LOCALAPPDATA%\MontageIA\logs`. `--browser` / `MONTAGE_IA_BROWSER=1` keeps
+  the browser.
+- Timeline: *Diviser et garder la droite* (`Q`) and *Diviser et garder la
+  gauche* (`W`), as in CapCut — in the toolbar and the clip menu. They act on
+  the selection, or on the main-track clip under the playhead; linked audio
+  follows and the main track closes the gap.
+- Media proxies are decoded and scaled on the NVIDIA GPU (NVDEC + `scale_cuda`)
+  when possible, rotated phone videos included — about 3× faster on 4K HEVC
+  footage; any refusal falls back to the CPU (`MONTAGE_IA_GPU_PROXY=0` to
+  disable).
+
+### Changed
+- *Short automatique → Dans la timeline* no longer starts the automatic edit on
+  its own: imported videos go on the timeline, the *Outils IA* tab opens with a
+  note and a highlighted *Monter la vidéo* button, and the edit runs when you
+  click it. Several videos can be imported first.
+
+### Fixed
+- The preview drew texts larger than the export (libass sizes a font by its
+  full height, CSS by its em square: +12 % for Arial, up to +75 % for display
+  fonts) and some fonts slightly off their baseline; both now match libass.
+- Splitting a clip whose silences had been removed duplicated its removed
+  passages (listed twice, and restoring the wrong one could corrupt the clip).
+- Audio files dropped on the timeline (or added with *Poser aussi sur la
+  timeline*) were placed about 11 days after the start; they now start at 0 on
+  a free audio track.
+
 ## [0.1.0] - 2026-09-22
 
 First public release: Windows installer and macOS app (Apple Silicon).

@@ -19,6 +19,7 @@
    emplacement en pointillés montre où il va se poser. */
 
 import * as A from "./actions.js";
+import { soundToTimeline } from "./sounds.js";
 import { bytes } from "./api.js";
 import * as M from "./model.js";
 import { S, begin, cancelBegin, changed, edit, emit, end, on, select, selectNone, setTime,
@@ -115,6 +116,10 @@ function buildTools() {
   zoom.oninput = () => setZoom(sliderToPps(+zoom.value));
   bar.append(
     iconBtn("split", "Diviser à la tête de lecture (Ctrl+B)", () => A.split()),
+    iconBtn("keepR", "Diviser et garder la droite : supprime ce qui précède la tête de lecture (Q)",
+            () => A.splitKeep("right")),
+    iconBtn("keepL", "Diviser et garder la gauche : supprime ce qui suit la tête de lecture (W)",
+            () => A.splitKeep("left")),
     iconBtn("trash", "Supprimer (Suppr)", () => A.remove()),
     iconBtn("copy", "Dupliquer (Ctrl+D)", () => A.duplicate()),
     iconBtn("freeze", "Arrêt sur image (F)", () => A.freezeFrame()),
@@ -1031,7 +1036,9 @@ function emptyDown(e) {
 /* ============================================================ glisser des médias */
 
 function initDnD() {
-  const media = () => (S.dragMedia ? S.media.get(S.dragMedia) : null);
+  // un média du projet, ou un son de la bibliothèque (copié dans le projet au dépôt)
+  const media = () => (S.dragMedia ? S.media.get(S.dragMedia)
+    : S.dragSound ? { kind: "audio", duration: S.dragSound.dur, sound: S.dragSound } : null);
   const target = (e) => {
     const m = media();
     if (!m) return null;
@@ -1061,6 +1068,12 @@ function initDnD() {
     if (!tg) return;
     e.preventDefault();
     e.stopPropagation();
+    if (tg.m.sound) {
+      S.dragSound = null;
+      draw();
+      soundToTimeline(tg.m.sound.id, { t: tg.t, tid: tg.tid });
+      return;
+    }
     const added = edit((doc) => {
       let tid = tg.tid;
       if (!tid) {
@@ -1089,6 +1102,10 @@ function clipMenu(e, id) {
   const under = clip.start < S.t && M.clipEnd(clip) > S.t;
   menu(e.clientX, e.clientY, [
     { label: "Diviser à la tête de lecture", icon: "split", key: "Ctrl+B", disabled: !under, onclick: A.split },
+    { label: "Diviser et garder la droite", icon: "keepR", key: "Q", disabled: !under,
+      onclick: () => A.splitKeep("right") },
+    { label: "Diviser et garder la gauche", icon: "keepL", key: "W", disabled: !under,
+      onclick: () => A.splitKeep("left") },
     { label: "Dupliquer", icon: "copy", key: "Ctrl+D", onclick: A.duplicate },
     { label: "Copier", icon: "copy", key: "Ctrl+C", onclick: A.copy },
     { label: "Couper", icon: "cut", key: "Ctrl+X", onclick: A.cut },
@@ -1175,6 +1192,8 @@ function initKeys() {
     let used = true;
     if (mod && k === "b") A.split();
     else if (!mod && k === "s" && !e.altKey) A.split();
+    else if (!mod && !e.altKey && k === "q") A.splitKeep("right");
+    else if (!mod && !e.altKey && k === "w") A.splitKeep("left");
     else if (k === "delete" || k === "backspace") A.remove();
     else if (mod && k === "d") A.duplicate();
     else if (mod && k === "c") A.copy();

@@ -28,7 +28,7 @@ import { withPreset } from "./voice.js";
 import { wordsOf } from "./words.js";
 import { ensureTranscripts, generateCaptions, leads } from "./panels.js";
 
-const A = { busy: false, llm: null, before: null, last: null, poll: 0 };
+const A = { busy: false, llm: null, before: null, last: null, poll: 0, ready: null };
 
 const DEFAULTS = { silence: true, fillers: true, trim: true, hook: true, cold_open: false, zoom: true, texts: true,
                    captions: true, sound: true, llm: true, rhythm: "normal", max_duration: 0 };
@@ -51,6 +51,14 @@ function setOpt(k, v) {
   changed({ reason: "settings" });
 }
 
+/** Short automatique : `{ waiting }` tant que les vidéos se préparent, puis
+ *  `{ count }` quand elles sont sur la timeline et que le montage attend le clic. */
+export function setReady(state) {
+  const same = JSON.stringify(state) === JSON.stringify(A.ready);
+  A.ready = state;
+  if (!same) render();
+}
+
 export function init() {
   on("tab", ({ name }) => { if (name === "auto") { render(); refreshLLM(); } });
   on("doc", ({ reason }) => { if (reason === "load" || reason === "undo" || reason === "redo") render(); });
@@ -71,8 +79,9 @@ export function render() {
     h("button", { class: o[key] === k ? "on" : "", onclick: () => { setOpt(key, k); render(); } }, l)));
   box.innerHTML = "";
   put(box, section({ title: "Montage automatique", icon: "wand", key: "ai.auto" },
-    h("button.btn.primary.wide.big", { id: "aiGo", html: svg("wand", 15) + "Monter la vidéo", onclick: run,
-                                       disabled: A.busy }),
+    readyNote(),
+    h("button.btn.primary.wide.big" + (A.ready && A.ready.count ? ".attn" : ""),
+      { id: "aiGo", html: svg("wand", 15) + "Monter la vidéo", onclick: run, disabled: A.busy }),
     h("div.hint", { style: { margin: "6px 0 10px" } },
       "Blancs, tics, faux départs, accroche, zooms, textes, sous-titres, son : tout d'un coup, sur ton PC. " +
       "Chaque geste reste modifiable, et « Revenir en arrière » rétablit le montage d'avant."),
@@ -100,6 +109,18 @@ export function render() {
     h("div", { id: "aiLast" })));
   renderLLM();
   renderLast();
+}
+
+/** Rien ne part tout seul : on dit où on en est, et que le clic lance tout. */
+function readyNote() {
+  const r = A.ready;
+  if (!r) return null;
+  const text = r.waiting
+    ? "Préparation des vidéos… Le montage attendra ton feu vert."
+    : (r.count > 1 ? `${r.count} vidéos sont sur la timeline.` : "Ta vidéo est sur la timeline.") +
+      " Vérifie les réglages, puis clique sur « Monter la vidéo ».";
+  return h("div.aiready", { role: "status" }, h("i", { html: svg(r.waiting ? "refresh" : "check", 13) }),
+           h("span", {}, text));
 }
 
 /* --------------------------------------------------- modèle de langage */
@@ -238,6 +259,7 @@ export async function run() {
   }
   const o = opts();
   A.busy = true;
+  A.ready = null;
   render();
   const veil = h("div.busyveil", {}, h("div.box", {},
     h("div", { style: { fontWeight: 600, marginBottom: "6px" } }, "Montage automatique"),

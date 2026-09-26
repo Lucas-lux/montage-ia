@@ -62,3 +62,4 @@ class JobQueue:
 
 MEDIA = JobQueue("media", 2)
 TRANSCRIBE = JobQueue("whisper", 1)
+SUBJECT = JobQueue("sujet", 1)          # détourage : déjà parallèle à l'intérieur
