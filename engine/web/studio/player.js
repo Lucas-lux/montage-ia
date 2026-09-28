@@ -236,8 +236,8 @@ export function sync(t, { layout = false } = {}) {
     const show = seen && visual && !(tr && tr.hidden);
     if (visual) {
       const fx = show ? transitionFx(c, ext, t) : null;
-      it.wrap.style.visibility = show && !(fx && fx.hide) ? "visible" : "hidden";
-      it.wrap.style.zIndex = (z.get(c.track) || 1) * 2 + (fx && fx.top ? 1 : 0);
+      outer(it).style.visibility = show && !(fx && fx.hide) ? "visible" : "hidden";
+      outer(it).style.zIndex = (z.get(c.track) || 1) * 2 + (fx && fx.top ? 1 : 0);
       if (show || layout || !it.placed) place(it, c, m, fx, t);
       if (show && tr && tr.main && S.doc.canvas.blur && !(fx && fx.hide)) blurSrc.push({ it, c, m });
     }
@@ -292,7 +292,7 @@ export function sync(t, { layout = false } = {}) {
   for (const [id, it] of P.items) {
     if (wanted.has(id)) continue;
     if (it.el.pause && !it.el.paused) it.el.pause();
-    if (it.wrap) it.wrap.style.visibility = "hidden";
+    if (it.wrap) outer(it).style.visibility = "hidden";
     if (now - it.last > KEEP * 1000 || P.items.size > MAX_ELEMS) destroy(id, it);
   }
   drawBlur(blurSrc);
@@ -423,6 +423,7 @@ function destroy(id, it) {
   }
   if (it.src) try { it.src.disconnect(); } catch (e) { /* déjà déconnecté */ }
   if (it.wrap) it.wrap.remove();
+  if (it.box) it.box.remove();
   P.items.delete(id);
 }
 
@@ -458,12 +459,25 @@ export function followOffset(c, m, g, W, H, t) {
   return [dx, dy];
 }
 
-/** Taille et place d'un clip visuel dans l'aperçu (mêmes règles que l'export). */
+/** Zone `box` d'un clip dans le cadre (px du cadre), ou null. Même calcul que
+ *  l'export (engine/timeline/render.py, `box_rect`). */
+export function boxRect(c, W, H) {
+  const b = c.box;
+  if (!b) return null;
+  const w = b.w * W, h = b.h * H;
+  return { x: b.x * W, y: b.y * H, w, h, r: Math.min((b.r || 0) * W / 1080, w / 2, h / 2) };
+}
+
+/** Taille et place d'un clip visuel dans l'aperçu (mêmes règles que l'export).
+ *  Centre (`cx`, `cy`) dans le repère du cadre ; `bx`, `by`, `bw`, `bh` : la
+ *  zone de référence (le cadre entier, ou la `box` du clip). */
 export function geometry(c, m, W, H) {
-  const w = m.w || W, hh = m.h || H;
-  const base = c.fit === "contain" ? Math.min(W / w, H / hh) : Math.max(W / w, H / hh);
+  const B = boxRect(c, W, H);
+  const bx = B ? B.x : 0, by = B ? B.y : 0, bw = B ? B.w : W, bh = B ? B.h : H;
+  const w = m.w || bw, hh = m.h || bh;
+  const base = c.fit === "contain" ? Math.min(bw / w, bh / hh) : Math.max(bw / w, bh / hh);
   const s = base * (c.scale ?? 1);
-  return { w: w * s, h: hh * s, cx: (c.x ?? 0.5) * W, cy: (c.y ?? 0.5) * H };
+  return { w: w * s, h: hh * s, cx: bx + (c.x ?? 0.5) * bw, cy: by + (c.y ?? 0.5) * bh, bx, by, bw, bh, box: B };
 }
 
 /** Place un clip visuel ; `t` : instant, pour ses animations (même état qu'à
@@ -471,7 +485,11 @@ export function geometry(c, m, W, H) {
 function place(it, c, m, fx, t = S.t) {
   const k = S.k || 1;
   const { w: W, h: H } = S.doc.canvas;
-  const g = geometry(c, m, W, H);
+  const g0 = geometry(c, m, W, H);
+  frameBox(it, g0.box, k);
+  // dans une zone, tout se rapporte à elle (comme l'export, qui la rend comme un cadre)
+  const g = { ...g0, cx: g0.cx - g0.bx, cy: g0.cy - g0.by };
+  const bw = g0.bw, bh = g0.bh;
   const an = AN.hasAnim(c) ? AN.state(c, t) : null;
   const st = it.wrap.style;
   st.width = g.w * k + "px";
@@ -479,9 +497,9 @@ function place(it, c, m, fx, t = S.t) {
   st.left = (g.cx - g.w / 2) * k + "px";
   st.top = (g.cy - g.h / 2) * k + "px";
   st.opacity = (c.opacity ?? 1) * (fx && fx.op !== undefined ? fx.op : 1) * (an ? an.o : 1);
-  const [fox, foy] = c.follow ? followOffset(c, m, g, W, H, t) : [0, 0];
-  const tx = (fx && fx.tx ? fx.tx : 0) + (an ? an.dx * W * k : 0) + fox * k;
-  const ty = (an ? an.dy * H * k : 0) + foy * k;
+  const [fox, foy] = c.follow ? followOffset(c, m, g, bw, bh, t) : [0, 0];
+  const tx = (fx && fx.tx ? fx.tx : 0) + (an ? an.dx * bw * k : 0) + fox * k;
+  const ty = (an ? an.dy * bh * k : 0) + foy * k;
   const move = tx || ty ? `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) ` : "";
   // comme l'export : l'image est tournée, puis mise à l'échelle dans les axes de l'écran
   const grow = an && (an.s !== 1 || an.sx !== 1 || an.sy !== 1)
@@ -495,7 +513,41 @@ function place(it, c, m, fx, t = S.t) {
   if (fx && fx.white) filter += ` brightness(${(1 + 3 * fx.white).toFixed(3)}) saturate(${(1 - fx.white).toFixed(3)})`;
   st.filter = filter.trim();
   st.clipPath = fx && fx.clip ? fx.clip : "";
+  // bordure « carte » : autour de l'image, comme le `pad` de l'export (px d'un cadre de 1080 de large)
+  st.outline = c.border ? `${(c.border * W / 1080 * k).toFixed(2)}px solid ${c.border_col || "#FFFFFF"}` : "";
   it.placed = true;
+}
+
+/** Met le clip dans sa zone (conteneur qui coupe ce qui dépasse, coins
+ *  arrondis), ou l'en sort. Le conteneur prend la visibilité et l'ordre
+ *  d'empilement du clip (voir `outer`). */
+function frameBox(it, B, k) {
+  if (!B) {
+    if (it.box) {
+      const { visibility, zIndex } = it.box.style;
+      vlayer.insertBefore(it.wrap, it.box);
+      it.box.remove();
+      it.box = null;
+      Object.assign(it.wrap.style, { visibility, zIndex });
+    }
+    return;
+  }
+  if (!it.box) {
+    it.box = h("div.vbox");
+    vlayer.insertBefore(it.box, it.wrap);
+    it.box.appendChild(it.wrap);
+    Object.assign(it.box.style, { visibility: it.wrap.style.visibility, zIndex: it.wrap.style.zIndex });
+    Object.assign(it.wrap.style, { visibility: "", zIndex: "" });
+  }
+  Object.assign(it.box.style, {
+    left: B.x * k + "px", top: B.y * k + "px", width: B.w * k + "px", height: B.h * k + "px",
+    borderRadius: B.r * k + "px",
+  });
+}
+
+/** L'élément du clip posé dans le calque vidéo : sa zone s'il en a une. */
+function outer(it) {
+  return it.box || it.wrap;
 }
 
 /** Réglages d'image en CSS (approximation fidèle de `eq` côté ffmpeg). */

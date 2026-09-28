@@ -105,9 +105,23 @@ export function unitValues(d, p, n) {
 
 /* ------------------------------------------------------------- d'un clip */
 
+const KIND_OF = { anim_in: "in", anim_out: "out", anim_loop: "loop" };
+
+/** Animation « sur mesure » : ses images clés sont dans le clip (même règle
+ *  que `custom_def` dans engine/timeline/animations.py). */
+function customDef(a, key) {
+  const d = { kind: KIND_OF[key], label: "Sur mesure", dur: a.dur ?? 0.5, ease: a.ease || "linear", kf: a.kf };
+  if (key === "anim_loop") {
+    if (a.span) d.span = true;
+    else d.period = a.period ?? 1.0;
+  }
+  return d;
+}
+
 function get(c, key) {
   const a = c[key];
   if (!a || typeof a !== "object") return null;
+  if (a.type === "custom" && Array.isArray(a.kf)) return [customDef(a, key), a];
   const d = DEFS.anims[a.type];
   return d ? [d, a] : null;
 }

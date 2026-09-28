@@ -239,7 +239,11 @@ function clipPanel(clips, lead, m) {
       range({ label: "Rotation", value: v.rotation || 0, min: -180, max: 180, unit: "°",
               apply: (doc, x) => each(doc, (c) => { c.rotation = x; }) }),
       range({ label: "Opacité", value: Math.round((v.opacity ?? 1) * 100), min: 0, max: 100, unit: " %",
-              apply: (doc, x) => each(doc, (c) => { c.opacity = x / 100; }) })));
+              apply: (doc, x) => each(doc, (c) => { c.opacity = x / 100; }) }),
+      range({ label: "Bordure", value: v.border || 0, min: 0, max: 60, unit: " px",
+              apply: (doc, x) => each(doc, (c) => { if (x) c.border = x; else delete c.border; }) }),
+      v.border ? color("Couleur de la bordure", v.border_col,
+                       (doc, x) => each(doc, (c) => { c.border_col = x.toUpperCase(); })) : null));
 
     if (one) out.push(transitionSection(v));
     out.push(animSection(visual, "media"));
@@ -299,7 +303,15 @@ function voiceSection(fx, each) {
     if (p) next.preset = p.name;
     c.audio_fx = next;
   });
-  const chips = h("div.chips", { style: { marginBottom: "10px" } }, V.PRESETS.map((p) => h("button.chip" +
+  // « Optimisé » : le son de ces clips est mesuré par le moteur, les réglages en découlent
+  const auto = h("button.chip" + (preset && preset.name === "auto" ? ".on" : ""), { title: V.AUTO.hint,
+    html: svg("wand", 11) + V.AUTO.label,
+    onclick: async () => {
+      const ids = new Set(S.doc.clips.filter((c) => S.sel.has(c.id)).map((c) => c.id));
+      try { await V.optimize(ids); toast("Son de la sélection optimisé."); }
+      catch (e) { toast("Optimisation impossible : " + e.message, 4000); }
+    } });
+  const chips = h("div.chips", { style: { marginBottom: "10px" } }, auto, V.PRESETS.map((p) => h("button.chip" +
     (preset && preset.name === p.name ? ".on" : ""), { title: p.hint,
     onclick: () => edit((doc) => each(doc, (c) => { c.audio_fx = V.withPreset(p.name); }), "inspector") }, p.label)));
   const label = preset ? preset.label : V.active(fx) ? "personnalisé" : undefined;

@@ -353,6 +353,8 @@ input[type=checkbox]:checked::after {
 .stage > .caplayer { z-index: 3; }
 .stage > .empty { z-index: 5; }
 .stage .vitem { position: absolute; left: 0; top: 0; transform-origin: 50% 50%; pointer-events: none; }
+/* zone d'un clip (`box`) : il n'en déborde pas, coins arrondis (comme l'export) */
+.stage .vbox { position: absolute; overflow: hidden; pointer-events: none; }
 .stage .vitem video, .stage .vitem img { display: block; width: 100%; height: 100%; }
 .stage .empty {
   position: absolute; inset: 0; display: grid; place-items: center; color: #8C9099;

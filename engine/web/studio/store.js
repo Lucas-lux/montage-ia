@@ -7,7 +7,12 @@
    modification est annoncée par l'évènement "doc" et sauvegardée peu après.
 
    `S.proj` garde ce que le moteur possède : médias (proxies, vignettes,
-   transcription) et tâche en cours. Il est rafraîchi par `refreshProject()`. */
+   transcription) et tâche en cours. Il est rafraîchi par `refreshProject()`.
+
+   `S.rev` est la révision du montage sur laquelle on travaille : un agent IA
+   (serveur MCP) peut modifier le même montage. Chaque sauvegarde dit sur
+   quelle révision elle repose ; si le moteur en a une plus récente, il refuse
+   et le studio recharge (`replaceDoc`, voir sync.js) au lieu d'écraser. */
 
 import { api, post } from "./api.js";
 
@@ -24,6 +29,7 @@ export const S = {
   saveTimer: 0,
   saving: false,
   savedAt: 0,
+  rev: 0,                // révision du montage côté moteur
   dragDepth: 0,
   k: 1,                  // pixels écran par pixel de sortie (aperçu)
 };
@@ -37,11 +43,26 @@ const DOC_KEYS = ["name", "canvas", "tracks", "clips", "markers", "settings"];
 export function loadDoc(proj) {
   S.proj = proj;
   S.doc = JSON.parse(JSON.stringify(Object.fromEntries(DOC_KEYS.map((k) => [k, proj[k]]))));
+  S.rev = proj.rev || 0;
   setMedia(proj.media);
   S.hist.length = 0;
   S.redo.length = 0;
   S.sel.clear();
   emit("history");
+}
+
+/** Le montage a été modifié ailleurs (agent IA) : on prend la version du
+ *  moteur. L'état d'avant reste dans l'historique : Ctrl+Z le rétablit. */
+export function replaceDoc(proj) {
+  S.proj = { ...S.proj, ...proj };
+  snapshot();
+  S.doc = JSON.parse(JSON.stringify(Object.fromEntries(DOC_KEYS.map((k) => [k, proj[k]]))));
+  S.rev = proj.rev || 0;
+  setMedia(proj.media);
+  pruneSelection();
+  emit("doc", { reason: "load", external: true });
+  emit("select");
+  emit("media");
 }
 
 export function setMedia(list) {
@@ -152,12 +173,18 @@ export async function saveNow() {
   S.saving = true;
   emit("save", { state: "saving" });
   try {
-    const res = await post(`/api/timeline/${S.pid}/save`, S.doc);
+    const res = await post(`/api/timeline/${S.pid}/save`, { ...S.doc, base_rev: S.rev });
     S.savedAt = res.updated;
+    if (res.rev !== undefined) S.rev = res.rev;
     emit("save", { state: S.saveTimer ? "pending" : "saved" });
   } catch (e) {
-    emit("save", { state: "error", message: e.message });
-    scheduleSave(3000);                             // on retentera
+    if (e.status === 409) {                         // modifié ailleurs : on recharge
+      emit("save", { state: "saved" });
+      emit("conflict");
+    } else {
+      emit("save", { state: "error", message: e.message });
+      scheduleSave(3000);                           // on retentera
+    }
   } finally {
     S.saving = false;
   }

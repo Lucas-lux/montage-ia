@@ -15,7 +15,20 @@ compte, pas d'envoi en ligne, pas de clé d'API.
 
 ## Fonctionnalités
 
-- **Des effets comme dans CapCut** — 53 polices livrées, effets de texte
+- **Monter avec un agent IA** — Montage IA est un serveur MCP : donne une vidéo à
+  Claude Code, Codex ou Cursor, il la monte de zéro avec les outils de
+  l'application, comme un monteur de vidéos courtes, en s'arrêtant à sept étapes
+  pour ton accord : cadrage, dérush par prises (reprises et faux départs repérés,
+  chaque prise retranscrite), sous-titres avec mots-clés, temps forts et vrais
+  visuels, ouverture, scènes calées sur les mots (écran partagé, visage dans une
+  fenêtre arrondie, pages papier, chiffres qui défilent, tampons, barrés…,
+  contrôlées pour le rythme et la mise en page), export. Le projet s'ouvre dans
+  le studio, où tu reprends la main.
+- **Le son optimisé en un clic** — *Optimiser le son* mesure chaque rush (niveau
+  de la voix, bruit de fond, dynamique, sifflantes, timbre, saturation) et règle
+  le traitement de la voix d'après ces mesures, baisse la musique sous la voix
+  et normalise l'export à −14 LUFS.
+- **Des effets comme dans CapCut** — 59 polices livrées, effets de texte
   (lueur, néon, 3D, dégradé, double contour, ombre douce…), 71 styles de
   sous-titres, sous-titres *mot à mot*, et 51 animations d'entrée, de sortie et
   en boucle pour les textes, vidéos et images. Ce qu'on voit dans l'aperçu est
@@ -109,6 +122,45 @@ une seule fois. Pour le récupérer d'avance : `python scripts/download_models.p
 > défaut. La ligne de commande accepte un modèle plus léger (`--model small`) pour
 > tester vite.
 
+## Monter avec un agent IA (Claude Code, Codex, Cursor…)
+
+Montage IA donne ses outils aux agents IA par le Model Context Protocol. Branche-le
+une fois — *Boîte à outils → Agents IA → Brancher à Claude Code* (ou Codex), ou à
+la main :
+
+```bash
+claude mcp add --scope user montage-ia -- "%LOCALAPPDATA%\Programs\MontageIA\MontageIA.exe" --mcp
+codex mcp add montage-ia -- "C:\...\MontageIA.exe" --mcp          # Codex
+python app.py --mcp                                              # depuis les sources
+```
+
+Puis demande par exemple : *« Monte `C:\Vidéos\rush.mp4` en short 9:16 de 45 s
+avec une accroche forte, des sous-titres hype, des titres sur les idées clés, des
+images pour illustrer et quelques effets sonores ; exporte en 1080p. »* L'agent
+crée le projet, lit la transcription (phrases numérotées avec un score
+d'accroche, formules creuses et faux départs repérés), monte phrase par phrase,
+pose sous-titres, titres, images du web (mèmes, logos) ou libres (Openverse,
+Wikimedia Commons, Pexels avec une clé), captures de pages et visuels qu'il écrit
+en HTML/CSS — fixes ou animés —, regarde une planche du rendu, corrige et
+exporte. Il suit une méthode en sept étapes et attend ton accord à chacune :
+cadrage, dérush (`derush` : le rush découpé en prises sur ses propres silences
+mesurés, chaque prise retranscrite, reprises et faux départs proposés),
+sous-titres (style, mots-clés, orthographe des noms), temps forts et vrais
+visuels, trois ouvertures, scènes (`build_scenes` : écran partagé, visage plein
+cadre habillé de textes, page papier avec le visage dans une fenêtre arrondie,
+décor 16:9 où la personne est une carte qui bouge — cartes, chiffres qui
+défilent, tampons, coches, barrés, vraies captures, chacun sur son mot ; le plan
+est refusé si l'image reste figée plus de 2,2 s sans raison, et les scènes
+dessinées sont vérifiées : chevauchements, contraste, texte sur le visage),
+livraison. Donne-lui une vidéo de référence : il en étudie d'abord les plans, le
+rythme et la typo (`study_reference`) pour monter dans le même style. Inutile d'ouvrir l'application : le serveur MCP la lance en
+arrière-plan. Si le projet est ouvert dans le studio, il se recharge après chaque
+modification et `Ctrl+Z` annule la dernière étape de l'agent.
+
+Tes vidéos restent sur ton PC, mais un agent en ligne envoie à son fournisseur ce
+qu'il lit (transcription, images, planches). Guide complet et liste des outils :
+[docs/agents-ia.md](docs/agents-ia.md).
+
 ## Utiliser le studio (timeline)
 
 *Nouveau projet → Montage* ouvre une timeline vide au format choisi (9:16, 16:9,
@@ -124,7 +176,7 @@ et cliqué sur *Monter la vidéo*.
   (décodé par la carte NVIDIA si possible), une bande de vignettes et une forme
   d'onde.
 - **Textes** — l'onglet *Texte* propose une quarantaine de styles de titres
-  (animés, néon, 3D, dégradés, manuscrits, rétro…). Dans l'inspecteur : 53
+  (animés, néon, 3D, dégradés, manuscrits, rétro…). Dans l'inspecteur : 54
   polices avec recherche, *Effets* (lueur, second contour, 3D, ombre douce,
   dégradé, contour seul, espacement, italique, rotation, opacité, ou en un clic)
   et *Animations* (entrée, sortie, boucle — survole une carte pour la voir).
@@ -317,13 +369,18 @@ engine/
   web/studio.html          studio timeline (modules dans web/studio/)
     studio/model.js        logique de timeline, pure (testée par node --test)
     studio/desktop.js      vrais chemins des fichiers dans la fenêtre de l'application (import sans copie)
+    studio/anim.js         animations (mêmes calculs que timeline/animations.py) · textfx.js calques et effets de texte
+    studio/sounds.js       effets sonores et synthétiseur · fonts.js polices livrées et sélecteur
+    studio/sync.js         recharge le projet modifié par un agent · titles.json styles de titres
     studio/timeline.js     pistes, clips, gestes · player.js aperçu temps réel
     studio/inspector.js    réglages de clip et de projet · panels.js outils IA, sous-titres
   timeline/
     project.py · model.py  projets timeline sur disque · validation de l'état de l'éditeur
     media.py · jobs.py     proxies, vignettes, formes d'onde · files de tâches
     ai.py                  transcription, silences, sous-titres depuis la timeline
-    render.py              export : pistes, transformations, mixage, sous-titres
+    sound.py               « Optimiser le son » : mesure chaque rush, réglages de la voix, niveau de la musique
+    render.py              export : pistes, transformations, mixage, sous-titres, animations, détourage
+    animations.py          animations d'entrée, de sortie, en boucle (définies dans web/studio/animations.json)
     convert.py             ouvrir un projet short dans la timeline
   pipeline/
     probe.py               ffprobe (gère les vidéos de téléphone pivotées)
@@ -333,10 +390,20 @@ engine/
     style_presets.py       styles partagés par l'éditeur et le rendu
     ass_edit.py            fichier .ass à partir des sous-titres édités
     translate.py           traduction locale (CTranslate2 + SentencePiece)
+    matting.py             détourage du sujet (MODNet), choix par un clic, suivi
+    fonts.py               polices livrées, vraie taille du texte telle que libass la dessine
     emoji.py · emoji_overlay.py   mot-clé → émoji, PNG couleur
     render.py              ffmpeg : coupe/concat, aperçu, incrustation, repli d'encodeur
+  agent/                   agents IA (MCP) : serveur mcp.py (bibliothèque standard) · routes api.py /api/agent
+    service.py · edit.py   les outils sur les projets timeline · coupes, rythme, zooms, sous-titres (règles de model.js)
+    images.py · visuals.py recherche d'images (web, libres) · visuels HTML/CSS, animations, captures de pages (Edge sans fenêtre)
+    reference.py           étude d'une vidéo de référence (plans, rythme, son)
+    scenes.py · scene_html.py  scènes sur les mots : plan, contrôle du rythme, visage dans sa zone, zones HTML animées
+    preview.py             aperçu basse définition et planches pour l'agent
   tools/
     audio.py               boîte à outils : extraire le son d'une vidéo (aussi en CLI)
+    cutout.py              boîte à outils : supprimer l'arrière-plan d'une image ou d'une vidéo
+    sfx.py                 effets sonores : bibliothèque synthétisée, « Mes sons »
 scripts/download_models.py récupère le modèle de traduction (et Whisper en option)
 build/                     recettes PyInstaller + Inno Setup de l'application Windows
 tests/                     suite pytest (+ tests/js, lancés par node --test)

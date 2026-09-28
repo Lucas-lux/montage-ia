@@ -489,7 +489,13 @@ def synth(engine: str, params: dict | None = None) -> np.ndarray:
     return np.stack([x, right * 0.97 + x * 0.03], axis=1)
 
 
+MIN_FILE = 0.1          # s : un clic de 30 ms n'est pas un média (préparation et timeline le refusent)
+
+
 def write_wav(samples: np.ndarray, path: str) -> float:
+    short = int(MIN_FILE * SR) - len(samples)
+    if short > 0:                       # un son très bref est complété de silence
+        samples = np.concatenate([samples, np.zeros((short,) + samples.shape[1:], samples.dtype)])
     pcm = (np.clip(samples, -1, 1) * 32767).astype("<i2")
     tmp = path + ".part"
     with wave.open(tmp, "wb") as w:
@@ -537,7 +543,8 @@ class Sounds:
             if not rec:
                 raise KeyError(sid)
             path = os.path.join(self.lib_dir, sid + ".wav")
-            if not os.path.isfile(path):
+            # (un fichier en cache plus court que MIN_FILE vient d'une version d'avant : on le refait)
+            if not os.path.isfile(path) or _duration(path) < MIN_FILE - 1e-3:
                 write_wav(synth(*rec), path)
         if not os.path.isfile(path):
             raise KeyError(sid)

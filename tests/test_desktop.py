@@ -20,14 +20,14 @@ def test_fenetre_native_sauf_demande_contraire(monkeypatch):
 
 def test_instance_propre_a_son_dossier_de_projets(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "user_dir", lambda: str(tmp_path))
-    monkeypatch.setenv("MONTAGE_IA_WORK", str(tmp_path / "vrai"))
+    monkeypatch.setenv("MONTAGE_IA_WORK", str(tmp_path / "work"))
     app.remember_instance("http://127.0.0.1:1")
     assert (tmp_path / "instance.json").is_file()
     # une instance d'essai (autre dossier) ignore celle de l'utilisateur
     monkeypatch.setenv("MONTAGE_IA_WORK", str(tmp_path / "essai"))
     assert app.running_instance() is None
     # même dossier, mais plus personne ne répond à cette adresse
-    monkeypatch.setenv("MONTAGE_IA_WORK", str(tmp_path / "vrai"))
+    monkeypatch.setenv("MONTAGE_IA_WORK", str(tmp_path / "work"))
     assert app.running_instance() is None
     app.forget_instance()
     assert not (tmp_path / "instance.json").exists()
@@ -52,3 +52,17 @@ def test_ffmpeg_lie_a_l_application(monkeypatch):
     # subprocess.run et ses options habituelles marchent toujours
     res = subprocess.run(["ffprobe", "-version"], capture_output=True, text=True, timeout=30)
     assert res.returncode == 0 and "ffprobe" in res.stdout
+
+
+def test_une_instance_d_essai_n_ecrase_pas_celle_de_l_utilisateur(monkeypatch, tmp_path):
+    """Chaque dossier de projets a son fichier d'instance : l'application de
+    l'utilisateur reste trouvable (par un agent IA) pendant qu'un essai tourne."""
+    monkeypatch.setattr(app, "user_dir", lambda: str(tmp_path))
+    monkeypatch.setenv("MONTAGE_IA_WORK", str(tmp_path / "work"))          # dossier par défaut
+    app.remember_instance("http://127.0.0.1:1")
+    monkeypatch.setenv("MONTAGE_IA_WORK", str(tmp_path / "essai"))
+    app.remember_instance("http://127.0.0.1:2")
+    files = {p.name for p in tmp_path.glob("instance*.json")}
+    assert "instance.json" in files and len(files) == 2
+    import json
+    assert json.loads((tmp_path / "instance.json").read_text())["url"] == "http://127.0.0.1:1"

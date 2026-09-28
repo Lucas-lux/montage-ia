@@ -24,7 +24,7 @@ import { applyLook } from "./inspector.js";
 import * as M from "./model.js";
 import { S, changed, edit, on, setTime } from "./store.js";
 import { $, fmt, h, put, sec, section, svg, toast } from "./util.js";
-import { withPreset } from "./voice.js";
+import { soundPlan, withPreset } from "./voice.js";
 import { wordsOf } from "./words.js";
 import { ensureTranscripts, generateCaptions, leads } from "./panels.js";
 
@@ -94,7 +94,8 @@ export function render() {
       toggle("zoom", "Zooms", "Coupes rythmées aux fins de phrases, zooms alternés cadrés sur le visage"),
       toggle("texts", "Textes à l'écran", "Mots-clés posés sur les phrases fortes"),
       toggle("captions", "Sous-titres", "Style choisi dans l'onglet Sous-titres"),
-      toggle("sound", "Son", "Voix « Clair » (coupe-bas, clarté, compression) et niveau normalisé à l'export")),
+      toggle("sound", "Son", "Mesure chaque rush et règle la voix (niveau, bruit, compression, clarté), " +
+                             "baisse la musique sous la voix, normalise le volume à l'export")),
     h("div.g2", { style: { marginTop: "10px" } },
       h("div.field", {}, h("div.head", {}, h("span.label", {}, "Rythme")),
         seg("rhythm", [["calm", "Calme"], ["normal", "Normal"], ["punchy", "Punchy"]])),
@@ -279,9 +280,14 @@ export async function run() {
     const { plans, llm } = await fetchPlans(mids, o, say);
     const words = new Map();
     for (const mid of mids) words.set(mid, await wordsOf(mid));
+    let sound = null;
+    if (o.sound) {
+      say("Mesure du son…", 68);
+      try { sound = await soundPlan(); } catch (e) { sound = null; }     // repli : le preset « Clair »
+    }
     A.before = JSON.stringify(S.doc);
     say("Montage…", 72);
-    const report = edit((doc) => apply(doc, plans, words, o), "autoedit");
+    const report = edit((doc) => apply(doc, plans, words, o, sound), "autoedit");
     report.llm = llm;
     if (o.captions) {
       say("Sous-titres…", 86);
@@ -315,7 +321,7 @@ async function fetchPlans(mids, o, say) {
 /* ============================================================ application */
 
 /** Applique les plans au document (une seule étape d'annulation). */
-export function apply(doc, plans, wordsBy, o) {
+export function apply(doc, plans, wordsBy, o, sound = null) {
   const rep = { removed: 0, dropped: 0, hook: "", coldOpen: false, zooms: 0, texts: 0, captions: 0,
                 sound: false, highlights: [] };
   const st = doc.settings || {};
@@ -414,9 +420,12 @@ export function apply(doc, plans, wordsBy, o) {
   if (o.sound) {
     for (const c of targets(doc)) {
       for (const g of [c, ...M.partners(doc, c)]) {
-        if (g.kind === "video" || g.kind === "audio") g.audio_fx = withPreset("clair");
+        if (g.kind !== "video" && g.kind !== "audio") continue;
+        const fx = sound && sound.voice_media[g.media];       // réglages mesurés sur ce rush
+        g.audio_fx = fx ? { ...fx } : withPreset("clair");
       }
     }
+    if (sound) doc.clips.forEach((c) => { if (sound.volume[c.id] !== undefined) c.volume = sound.volume[c.id]; });
     doc.settings = { ...(doc.settings || {}), loudness: true };
     rep.sound = true;
   }

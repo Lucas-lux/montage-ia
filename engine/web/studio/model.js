@@ -437,7 +437,8 @@ export function moveClips(doc, ids, dt, trackMap = new Map()) {
 export function makeManual(c) {
   if (c.kind !== "text" || !c.auto) return;
   c.auto = false;
-  c.words = (c.words || []).filter((w) => !w.cut).map((w) => ({ text: w.text, start: w.start, end: w.end }));
+  c.words = (c.words || []).filter((w) => !w.cut)
+    .map((w) => ({ text: w.text, start: w.start, end: w.end, ...(w.k ? { k: true } : {}) }));
 }
 
 /** Réordonne la piste principale : `clip` s'insère là où tombe son milieu. */
@@ -626,17 +627,24 @@ export function silenceCuts(words, dur, maxGap = 0.5, pad = 0.08, tail = 0) {
   return cuts.filter(([x, y]) => y > x);
 }
 
+/** Tics à retirer ; la marge ne déborde jamais sur les mots voisins (couper
+ *  « du coup » ne doit pas entamer « je » collé derrière). */
 export function fillerCuts(words, pad = 0.05) {
   const n = words.map((w) => norm(w.text));
   const cuts = [];
+  const cut = (i, j) => {
+    const lo = i > 0 ? words[i - 1].end : -1e9;
+    const hi = j + 1 < words.length ? words[j + 1].start : 1e9;
+    cuts.push([Math.max(lo, words[i].start - pad), Math.min(hi, words[j].end + pad)]);
+  };
   for (let i = 0; i < words.length;) {
     const phrase = MULTI_FILLERS.find((p) => p.every((x, k) => n[i + k] === x));
     if (phrase) {
-      cuts.push([words[i].start - pad, words[i + phrase.length - 1].end + pad]);
+      cut(i, i + phrase.length - 1);
       i += phrase.length;
       continue;
     }
-    if (FILLERS.has(n[i])) cuts.push([words[i].start - pad, words[i].end + pad]);
+    if (FILLERS.has(n[i])) cut(i, i);
     i++;
   }
   return cuts;
@@ -662,27 +670,33 @@ export function clipCuts(clip, { words, silences, extra, maxGap = 0.5, pad = 0.0
                                   minKeep = 0.1, minCut = 0.12 } = {}) {
   const a = clip.in, b = srcEnd(clip);
   let cuts = [];
+  let spoken = [];
   if (extra) cuts = extra.map(([x, y]) => [x, y]);          // plages imposées (montage automatique)
   if (words) {
-    const inside = words.filter((w) => w.end > a && w.start < b)
-      .map((w) => ({ text: w.text, start: Math.max(0, w.start - a), end: Math.min(b - a, w.end - a) }));
+    // bornes SONORES des mots quand le moteur les donne (`cs`/`ce`) : la voix
+    // dure souvent après la fin datée par Whisper, couper là mangerait la syllabe
+    const inside = words.filter((w) => (w.ce ?? w.end) > a && (w.cs ?? w.start) < b)
+      .map((w) => ({ text: w.text, start: Math.max(0, (w.cs ?? w.start) - a), end: Math.min(b - a, (w.ce ?? w.end) - a) }));
     let found = silenceCuts(inside, b - a, maxGap, pad, tail);
     if (fillers) found = found.concat(fillerCuts(inside));
     cuts = cuts.concat(found.map(([x, y]) => [x + a, y + a]));
+    spoken = inside.map((w) => a + (w.start + w.end) / 2);
   } else if (silences) {
     cuts = cuts.concat(silences.filter(([x, y]) => y > a && x < b)
       .map(([x, y]) => [x + pad, y - pad]));
   }
+  // un bout gardé trop court part aussi — sauf s'il contient un mot (« je l'ai fait. »)
+  const hasWord = (x, y) => spoken.some((t) => t > x && t < y);
   cuts = mergeRanges(cuts.map(([x, y]) => [Math.max(a, x), Math.min(b, y)]));
   const merged = [];
   for (const c of cuts) {
     const prev = merged[merged.length - 1];
-    if (prev && c[0] - prev[1] < minKeep) prev[1] = c[1];
+    if (prev && c[0] - prev[1] < minKeep && !hasWord(prev[1], c[0])) prev[1] = c[1];
     else merged.push([...c]);
   }
-  if (merged.length && merged[0][0] - a < minKeep) merged[0][0] = a;
+  if (merged.length && merged[0][0] - a < minKeep && !hasWord(a, merged[0][0])) merged[0][0] = a;
   const last = merged[merged.length - 1];
-  if (last && b - last[1] < minKeep) last[1] = b;
+  if (last && b - last[1] < minKeep && !hasWord(last[1], b)) last[1] = b;
   return merged.filter(([x, y]) => y - x >= minCut).map(([x, y]) => [r4(x), r4(y)]);
 }
 

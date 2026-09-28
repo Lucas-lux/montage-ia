@@ -208,6 +208,7 @@ export async function freezeFrame(dur = 2) {
     const piece = M.newMediaClip(ready, { dur });
     Object.assign(piece, { x: clip.x, y: clip.y, scale: clip.scale, rotation: clip.rotation, fit: clip.fit,
                            flip_h: clip.flip_h, flip_v: clip.flip_v, opacity: clip.opacity });
+    if (clip.border) Object.assign(piece, { border: clip.border, border_col: clip.border_col });
     if (M.isMain(doc, clip.track)) {
       if (cut) M.splitAt(doc, t, new Set([clip.id]));
       M.insertMain(doc, [piece], t);
@@ -254,15 +255,17 @@ export function frameSubject(ids, geometry) {
     const avg = (i) => ref.reduce((s, p) => s + p[i], 0) / ref.length;
     const [rx, ry, bh] = [avg(1), avg(2), avg(4)];
     let g = geometry(c, m, W, H);
+    // dans une zone (`box`), le cadrage se fait dans la zone
+    const ZW = g.bw, ZH = g.bh;
     // un sujet petit dans l'image est rapproché (jusqu'à 2,5×)
-    const zoom = Math.min(2.5, Math.max(1, (0.72 * H) / Math.max(1, bh * g.h)));
+    const zoom = Math.min(2.5, Math.max(1, (0.72 * ZH) / Math.max(1, bh * g.h)));
     if (zoom > 1.05 && c.fit !== "contain") c.scale = M.r4((c.scale || 1) * zoom);
     g = geometry(c, m, W, H);
-    let cx = W / 2 - (rx - 0.5) * g.w, cy = H * 0.5 - (ry - 0.5) * g.h;
-    if (g.w >= W) cx = Math.min(g.w / 2, Math.max(W - g.w / 2, cx));
-    if (g.h >= H) cy = Math.min(g.h / 2, Math.max(H - g.h / 2, cy));
-    c.x = M.r4(cx / W);
-    c.y = M.r4(cy / H);
+    let cx = ZW / 2 - (rx - 0.5) * g.w, cy = ZH * 0.5 - (ry - 0.5) * g.h;
+    if (g.w >= ZW) cx = Math.min(g.w / 2, Math.max(ZW - g.w / 2, cx));
+    if (g.h >= ZH) cy = Math.min(g.h / 2, Math.max(ZH - g.h / 2, cy));
+    c.x = M.r4(cx / ZW);
+    c.y = M.r4(cy / ZH);
     done++;
   }), "frame");
   if (done) toast("Clip cadré sur son sujet.");

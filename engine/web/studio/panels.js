@@ -16,6 +16,7 @@ import { showTab } from "./main.js";
 import * as M from "./model.js";
 import { S, changed, edit, emit, on, select, setMedia, setTime } from "./store.js";
 import { $, clamp, fmt, h, put, sec, section, svg, toast } from "./util.js";
+import * as V from "./voice.js";
 import { textBetween, wordsOf } from "./words.js";
 
 const X = {
@@ -151,82 +152,21 @@ export async function ensureTranscripts(ids, status) {
 
 /* ==================================================================== texte */
 
-/* Styles de titre. Même vocabulaire que les sous-titres (police, contour,
-   fond…) mais sans surlignage : un titre est un texte libre. `y` place le
-   texte quand on le crée. */
-const T = (label, hint, look, group = "base") => ({ label, hint, group, mode: "none", pop: false, bold: true,
-  upper: false, shadow: 0, box: false, box_alpha: 0.25, hl: look.color || "#FFFFFF", ...look });
-// polices livrées (engine/data/fonts) : déjà grasses, pas de gras ajouté
-const B = (look) => ({ bold: false, ...look });
-const TITLE_GROUPS = [
-  { name: "base", label: "Essentiels" }, { name: "anime", label: "Animés" }, { name: "neon", label: "Néon et lueur" },
-  { name: "relief", label: "Relief et 3D" }, { name: "degrade", label: "Dégradés" },
-  { name: "manuscrit", label: "Manuscrits" }, { name: "retro", label: "Rétro et jeux" }, { name: "sobre", label: "Sobres" },
-];
-const TITLE_STYLES = [
-  T("Titre", "blanc, gras, contour", { font: "Arial Black", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 6, shadow: 2, y: 0.3 }),
-  T("Bandeau", "texte sur fond rouge", { font: "Arial", size: 72, color: "#FFFFFF", outline_col: "#F23A52", outline: 14, box: true, box_alpha: 0, upper: true, y: 0.72 }),
-  T("Impact", "énorme, majuscules", { font: "Impact", size: 150, color: "#FFE500", outline_col: "#000000", outline: 9, upper: true, y: 0.5 }),
-  T("Accroche", "Montserrat, ombre douce", B({ font: "Montserrat Black", size: 120, color: "#FFFFFF", outline_col: "#000000", outline: 6, shadow: 8, shadow_blur: 10, upper: true, y: 0.3 })),
-  T("Géant", "Anton, énorme", B({ font: "Anton", size: 190, color: "#FFFFFF", outline_col: "#000000", outline: 8, upper: true, y: 0.45 })),
-  T("Condensé", "haut et serré", { font: "Bahnschrift", size: 130, color: "#FFFFFF", outline_col: "#000000", outline: 5, upper: true, y: 0.35 }),
-  T("Alerte", "fond jaune", { font: "Arial Black", size: 76, color: "#17181C", outline_col: "#FFE500", outline: 12, box: true, box_alpha: 0, upper: true, y: 0.2 }),
-  T("Étiquette", "petit, en haut à gauche", { font: "Segoe UI Black", size: 50, color: "#FFFFFF", outline_col: "#17181C", outline: 10, box: true, box_alpha: 0.1, upper: true, x: 0.24, y: 0.1 }),
-  // animés
-  T("Pop", "surgit", B({ font: "Luckiest Guy", size: 130, color: "#FFE500", outline_col: "#000000", outline: 8, upper: true, y: 0.35,
-    anim_in: { type: "pop", dur: 0.4 }, anim_out: { type: "zoom_out_out", dur: 0.3 } }), "anime"),
-  T("Machine à écrire", "tapé lettre par lettre", B({ font: "Syne Mono", size: 80, color: "#D8FFE0", outline_col: "#0B0F0B", outline: 12, box: true, box_alpha: 0.1, y: 0.4,
-    anim_in: { type: "typewriter", dur: 1.2 } }), "anime"),
-  T("Chute", "tombe et rebondit", B({ font: "Bangers", size: 150, color: "#FFFFFF", outline_col: "#000000", outline: 7, upper: true, extrude: 8, extrude_col: "#F23A52", y: 0.35,
-    anim_in: { type: "drop", dur: 0.8 } }), "anime"),
-  T("Cinéma", "sort du flou, s'efface", B({ font: "Cinzel Bold", size: 96, color: "#F5E6C8", outline_col: "#000000", outline: 0, shadow: 6, shadow_blur: 12, spacing: 10, y: 0.5,
-    anim_in: { type: "blur", dur: 1.0 }, anim_out: { type: "fade_out", dur: 0.8 } }), "anime"),
-  T("Lettre à lettre", "apparaît lettre par lettre", B({ font: "Montserrat Black", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, glow: 16, glow_col: "#00E5FF", y: 0.4,
-    anim_in: { type: "letters", dur: 1.0 } }), "anime"),
-  T("Tourbillon", "arrive en tournant", B({ font: "Titan One", size: 120, color: "#FF3B81", outline_col: "#FFFFFF", outline: 7, y: 0.4,
-    anim_in: { type: "spin", dur: 0.7 } }), "anime"),
-  T("Battement", "bat comme un cœur", B({ font: "Lilita One", size: 130, color: "#FF2B55", outline_col: "#FFFFFF", outline: 7, y: 0.4,
-    anim_loop: { type: "heartbeat", speed: 1 } }), "anime"),
-  T("Flottant", "flotte doucement", B({ font: "Fredoka Bold", size: 110, color: "#FFFFFF", outline_col: "#2B6CFF", outline: 8, y: 0.3,
-    anim_in: { type: "slide_up", dur: 0.5 }, anim_loop: { type: "float", speed: 1 } }), "anime"),
-  // néon et lueur
-  T("Néon rose", "lueur rose", B({ font: "Montserrat Black", size: 110, color: "#FFFFFF", outline_col: "#FF2BD6", outline: 3, glow: 30, glow_col: "#FF2BD6", y: 0.4 }), "neon"),
-  T("Néon bleu", "lueur cyan", B({ font: "Audiowide", size: 104, color: "#FFFFFF", outline_col: "#00C8FF", outline: 3, glow: 30, glow_col: "#00C8FF", y: 0.4 }), "neon"),
-  T("Enseigne", "néon qui clignote", B({ font: "Monoton", size: 110, color: "#FFE500", outline: 0, glow: 26, glow_col: "#FF9F1C", upper: true, y: 0.4,
-    anim_loop: { type: "blink", speed: 0.6 } }), "neon"),
-  T("Braise", "orange incandescent", B({ font: "Kanit ExtraBold", size: 120, color: "#FFE08A", outline_col: "#C21E00", outline: 4, glow: 24, glow_col: "#FF4D1A", upper: true, y: 0.4 }), "neon"),
-  T("Halo", "texte lumineux", B({ font: "Poppins ExtraBold", size: 110, color: "#FFFFFF", outline: 0, glow: 34, glow_col: "#FFFFFF", y: 0.4 }), "neon"),
-  // relief et 3D
-  T("Pop 3D", "jaune sur relief rose", B({ font: "Bangers", size: 150, color: "#FFE500", outline_col: "#1B1B1B", outline: 6, extrude: 18, extrude_col: "#C2185B", upper: true, y: 0.4 }), "relief"),
-  T("Bloc 3D", "blanc sur relief rouge", B({ font: "Russo One", size: 120, color: "#FFFFFF", outline_col: "#000000", outline: 5, extrude: 16, extrude_col: "#F23A52", y: 0.4 }), "relief"),
-  T("Or massif", "doré en relief", B({ font: "Alfa Slab One", size: 120, color: "#FFE27A", color2: "#FFA000", outline_col: "#3A2800", outline: 5, extrude: 12, extrude_col: "#6B4A00", y: 0.4 }), "relief"),
-  T("BD", "double contour", B({ font: "Bangers", size: 140, color: "#FFFFFF", outline_col: "#000000", outline: 7, outline2: 8, outline2_col: "#FFE500", upper: true, y: 0.4 }), "relief"),
-  T("Autocollant", "contour blanc épais", B({ font: "Fredoka Bold", size: 120, color: "#17181C", outline_col: "#FFFFFF", outline: 12, shadow: 6, shadow_blur: 10, y: 0.4 }), "relief"),
-  // dégradés
-  T("Coucher de soleil", "corail vers doré", B({ font: "Poppins ExtraBold", size: 120, color: "#FF5F6D", color2: "#FFC371", outline_col: "#2B0A18", outline: 6, y: 0.4 }), "degrade"),
-  T("Océan", "bleu profond", B({ font: "Montserrat Black", size: 120, color: "#00C6FF", color2: "#0072FF", outline_col: "#FFFFFF", outline: 6, y: 0.4 }), "degrade"),
-  T("Aurore", "violet vers bleu", B({ font: "Rubik Black", size: 120, color: "#B721FF", color2: "#21D4FD", outline_col: "#14002B", outline: 5, glow: 12, glow_col: "#7C5CFF", y: 0.4 }), "degrade"),
-  T("Or", "doré", { font: "Cambria", size: 100, color: "#FFD84D", outline_col: "#3A2800", outline: 5, shadow: 3, y: 0.4 }, "degrade"),
-  // manuscrits
-  T("Marqueur", "feutre", B({ font: "Permanent Marker", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, y: 0.35 }), "manuscrit"),
-  T("Signature", "calligraphie", B({ font: "Great Vibes", size: 150, color: "#FFFFFF", outline_col: "#000000", outline: 2, shadow: 4, shadow_blur: 6, y: 0.4 }), "manuscrit"),
-  T("Tendre", "rose, lueur douce", B({ font: "Pacifico", size: 110, color: "#FFF0F5", outline_col: "#FF3B81", outline: 5, glow: 14, glow_col: "#FF8FB1", y: 0.4 }), "manuscrit"),
-  T("Craie", "écrit à la main", B({ font: "Caveat Bold", size: 130, color: "#FFFFFF", outline: 0, shadow: 5, shadow_blur: 6, y: 0.35 }), "manuscrit"),
-  T("Manuscrit", "écrit à la main", { font: "Ink Free", size: 110, color: "#FFFFFF", outline_col: "#000000", outline: 5, shadow: 2, y: 0.35 }, "manuscrit"),
-  // rétro et jeux
-  T("Arcade", "pixels", B({ font: "Press Start 2P", size: 70, color: "#39FF14", outline_col: "#000000", outline: 6, upper: true, y: 0.4 }), "retro"),
-  T("VHS", "cassette", B({ font: "VT323", size: 150, color: "#E8FFF0", outline: 0, glow: 12, glow_col: "#00FFB3", shadow: 5, shadow_col: "#FF0055", y: 0.4 }), "retro"),
-  T("Glitch", "tremble et se décale", B({ font: "Rubik Glitch", size: 120, color: "#FFFFFF", outline_col: "#000000", outline: 4, shadow: 5, shadow_col: "#00E5FF", y: 0.4,
-    anim_loop: { type: "glitch", speed: 1 } }), "retro"),
-  T("Frisson", "horreur", B({ font: "Creepster", size: 130, color: "#B8FF3C", outline_col: "#1A0000", outline: 5, glow: 14, glow_col: "#6BFF00", y: 0.4 }), "retro"),
-  T("Terminal", "monospace vert", { font: "Consolas", size: 70, color: "#00FF66", outline_col: "#0B0F0B", outline: 10, box: true, box_alpha: 0.1, y: 0.5 }, "retro"),
-  // sobres
-  T("Légende", "sobre, petit", { font: "Segoe UI", size: 54, color: "#FFFFFF", outline_col: "#000000", outline: 10, box: true, box_alpha: 0.35, y: 0.88 }, "sobre"),
-  T("Journal", "fond blanc, texte sombre", { font: "Georgia", size: 70, color: "#17181C", outline_col: "#FFFFFF", outline: 12, box: true, box_alpha: 0.05, y: 0.2 }, "sobre"),
-  T("Élégant", "serif, léger", B({ font: "DM Serif Display", size: 96, color: "#FFFFFF", outline_col: "#1A1410", outline: 2, shadow: 4, shadow_blur: 6, y: 0.4 }), "sobre"),
-  T("Minimal", "fin, espacé", B({ font: "Lexend Bold", size: 72, color: "#FFFFFF", outline: 0, shadow: 4, shadow_blur: 8, spacing: 14, upper: true, y: 0.45 }), "sobre"),
-  T("Contour seul", "lettres évidées", B({ font: "Bebas Neue", size: 170, color: "#FFFFFF", outline_col: "#FFFFFF", outline: 4, hollow: true, y: 0.4 }), "sobre"),
-];
+/* Styles de titre (studio/titles.json, partagés avec les agents IA). Même
+   vocabulaire que les sous-titres (police, contour, fond…) mais sans
+   surlignage : un titre est un texte libre. `y` place le texte quand on le
+   crée. Les polices livrées (engine/data/fonts) sont déjà grasses : leur
+   style porte `bold: false`. */
+const T = ({ label, hint, group, look }) => ({ label, hint, group: group || "base", mode: "none", pop: false,
+  bold: true, upper: false, shadow: 0, box: false, box_alpha: 0.25, hl: look.color || "#FFFFFF", ...look });
+const TITLE_GROUPS = [];
+const TITLE_STYLES = [];
+
+export async function loadTitles() {
+  const d = await api("/web/studio/titles.json");
+  TITLE_GROUPS.splice(0, TITLE_GROUPS.length, ...d.groups);
+  TITLE_STYLES.splice(0, TITLE_STYLES.length, ...d.styles.map(T));
+}
 
 export function addText(style, text = "Ton texte") {
   const c = edit((doc) => {
@@ -360,7 +300,9 @@ export async function generateCaptions({ quiet = false, replace } = {}) {
     if (!res.captions.length) { if (!quiet) toast("Aucune parole trouvée dans les clips."); say(""); return 0; }
     const n = edit((doc) => {
       let tr = doc.tracks.find((t) => t.kind === "text" && t.name === "Sous-titres");
-      if (tr && doReplace) doc.clips = doc.clips.filter((c) => !(c.track === tr.id && c.kind === "text" && c.auto));
+      // remplacer : toutes les lignes automatiques partent, même celles qu'un
+      // chevauchement a rangées sur une autre piste (elles reviendraient au recalage)
+      if (doReplace) doc.clips = doc.clips.filter((c) => !(c.kind === "text" && c.auto));
       if (!tr) tr = M.addTrack(doc, "text", { name: "Sous-titres" });
       res.captions.forEach((c) => { c.track = tr.id; doc.clips.push(c); });
       M.reflowCaptions(doc);
@@ -513,16 +455,55 @@ function restore(list) {
 
 function buildAuto() {
   put($("tab-auto"),
-    h("div", { id: "autoAI" }),
+    h("div", { id: "autoAI" }), h("div", { id: "autoSound" }),
     h("div", { id: "autoSil" }), h("div", { id: "autoPass" }), h("div", { id: "autoTr" }));
   renderAuto();
 }
 
 function renderAuto() {
   autoedit.render();
+  renderSound();
   renderSilence();
   renderPassages();
   renderTranscripts();
+}
+
+/* -------------------------------------------------------- optimiser le son */
+
+const SND = { busy: false, last: null };
+
+function renderSound() {
+  const box = $("autoSound");
+  if (!box) return;
+  box.innerHTML = "";
+  const report = SND.last ? h("div", { style: { marginTop: "10px" } },
+    SND.last.report.map((e) => h("div.meta", { style: { margin: "4px 0", lineHeight: "1.45" } }, V.describe(e))),
+    h("div.meta", { style: { marginTop: "6px" } }, "Export normalisé à −14 LUFS. Ctrl+Z pour revenir aux réglages d'avant.")) : null;
+  put(box, section({ title: "Son", icon: "vol", key: "ai.sound", count: SND.last ? "optimisé" : undefined },
+    h("div.hint", { style: { marginBottom: "10px" } },
+      "Mesure chaque rush — niveau de la voix, bruit de fond, dynamique, sifflantes, timbre, saturation — " +
+      "et règle tout : voix au bon niveau, bruit réduit à sa mesure, compression, clarté, musique sous la voix, " +
+      "volume normalisé à l'export."),
+    h("button.btn.primary.wide", { html: svg("wand", 14) + (SND.busy ? "Mesure du son…" : "Optimiser le son"),
+                                   disabled: SND.busy, onclick: () => optimizeSound() }),
+    report));
+}
+
+export async function optimizeSound(ids = null) {
+  if (SND.busy) return;
+  SND.busy = true;
+  renderSound();
+  try {
+    const { plan, n } = await V.optimize(ids);
+    SND.last = plan;
+    if (!plan.report.length || !n) toast("Aucun clip avec du son à optimiser.");
+    else toast(`Son optimisé sur ${plan.report.length} rush${plan.report.length > 1 ? "s" : ""} — détail dans Outils IA.`, 4000);
+  } catch (e) {
+    toast("Optimisation du son impossible : " + e.message, 5000);
+  } finally {
+    SND.busy = false;
+    renderSound();
+  }
 }
 
 /* ------------------------------------------------- passages supprimés */

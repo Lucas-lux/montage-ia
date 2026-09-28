@@ -16,6 +16,12 @@ charge ses bibliothèques, puis bascule sur l'interface. Sans WebView2 (ou avec
 
 Pour le débogage : `MONTAGE_IA_DEVTOOLS=1` (outils de développement, menus du
 clic droit) et `MONTAGE_IA_DEBUG_PORT=9222` (Playwright s'y branche par CDP).
+
+Lancée pour un agent IA (`app.py --background`, par le serveur MCP), la
+fenêtre reste cachée : le moteur travaille, et la fenêtre apparaît quand on
+relance l'application ou que l'agent ouvre un projet (`/api/app/open`). Si
+personne ne l'a montrée ni ne s'en sert pendant IDLE_EXIT secondes, elle se
+ferme d'elle-même.
 """
 from __future__ import annotations
 
@@ -55,6 +61,8 @@ b{font-size:17px}pre{white-space:pre-wrap;background:#fff;border-radius:8px;padd
 
 MB_OK, MB_OKCANCEL, MB_ICONWARNING, MB_ICONERROR = 0x0, 0x1, 0x30, 0x10
 IDOK = 1
+IDLE_EXIT = 30 * 60            # s sans requête avant qu'une fenêtre jamais montrée se ferme
+WINDOW = {"shown": True}
 
 
 def message(text: str, title: str = APP_NAME, flags: int = MB_OK, owner: int = 0) -> int:
@@ -161,6 +169,29 @@ def busy_reason() -> str:
     return ""
 
 
+def engine_busy() -> bool:
+    """Quelque chose tourne dans le moteur (export, analyse, préparation,
+    transcription, détourage, tâche d'agent, aperçu) : pas de fermeture."""
+    if busy_reason():
+        return True
+    try:
+        from engine.agent import preview, service
+        from engine.timeline import api as timeline
+        if any(j.get("status") == "running" for j in list(service.JOBS.values())):
+            return True
+        if any(p.get("status") == "running" for p in list(preview.PREVIEWS.values())):
+            return True
+        for proj in list(timeline.TIMELINES.values()):
+            for m in list(proj.state.get("media") or []):
+                if m.get("status") in ("pending", "processing") or \
+                        (m.get("transcript") or {}).get("status") in ("queued", "running") or \
+                        (m.get("subject") or {}).get("status") in ("queued", "running"):
+                    return True
+    except Exception:  # noqa: BLE001 - moteur pas encore chargé
+        pass
+    return False
+
+
 def _hwnd(window) -> int:
     try:
         return int(window.native.Handle.ToInt64())
@@ -171,8 +202,13 @@ def _hwnd(window) -> int:
 def bring_to_front(window) -> None:
     """Ramène la fenêtre devant (deuxième lancement de l'application)."""
     try:
-        window.restore()
+        first = not WINDOW["shown"]
+        WINDOW["shown"] = True
         window.show()
+        if first:
+            window.maximize()          # fenêtre cachée jusqu'ici (lancée pour un agent IA)
+        else:
+            window.restore()
         window.on_top = True           # Windows refuse le premier plan aux
         window.on_top = False          # autres processus : on passe par « toujours devant »
     except Exception as exc:  # noqa: BLE001
@@ -181,11 +217,12 @@ def bring_to_front(window) -> None:
 
 # ------------------------------------------------------------------ lancement
 
-def run(start_engine, user_dir: str, log: str | None, on_ready=None) -> None:
+def run(start_engine, user_dir: str, log: str | None, on_ready=None, hidden: bool = False) -> None:
     """Ouvre la fenêtre, démarre le moteur, et rend la main à sa fermeture.
 
     `start_engine()` charge le moteur et renvoie `(serveur uvicorn, url)` ;
-    `on_ready(url)` est appelé quand l'interface répond."""
+    `on_ready(url)` est appelé quand l'interface répond. `hidden` : fenêtre
+    cachée (application lancée pour un agent IA)."""
     import webview
 
     webview.settings["ALLOW_DOWNLOADS"] = True          # « Télécharger » : boîte « Enregistrer sous »
@@ -197,9 +234,10 @@ def run(start_engine, user_dir: str, log: str | None, on_ready=None) -> None:
     webview.settings["OPEN_DEVTOOLS_IN_DEBUG"] = False
 
     bridge = Bridge()
+    WINDOW["shown"] = not hidden
     window = webview.create_window(
         APP_NAME, html=SPLASH, js_api=bridge, width=1440, height=900, min_size=(1100, 680),
-        maximized=True, background_color=BACKGROUND, text_select=True)
+        maximized=not hidden, hidden=hidden, background_color=BACKGROUND, text_select=True)
     bridge._window = window
     _watch_drops(window)
     engine: dict = {}
@@ -217,7 +255,7 @@ def run(start_engine, user_dir: str, log: str | None, on_ready=None) -> None:
     def boot() -> None:
         try:
             server, url = start_engine()
-            _add_routes(server.config.app, window)
+            _add_routes(server.config.app, window, url)
             thread = threading.Thread(target=server.run, name="moteur", daemon=True)
             engine.update(server=server, thread=thread)
             thread.start()
@@ -240,6 +278,8 @@ def run(start_engine, user_dir: str, log: str | None, on_ready=None) -> None:
         # sur l'écran d'attente.
         window.events.loaded.wait(60)
         window.load_url(url)
+        if hidden:
+            threading.Thread(target=_idle_watch, args=(window,), name="veille", daemon=True).start()
 
     webview.start(boot, gui="edgechromium", debug=debug, private_mode=False,
                   storage_path=os.path.join(user_dir, "webview"))
@@ -250,18 +290,45 @@ def run(start_engine, user_dir: str, log: str | None, on_ready=None) -> None:
         engine["thread"].join(timeout=5)
 
 
-def _add_routes(app, window) -> None:
+def _idle_watch(window) -> None:
+    """Fenêtre jamais montrée et moteur inutilisé depuis IDLE_EXIT s : on ferme."""
+    from engine import server
+    while True:
+        time.sleep(20)
+        if WINDOW["shown"]:
+            return
+        if time.time() - server.ACTIVITY["last"] > IDLE_EXIT and not engine_busy():
+            print("[fenêtre] lancée pour un agent IA et inutilisée : fermeture.")
+            window.destroy()
+            return
+
+
+def _add_routes(app, window, url: str = "") -> None:
     """Routes propres à l'application de bureau (à côté de celles du moteur)."""
+    from fastapi import Body
 
     def app_info() -> dict:
-        return {"native": True, "webview2": webview2_version()}
+        return {"native": True, "webview2": webview2_version(), "shown": WINDOW["shown"]}
 
     def app_focus() -> dict:
         threading.Thread(target=bring_to_front, args=(window,), daemon=True).start()
         return {"ok": True}
 
+    def app_open(body: dict = Body(default={})) -> dict:
+        """Affiche une page de l'application (un projet ouvert par un agent IA)."""
+        path = str(body.get("path") or "/")
+        if not path.startswith("/"):
+            path = "/" + path
+
+        def go() -> None:
+            window.load_url(url + path)
+            bring_to_front(window)
+        threading.Thread(target=go, daemon=True).start()
+        return {"ok": True}
+
     app.add_api_route("/api/app", app_info, methods=["GET"])
     app.add_api_route("/api/app/focus", app_focus, methods=["POST"])
+    app.add_api_route("/api/app/open", app_open, methods=["POST"])
 
 
 # ------------------------------------------------ processus enfants (Windows)

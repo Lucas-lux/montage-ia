@@ -55,18 +55,26 @@ BASE: dict = {
     "hollow": False,          # contour seul, intérieur transparent
     "rotation": 0.0,
     "opacity": 1.0,
+    # mots-clés (mots marqués `k`) : couleur ("" = celle du mot surligné),
+    # taille relative, et petit rebond quand le mot apparaît
+    "kw": "",
+    "kw_scale": 1.0,
+    "kw_pop": False,
 }
 
 # Surlignages possibles (champ `mode`).
 MODES = ("word", "sweep", "reveal", "dim", "none")
 # Champs couleur (validés comme tels ; `color2` peut être vide).
-COLOR_FIELDS = ("color", "hl", "outline_col", "color2", "shadow_col", "glow_col", "outline2_col", "extrude_col")
+COLOR_FIELDS = ("color", "hl", "outline_col", "color2", "shadow_col", "glow_col", "outline2_col", "extrude_col",
+                "kw")
+# Couleurs qui peuvent rester vides (pas de dégradé, mot-clé de la couleur du surlignage).
+OPTIONAL_COLORS = ("color2", "kw")
 
 # Groupes affichés par l'interface, dans cet ordre.
 GROUPS: dict[str, str] = {
-    "tendance": "Tendance", "createurs": "Créateurs", "anime": "Animés", "neon": "Néon et lueur",
+    "tendance": "Tendance", "court": "Montage court", "createurs": "Créateurs", "anime": "Animés", "neon": "Néon et lueur",
     "relief": "Relief et 3D", "degrade": "Dégradés", "fond": "Sur fond", "sobre": "Sobre", "couleur": "Couleur",
-    "manuscrit": "Manuscrits", "retro": "Rétro et jeux", "fun": "Fun",
+    "manuscrit": "Manuscrits", "retro": "Rétro et jeux", "fun": "Fun", "editorial": "Éditorial",
 }
 
 # Polices : présentes sur tout Windows 10/11 ; ailleurs, libass en choisit une
@@ -100,6 +108,37 @@ PRESETS: dict[str, dict] = {
         "label": "Gras", "hint": "épais, jaune", "group": "tendance",
         "font": "Segoe UI Black", "size": 88, "hl": "#FFE500", "outline": 8.0,
     },
+    # ---- montage court : les mots arrivent avec la voix, les mots-clés (marqués
+    # sur les mots, voir `k`) grossissent d'un coup ; chaque groupe entre en léger zoom
+    "net": {
+        "label": "Net", "hint": "mots au fil de la voix, mots-clés agrandis", "group": "court", "featured": True,
+        "font": "Inter Bold", "bold": False, "size": 64, "hl": "#FFFFFF", "outline": 0.0,
+        "shadow": 3.0, "shadow_blur": 9.0, "mode": "reveal", "pop": False, "y": 0.78,
+        "kw_scale": 1.55, "kw_pop": True,
+        "anim_in": {"type": "custom", "dur": 0.18, "ease": "outCubic", "kf": [[0, {"o": 0, "s": 0.92}], [1, {}]]},
+    },
+    "net_accent": {
+        "label": "Net accent", "hint": "mots-clés agrandis et en jaune", "group": "court",
+        "font": "Inter Bold", "bold": False, "size": 64, "hl": "#FFFFFF", "outline": 0.0,
+        "shadow": 3.0, "shadow_blur": 9.0, "mode": "reveal", "pop": False, "y": 0.78,
+        "kw": "#FFD23F", "kw_scale": 1.55, "kw_pop": True,
+        "anim_in": {"type": "custom", "dur": 0.18, "ease": "outCubic", "kf": [[0, {"o": 0, "s": 0.92}], [1, {}]]},
+    },
+    "encre": {
+        "label": "Encre", "hint": "texte sombre, sur fond clair (écran partagé)", "group": "court",
+        "font": "Inter Bold", "bold": False, "size": 60, "color": "#0F0D0D", "hl": "#0F0D0D", "outline": 0.0,
+        "mode": "reveal", "pop": False, "y": 0.42, "kw": "#D40F30", "kw_scale": 1.4, "kw_pop": True,
+    },
+    "pilule": {
+        "label": "Pilule", "hint": "majuscules sur pastille, mot-clé orange", "group": "court",
+        "font": "Archivo Black", "bold": False, "size": 60, "upper": True, "box": True, "box_alpha": 0.2,
+        "outline_col": "#17130E", "outline": 14.0, "hl": "#FFFFFF", "kw": "#F26A1B", "mode": "none", "pop": False,
+    },
+    "bulle": {
+        "label": "Bulle", "hint": "pastille sombre, mot-clé en couleur", "group": "court",
+        "font": "Inter Bold", "bold": False, "size": 60, "box": True, "box_alpha": 0.14, "outline_col": "#141418",
+        "outline": 16.0, "hl": "#FFFFFF", "kw": "#E2604A", "mode": "none", "pop": False,
+    },
     # ---- sur fond
     "ruban": {
         "label": "Ruban", "hint": "bandeau rouge", "group": "fond",
@@ -127,6 +166,22 @@ PRESETS: dict[str, dict] = {
         "outline": 7.0,
     },
     # ---- sobre
+    # ---- éditorial : serif fine, sans contour, ombre douce (vidéos « documentaire »)
+    "editorial": {
+        "label": "Éditorial", "hint": "serif fine, style documentaire", "group": "editorial", "featured": True,
+        "font": "Instrument Serif", "size": 114, "bold": False, "hl": "#FFFFFF", "outline": 0.0,
+        "shadow": 3.0, "shadow_blur": 10.0, "mode": "none", "pop": False, "y": 0.775,
+    },
+    "editorial_mot": {
+        "label": "Éditorial mot", "hint": "serif fine, les mots apparaissent", "group": "editorial",
+        "font": "Instrument Serif", "size": 114, "bold": False, "hl": "#FFFFFF", "outline": 0.0,
+        "shadow": 3.0, "shadow_blur": 10.0, "mode": "reveal", "pop": False, "y": 0.775,
+    },
+    "editorial_or": {
+        "label": "Éditorial or", "hint": "serif fine, mot dit en jaune", "group": "editorial",
+        "font": "Instrument Serif", "size": 114, "bold": False, "hl": "#F5B400", "outline": 0.0,
+        "shadow": 3.0, "shadow_blur": 10.0, "mode": "word", "pop": False, "y": 0.775,
+    },
     "clean": {
         "label": "Clean", "hint": "sobre / pro", "group": "sobre", "featured": True,
         "size": 62, "hl": "#FFFFFF", "outline": 3.0, "shadow": 1.0, "y": 0.85,

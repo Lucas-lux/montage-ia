@@ -62,6 +62,10 @@ GLOW_BORD = 0.25              # la lueur élargit le contour de glow × 0,25…
 GLOW_BLUR = 0.5               # …et le floute de glow × 0,5
 EXTRUDE_STEP = 2.0            # une copie du relief tous les 2 px
 POP = 1.12                    # zoom du mot actif
+# Mots-clés (mots marqués `k`) : rebond d'apparition, partagé avec textfx.js.
+KW_POP = 0.28                 # durée du rebond (s)
+KW_FROM = 0.55                # taille de départ (fraction de la taille finale)
+KW_BACK = 2.4                 # dépassement (courbe « back out »)
 
 
 def _clamp(v: float, lo: float, hi: float) -> float:
@@ -235,12 +239,12 @@ def _layer_tags(c: dict, lay: dict, w: int, h: int, st: dict) -> tuple[str, dict
     if main:
         a1 = 255 if c.get("hollow") or lay.get("part") == "outline" else 0
         a3 = int(round(_clamp(_num(c.get("box_alpha"), 0.25), 0, 1) * 255)) if box else 0
-        base = {"a1": a1, "a3": a3, "a4": SHADOW_ALPHA, "op": op}
+        base = {"a1": a1, "a3": a3, "a4": SHADOW_ALPHA, "op": op, "sx": s * sx, "sy": s * sy}
         tags += [rf"\1c{_rgb(c.get('color'))}", rf"\1a{_aa(a1, op)}",
                  rf"\3c{_rgb(c.get('outline_col'))}", rf"\3a{_aa(a3, op)}",
                  rf"\4c{_rgb(c.get('shadow_col') or '#000000')}", rf"\4a{_aa(SHADOW_ALPHA, op)}"]
     else:
-        base = {"a1": lay["a1"], "a3": lay["a3"], "a4": 255, "op": op}
+        base = {"a1": lay["a1"], "a3": lay["a3"], "a4": 255, "op": op, "sx": s * sx, "sy": s * sy}
         tags += [rf"\1c{_rgb(lay['c1'])}", rf"\1a{_aa(lay['a1'], op)}",
                  rf"\3c{_rgb(lay['c3'])}", rf"\3a{_aa(lay['a3'], op)}", r"\4a&HFF&"]
     return "".join(tags), base
@@ -254,15 +258,32 @@ def _alphas(base: dict, f: float) -> str:
 
 # ------------------------------------------------------------------- texte
 
-def _word_states(c: dict, n: int, k: int, mode: str) -> list[dict]:
-    """Pour chaque mot : surligné, masqué, estompé, agrandi."""
+def kw_factor(c: dict, dt: float) -> float:
+    """Taille d'un mot-clé `dt` secondes après son début (1 = taille normale) :
+    `kw_scale`, atteinte par un rebond de KW_POP s si `kw_pop`. Même calcul que
+    textfx.js `kwFactor`."""
+    s = _clamp(_num(c.get("kw_scale"), 1.0), 0.3, 4.0)
+    if not c.get("kw_pop") or dt >= KW_POP:
+        return s
+    u = _clamp(dt / KW_POP, 0.0, 1.0) - 1.0
+    e = 1 + (KW_BACK + 1) * u ** 3 + KW_BACK * u ** 2
+    return s * (KW_FROM + (1 - KW_FROM) * e)
+
+
+def _word_states(c: dict, n: int, k: int, mode: str, kws: list[bool] | None = None, t: float = 0.0,
+                 starts: list[float] | None = None) -> list[dict]:
+    """Pour chaque mot : surligné, masqué, estompé, agrandi, mot-clé (et sa
+    taille à l'instant `t`, `starts` : début de chaque mot)."""
     out = []
     for j in range(n):
         lit = (j == k) if mode in ("word", "reveal", "dim") else (j <= k) if mode == "sweep" else False
+        kw = bool(kws and j < len(kws) and kws[j])
         out.append({
             "lit": lit,
             "f": 0.0 if (mode == "reveal" and j > k) else DIM if (mode == "dim" and j != k) else 1.0,
             "grow": bool(c.get("pop")) and j == k and mode in ("word", "reveal", "dim"),
+            "kw": kw,
+            "ks": kw_factor(c, t - (starts[j] if starts else 0.0)) if kw else 1.0,
         })
     return out
 
@@ -280,6 +301,9 @@ def _body(c: dict, toks: list[str], lay: dict, base: dict, words: list[dict] | N
     if not per_word and not per_char:
         return " ".join(toks)
     total = sum(sum(1 for u in _UNIT.findall(t) if u != r"\N") for t in toks)
+    # taille par mot : zoom du mot actif, mots-clés ; toujours relative à l'échelle
+    # de l'animation en cours (celle de la couche), comme `em` dans le navigateur
+    sized = words is not None and (c.get("pop") or any(w.get("ks", 1.0) != 1.0 for w in words))
     parts: list[str] = []
     ci = 0
     for j, tok in enumerate(toks):
@@ -288,11 +312,14 @@ def _body(c: dict, toks: list[str], lay: dict, base: dict, words: list[dict] | N
         wblur = wunits[j]["b"] if wunits else 0.0
         head = []
         if main and words is not None:
-            head.append(rf"\1c{_rgb(hl if ws['lit'] else col)}")
+            # un mot-clé garde sa couleur à lui (si le style en a une), même pendant qu'il est dit
+            kw = ws.get("kw")
+            head.append(rf"\1c{_rgb(c.get('kw') if kw and c.get('kw') else hl if ws['lit'] or kw else col)}")
         if fades:
             head.append(_alphas(base, f))
-        if words is not None and c.get("pop"):
-            head.append(rf"\fscx{_g(100 * POP)}\fscy{_g(100 * POP)}" if ws["grow"] else r"\fscx100\fscy100")
+        if sized:
+            z = (POP if ws["grow"] else 1.0) * ws.get("ks", 1.0)
+            head.append(rf"\fscx{_g(100 * base['sx'] * z)}\fscy{_g(100 * base['sy'] * z)}")
         if wunits is not None:
             head.append(rf"\blur{_g(lay['blur'] + wblur)}")
         if not per_char:
@@ -345,8 +372,10 @@ def _events(c: dict, w: int, h: int, fps: float = 30.0, z: int = 0) -> list[str]
     animated = animations.has_anim(clip)
     layers = _layers(c)
     base_layer = z * 100
+    kws = [bool(wd.get("k")) for wd in words]
+    has_kw = any(kws)
 
-    if mode == "sweep" and not animated:
+    if mode == "sweep" and not animated and not has_kw:
         return _sweep(c, toks, words, layers, start, end, w, h, base_layer)
 
     # découpage : changements de mot surligné, et image par image pendant les animations
@@ -355,8 +384,12 @@ def _events(c: dict, w: int, h: int, fps: float = 30.0, z: int = 0) -> list[str]
     if mode in ("word", "reveal", "dim", "sweep"):
         bounds.update(starts[1:])
     wins = animations.windows(clip) if animated else []
+    if has_kw and c.get("kw_pop"):
+        # rebond des mots-clés : image par image, comme une animation
+        wins = wins + [(starts[j], min(end, starts[j] + KW_POP)) for j in range(len(words)) if kws[j]]
     for a, b in wins:
         bounds.update(_frames(max(a, start), min(b, end), fps))
+    stateful = mode in ("word", "reveal", "dim", "sweep") or has_kw
     cuts = sorted(t for t in bounds if start - 1e-9 <= t <= end + 1e-9)
 
     events: list[str] = []
@@ -370,7 +403,7 @@ def _events(c: dict, w: int, h: int, fps: float = 30.0, z: int = 0) -> list[str]
         at = math.floor(mid * fps + 0.5) / fps if in_win else mid
         st = animations.state(clip, at) if animated else dict(animations.IDENTITY)
         k = max(0, sum(1 for t0 in starts if t0 <= mid) - 1)
-        wstates = _word_states(c, len(toks), k, mode) if mode in ("word", "reveal", "dim", "sweep") else None
+        wstates = _word_states(c, len(toks), k, mode, kws, at, starts) if stateful else None
         chars = animations.unit_state(st, "char", n_chars) if animated else None
         wunits = animations.unit_state(st, "word", len(toks)) if animated else None
         blurry = st["b"] > 0.01 or any(u["b"] > 0.01 for u in (chars or []) + (wunits or []))

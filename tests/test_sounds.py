@@ -87,3 +87,18 @@ def test_api_des_sons(client):
     m = client.post(f"/api/timeline/{pid}/sounds/{first['id']}").json()
     assert m["copied"] and m["name"].endswith(".wav") and m["kind"] == "audio"
     assert client.post(f"/api/timeline/{pid}/sounds/inconnu").status_code == 404
+
+
+def test_les_sons_tres_brefs_restent_utilisables(tmp_path):
+    """Un clic de 30 ms serait refusé à la préparation (et par la timeline) :
+    le fichier est complété de silence jusqu'à 0,1 s, même en cache."""
+    import wave
+    from engine.tools import sfx
+    S = sfx.Sounds(str(tmp_path))
+    path = S.file("clic")
+    with wave.open(path) as f:
+        assert f.getnframes() / f.getframerate() >= sfx.MIN_FILE - 1e-3
+    with wave.open(path, "wb") as f:                         # ancien cache, trop court
+        f.setnchannels(2), f.setsampwidth(2), f.setframerate(sfx.SR)
+        f.writeframes(b"\0\0\0\0" * 1440)
+    assert sfx._duration(S.file("clic")) >= sfx.MIN_FILE - 1e-3

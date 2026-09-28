@@ -13,6 +13,10 @@ Repères :
     la source de `in` à `in + dur * speed` ;
   * `x`/`y` (0..1) placent le CENTRE du clip dans le cadre, comme pour les
     sous-titres ; `scale` multiplie la taille « remplir » ou « adapter ».
+    Avec `box` (x, y, w, h : fractions du cadre, bord haut-gauche ; r : rayon
+    des coins, px d'un cadre de 1080 de large), le clip vit dans cette zone :
+    remplir/adapter, `x`/`y` et `scale` se rapportent à elle, et rien ne
+    déborde (écran partagé, visage dans une fenêtre arrondie).
   * l'ordre des pistes est l'ordre d'affichage, de haut en bas : une piste
     vidéo plus haute passe devant les autres.
 """
@@ -22,7 +26,7 @@ import math
 import secrets
 
 from engine.pipeline.style_presets import BASE as CAPTION_BASE
-from engine.pipeline.style_presets import COLOR_FIELDS, MODES
+from engine.pipeline.style_presets import COLOR_FIELDS, MODES, OPTIONAL_COLORS
 from engine.pipeline.style_presets import PRESETS as CAPTION_PRESETS
 
 VERSION = 1
@@ -92,7 +96,12 @@ VOICE_FX: dict = {
     "clarity": 0.0,      # clarté : moins de boue (200 Hz), plus de présence (3 kHz) et d'air
     "warmth": 0.0,       # chaleur : graves autour de 180 Hz
     "level": False,      # niveau constant (normalisation dynamique)
+    "declip": False,     # crêtes écrêtées à la prise, reconstruites
 }
+# Réglages mesurés par « Optimiser le son » (engine/timeline/sound.py), en dB :
+# gain qui amène la voix au niveau de travail, et bruit de fond qui en résulte
+# (seuil de la porte, plancher du débruiteur).
+VOICE_DB: dict = {"gain": (-20.0, 30.0), "noise": (-100.0, 0.0)}
 # Transitions d'entrée (noms des transitions `xfade` de ffmpeg).
 TRANSITIONS = ("fade", "fadeblack", "fadewhite", "slideleft", "slideright", "wipeleft", "circleopen",
                "zoomin", "dissolve")
@@ -183,6 +192,9 @@ def new_state(pid: str, name: str, preset: str | None = None, now: float = 0.0) 
         "markers": [],
         "settings": dict(SETTINGS_DEFAULTS),
         "export": None,
+        # révision du montage : +1 à chaque sauvegarde (studio ou agent IA),
+        # pour qu'aucun des deux n'écrase sans le savoir le travail de l'autre
+        "rev": 0,
     }
 
 
@@ -347,10 +359,22 @@ def _transform(c: dict) -> dict:
         "flip_h": _bool(c.get("flip_h")),
         "flip_v": _bool(c.get("flip_v")),
     }
+    # bordure « carte » (mème, capture, photo) : px d'un cadre de 1080 de large, autour de l'image
+    border = round(_num(c.get("border"), 0.0, 0.0, 200.0), 1)
+    if border:
+        out["border"] = border
+        out["border_col"] = _color(c.get("border_col"), "#FFFFFF")
     # sujet détouré (engine/pipeline/matting.py) : arrière-plan retiré, cadre qui suit le sujet
     for key in ("cutout", "follow"):
         if _bool(c.get(key)):
             out[key] = True
+    box = normalize_box(c.get("box"))
+    if box:
+        out["box"] = box
+    # visuel posé par un outil (ex. « scene » : fond d'une scène), pour le retrouver et le remplacer
+    tag = _str(c.get("tag"), "", 16).strip()
+    if tag:
+        out["tag"] = tag
     # Réglages d'image (-1..1, 0 = neutre) : seuls les réglages actifs sont gardés.
     f = c.get("filters")
     if isinstance(f, dict):
@@ -358,6 +382,22 @@ def _transform(c: dict) -> dict:
         flt = {k: v for k, v in flt.items() if v}
         if flt:
             out["filters"] = flt
+    return out
+
+
+def normalize_box(b) -> dict | None:
+    """Zone d'un clip dans le cadre (voir la docstring du module), ou None."""
+    if not isinstance(b, dict):
+        return None
+    w = round(_num(b.get("w"), 0.0, 0.0, 3.0), 4)
+    h = round(_num(b.get("h"), 0.0, 0.0, 3.0), 4)
+    if w < 0.02 or h < 0.02:
+        return None
+    out = {"x": round(_num(b.get("x"), 0.0, -1.0, 2.0), 4), "y": round(_num(b.get("y"), 0.0, -1.0, 2.0), 4),
+           "w": w, "h": h}
+    r = round(_num(b.get("r"), 0.0, 0.0, 540.0), 1)
+    if r:
+        out["r"] = r
     return out
 
 
@@ -371,8 +411,8 @@ def _text_fields(c: dict) -> dict:
         elif isinstance(default, (int, float)):
             out[key] = round(_num(v, float(default), -10000, 10000), 4)
         elif key in COLOR_FIELDS:
-            # `color2` vide = pas de dégradé
-            out[key] = "" if (key == "color2" and not v) else _color(v, default or "#FFFFFF")
+            # `color2` vide = pas de dégradé ; `kw` vide = mot-clé de la couleur du surlignage
+            out[key] = "" if (key in OPTIONAL_COLORS and not v) else _color(v, default or "#FFFFFF")
         else:
             out[key] = _str(v, default, 60)
     if out["mode"] not in MODES:
@@ -405,6 +445,8 @@ def _words(words) -> list[dict]:
         word = {"text": text, "start": _t(start), "end": _t(end)}
         if _bool(w.get("cut")):
             word["cut"] = True       # passage coupé : ni affiché ni exporté
+        if _bool(w.get("k")):
+            word["k"] = True         # mot-clé : agrandi, couleur d'accent (sous-titres)
         # Mot lié à la voix : sa place dans le média source.
         if w.get("m"):
             word["m"] = _str(w.get("m"), "", 40)
@@ -510,6 +552,11 @@ def normalize_voice_fx(fx) -> dict:
         else:
             x = round(_num(v, 0.0, 0.0, 1.0), 2)
             if x > 0:
+                out[key] = x
+    for key, (lo, hi) in VOICE_DB.items():
+        if src.get(key) is not None:
+            x = round(_num(src.get(key), 0.0, lo, hi), 1)
+            if key == "noise" or abs(x) >= 0.1:
                 out[key] = x
     preset = _str(src.get("preset"), "", 24).strip()
     if out and preset:

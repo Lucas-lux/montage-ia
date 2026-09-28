@@ -51,6 +51,51 @@ def api(path: str, body=None, raw: bytes | None = None, timeout: float = 60):
         raise SystemExit(f"{path} : HTTP {e.code} {e.read()[:400]!r}") from e
 
 
+def mcp_check(cmd: list[str], env: dict, pid: str) -> None:
+    """Le serveur MCP des agents IA (`--mcp`) : poignée de main, outils, et un
+    outil qui lit le projet de l'essai dans l'application déjà lancée."""
+    import threading
+    proc = subprocess.Popen([*cmd, "--mcp"], env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            stderr=subprocess.DEVNULL)
+    replies: dict = {}
+
+    def read() -> None:
+        for line in proc.stdout:
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                replies["garbage"] = line[:200]
+                continue
+            if "id" in msg:
+                replies[msg["id"]] = msg
+    threading.Thread(target=read, daemon=True).start()
+
+    def send(msg: dict) -> None:
+        proc.stdin.write((json.dumps(msg) + "\n").encode())
+        proc.stdin.flush()
+    try:
+        send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "smoke", "version": "0"}}})
+        send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+        send({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+              "params": {"name": "get_timeline", "arguments": {"project": pid, "text": True}}})
+        wait(lambda: 3 in replies or "garbage" in replies, "réponses du serveur MCP", 90)
+        if "garbage" in replies:
+            raise SystemExit(f"MCP : sortie qui n'est pas du JSON-RPC : {replies['garbage']!r}")
+        tools = replies[2]["result"]["tools"]
+        text = replies[3]["result"]["content"][0]["text"]
+        if replies[3]["result"].get("isError") or pid not in text:
+            raise SystemExit(f"MCP : get_timeline en erreur : {text[:400]}")
+        say(f"serveur MCP (agents IA) : {len(tools)} outils, le projet d'essai se lit ({len(text)} caractères)")
+    finally:
+        proc.stdin.close()
+        try:
+            proc.wait(20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
 def wait(cond, what: str, timeout: float) -> None:
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -236,6 +281,7 @@ def main() -> int:
         say(f"titre : {white} pixels blancs dans la moitié haute")
         if white < 500:
             raise SystemExit("le texte n'est pas dessiné : police introuvable pour libass ?")
+        mcp_check(cmd, env, pid)
         ok = True
         say("TOUT PASSE")
         return 0

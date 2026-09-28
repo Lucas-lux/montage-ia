@@ -33,6 +33,7 @@ import numpy as np
 REPO = "Xenova/modnet"
 FILE = "onnx/model.onnx"
 SHORT = 320               # petit côté de l'image donnée au modèle (multiple de 32)
+WORK_SIDE = 1280          # grand côté maximal des masques et de l'aperçu détouré d'une vidéo
 SAMPLE_FPS = 2.0          # première passe : suivi du sujet
 TRACK_HZ = 10             # trajectoire enregistrée
 MIN_AREA = 0.012          # une zone plus petite (fraction de l'image) n'est pas un sujet
@@ -263,8 +264,11 @@ def process_video(path: str, info: dict, point: tuple[float, float], t0: float, 
     """Détoure le sujet d'une vidéo (le proxy) ; écrit matte.mp4 et, avec
     `cutout`, cutout.webm dans `out_dir`. Renvoie la trajectoire lissée du sujet."""
     matter = Matter.get()
+    # Le masque sort d'un modèle qui voit 320 px de haut : le calculer en 4K
+    # n'apporte rien et coûte des Go (l'export le remet à la taille de la source).
     w, h = int(info["w"]), int(info["h"])
-    w, h = w - w % 2, h - h % 2
+    k = min(1.0, WORK_SIDE / max(w, h, 1))
+    w, h = int(w * k) // 2 * 2, int(h * k) // 2 * 2
     fps = float(info.get("fps") or 30)
     total = max(1, int(float(info.get("duration") or 0) * fps))
     track = _track(matter, path, w, h, t0, point)

@@ -206,6 +206,7 @@ async function boot() {
     api("/api/timeline/" + pid),
     loadFonts(),
     loadAnimations(api),
+    import("./panels.js").then((m) => m.loadTitles()),
   ]);
   PRESETS.push(...presets.canvas);
   loadDoc(proj);
@@ -222,7 +223,7 @@ async function boot() {
   const mods = await Promise.all([
     import("./bin.js"), import("./timeline.js"), import("./player.js"),
     import("./inspector.js"), import("./panels.js"), import("./autoedit.js"), import("./exporter.js"),
-    import("./stage.js"), import("./voiceover.js"), import("./sounds.js"),
+    import("./stage.js"), import("./voiceover.js"), import("./sounds.js"), import("./sync.js"),
   ].map((p) => p.catch((err) => { console.error(err); return null; })));
   mods.forEach((m) => m && m.init && m.init());
 

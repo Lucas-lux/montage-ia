@@ -6,7 +6,104 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
-- **Fonts**: 53 free fonts bundled (Google Fonts, SIL OFL / Apache-2.0: Anton,
+- **Agents, short-form method**: the MCP instructions and the `edit_video`
+  prompt now follow seven gates, each validated by the user — framing, derush,
+  captions, beats and real assets, opening, scenes → final, delivery — with the
+  editor's rules (something changes every 2–4 s, the visual lands on its word,
+  show the thing instead of labelling it, nothing on the face, readable muted).
+- **`derush`**: the rush split into takes on its own measured levels (noise
+  floor and voice, never a fixed dB; silences read on peaks, syllable edges on
+  RMS, 120 Hz high-pass), take edges on the waveform, no two takes overlapping,
+  each take re-transcribed on its own (`transcribe(..., clips=…)`: Whisper on a
+  whole file swallows repeated sentences) and a proposal per take — retake,
+  false start, take contained in the next one, end said again at the start of
+  the next take. `build_edit` segments accept `takes: "2-9,11"`.
+- **`build_scenes`**: the cut dressed in scenes starting on words (`"w:word"`,
+  `"w:le vrai secret"` for a phrase), with layouts `face`, `split`, `face_top`,
+  `face_box`, `full` and `world` (16:9, the speaker as a card moving on the
+  words), and items landing on their words: cards, count-ups, stamps, badges,
+  check rows, strike-throughs, circles, underlines, screenshots with
+  highlights and zooms, browser captures, b-roll playing in the zone (real
+  clips), photos, logos, chevrons, glass cards, statements, pills, tags, 3D
+  cascades, and a *paper* look (paper, grain, tilted cards, Fraunces italic
+  accent, Caveat notes). The plan is checked before anything is drawn (scenes
+  on words, full coverage, no still moment over 2.2 s without a `hold`
+  reason); zones are HTML pages animated with Web Animations, rendered frame by
+  frame (identical frames reused) and cached; the drawn pages are checked in
+  the browser (overlaps, text outside the frame, contrast, text on the face);
+  captions are placed per layout. `preview(cuts=true)` shows every scene change.
+- **Clip zones (`box`)**: a video or image can live in a zone of the frame
+  (split screen, face in a rounded window): fill/fit, position and zoom are
+  relative to the zone and nothing spills out — in the export (rendered at
+  the zone's size, rounded-corner mask) and in the studio preview, moving and
+  framing included.
+- **Caption keywords**: words marked `k` grow (`kw_scale`), take their own
+  colour (`kw`) and can pop in (`kw_pop`), identically in the preview and the
+  export; `add_captions(keywords=[…], lexicon={…})`; **Alt + click** on a
+  caption word in the studio toggles it. New *Montage court* caption styles:
+  Net, Net accent, Encre, Pilule, Bulle.
+- **HDR footage** (iPhone HLG, PQ, BT.2020 10-bit) is tone-mapped to SDR BT.709
+  in the preview proxy and the export (zscale, or a colour-space fallback).
+- Fonts: Inter Bold, Archivo Bold / ExtraBold, Fraunces Black and Black Italic
+  (59 bundled); `scripts/fetch_fonts.py --new` fetches only the missing ones,
+  italics supported.
+- **Optimiser le son** (*Outils IA → Son*, and *Optimisé* in the inspector's
+  *Voix* section): the engine measures each rush — voice level, background
+  noise and signal-to-noise gap, dynamics, sibilance, timbre (mud, body),
+  clipping — and sets the voice processing from it: a gain to a working level
+  (so the gate and compressor thresholds fit every take), noise reduction and a
+  gate calibrated on the measured noise, compression, de-esser, clarity or
+  warmth, declipping (`adeclip`); background music is lowered under the voice
+  and the export is normalised to −14 LUFS. On real phone rushes the old
+  *Clair* preset lowered the voice/noise gap by 5–7 dB; the measured settings
+  raise it by 2–13 dB, with no clipping. The automatic edit and the agents
+  (`build_edit`, `auto_edit`, new `optimize_sound` tool) use it by default.
+- **AI agents (MCP)**: `MontageIA.exe --mcp` (or `python app.py --mcp`) is a
+  Model Context Protocol server, so Claude Code, Codex, Cursor, Claude Desktop…
+  can edit a video from scratch with the app's tools: create a project, import
+  and transcribe rushes, read numbered sentences (hook score, fluff and false
+  starts flagged), get the app's analysis, look at source frames with a grid,
+  build the main track sentence by sentence (hook first; silences and filler
+  words cut; rhythm cuts and punch-in zooms framed on the face), captions,
+  titles (50 styles, 54 fonts, effects, animations), free images (Openverse,
+  Wikimedia Commons, Pexels photos and videos with a key) with a numbered
+  contact sheet, the agent's own HTML/CSS visuals rendered to transparent PNG
+  with the bundled fonts, b-roll and insets, music and the 69 sound effects,
+  subject cutout / follow / framing, format change with reframing on the face,
+  edits, undo, a low-resolution preview returned as a storyboard image, export,
+  and `open_in_app`. 31 tools, an `edit_video` prompt, progress notifications;
+  long operations return within 45 s and continue with `wait`. The server is
+  stdlib-only and talks to the app's engine (`/api/agent/…`); if the app is not
+  running it starts it in the background (hidden window, closed after 30 min of
+  inactivity). *Boîte à outils → Agents IA* connects Claude Code or Codex in
+  one click, shows the configuration for other agents and keeps an optional
+  Pexels key. Guide: `docs/agents-ia.md`.
+- **Agents, pro short-form look**: `study_reference` studies a video to match
+  (contact sheets of its shots, median shot length, words per second, cuts on
+  word starts, loudness, music) and the agent's playbook says how to reproduce
+  it; `rhythm="dynamic"` cuts at clause ends and cycles framings (wide, close,
+  medium, very close, slow push-ins) on the face tracked shot by shot, with
+  the zoom capped by the rush resolution; editorial caption and title styles
+  (Instrument Serif, bundled, and DM Serif Display); `search_images` searches
+  the whole web through the browser (memes, logos, product shots; transparent
+  logos and stickers); `add_visual(animated=true)` captures an HTML/CSS/JS
+  animation frame by frame into a transparent video, and visuals use project
+  images by id (`src="media:<id>"`); `capture_web` screenshots a page, or
+  records it scrolling, in a phone or desktop layout; custom keyframe
+  animations (`{type: "custom", kf: […]}`) in the studio, the export and for
+  agents; `get_timeline(words=true)` gives each word's timeline time.
+- **Card border** for images and videos (*Cadrage → Bordure*, `border` /
+  `border_col`): a white frame around a meme, a photo or a capture, kept when
+  the clip is tilted or animated.
+- Animated GIFs are imported as short silent videos (they play), not as a
+  still of their first frame.
+- The studio reloads by itself when the project is changed elsewhere (by an
+  agent): each save carries the revision it was made on and the engine refuses a
+  stale one (409) instead of silently overwriting; the previous state stays in
+  `Ctrl+Z`.
+- Title styles are shared data (`engine/web/studio/titles.json`), used by the
+  studio and by the agents.
+- **Fonts**: 54 free fonts bundled (Google Fonts, SIL OFL / Apache-2.0: Anton,
   Bebas Neue, Montserrat, Poppins, Bangers, Luckiest Guy, Permanent Marker,
   Pacifico, Press Start 2P, Monoton, Playfair Display…), declared by `@font-face`
   in the editors and handed to libass (`fontsdir`) at export; a searchable font
@@ -64,6 +161,34 @@ All notable changes to this project are documented here. The format follows
   click it. Several videos can be imported first.
 
 ### Fixed
+- Subject detection on 4K videos ran out of memory ("Invalid argument"): the
+  matte is now computed at 1280 px at most (the model sees 320 px anyway) and
+  scaled to the source at export.
+- A word starting exactly on a cut was captioned twice (once per clip).
+- Cuts clipped the end of some words: Whisper often ends a word before its
+  sound has died out (up to 0.3 s at the end of a sentence). Cuts now follow the
+  audible end measured on the voice envelope, silence cuts keep a tail after it,
+  and a segment asked to end on a word is snapped past its sound.
+- In the installed app, the agents' HTML visuals, web image search and page
+  captures could fail (« The browser did not start its debugging port ») and
+  leave headless Edge processes behind: Edge started from the app relaunches
+  itself in another process and the one launched exits at once. The engine now
+  waits for the port file or the image written by the real browser, closes it
+  through DevTools (`Browser.close`) and, as a last resort, stops what still
+  holds its profile folder.
+- Removing a filler word could bite into the next word (its margin overlapped
+  it), and a short phrase kept between two cuts (« je l'ai fait. ») was
+  dropped as a too-short piece; the margin now stops at the neighbouring words
+  and a piece that holds a word is never merged away.
+- Two instances of the app on the same projects (e.g. one started for an AI
+  agent while another ran with a test folder) could overwrite each other's work:
+  the instance file is now one per projects folder, and an engine rereads a
+  project rewritten on disk by another process instead of saving its stale copy
+  over it.
+- Regenerating captions left behind the lines that an overlap had moved to
+  another text track; they came back on top of the new ones.
+- The *Clic* and *Tic* sound effects (30–40 ms) could not be added: too short
+  to be prepared as media. Very short sounds are now padded with silence to 0.1 s.
 - The preview drew texts larger than the export (libass sizes a font by its
   full height, CSS by its em square: +12 % for Arial, up to +75 % for display
   fonts) and some fonts slightly off their baseline; both now match libass.

@@ -16,6 +16,7 @@
 
 // Mêmes constantes que ass_edit.py.
 export const GLOW_BORD = 0.25, GLOW_BLUR = 0.5, EXTRUDE_STEP = 2, POP = 1.12, DIM = 0.4;
+export const KW_POP = 0.28, KW_FROM = 0.55, KW_BACK = 2.4;   // rebond des mots-clés
 export const SHADOW_OP = 1 - 0x60 / 255, GLOW_OP = 1 - 0x40 / 255;
 export const BLUR_CSS = 0.8;             // \blur libass -> rayon CSS (réglé à l'œil sur des rendus)
 
@@ -62,16 +63,31 @@ export function layers(c) {
   return out;
 }
 
-/** État de chaque mot pour le surlignage (comme `_word_states`). */
-export function wordStates(c, n, k) {
+/** Taille d'un mot-clé `dt` s après son début (comme ass_edit.kw_factor). */
+export function kwFactor(c, dt) {
+  const s = clamp(+(c.kw_scale ?? 1) || 1, 0.3, 4);
+  if (!c.kw_pop || dt >= KW_POP) return s;
+  const u = clamp(dt / KW_POP, 0, 1) - 1;
+  const e = 1 + (KW_BACK + 1) * u ** 3 + KW_BACK * u ** 2;
+  return s * (KW_FROM + (1 - KW_FROM) * e);
+}
+
+/** État de chaque mot pour le surlignage (comme `_word_states`). `words` :
+ *  les mots du texte (drapeau `k` = mot-clé, `start`) ; `t` : l'instant. */
+export function wordStates(c, n, k, words = null, t = 0) {
   const mode = c.mode || "word";
   const out = [];
   for (let j = 0; j < n; j++) {
     const lit = ["word", "reveal", "dim"].includes(mode) ? j === k : mode === "sweep" ? k >= 0 && j <= k : false;
+    const w = words ? words[j] : null;
+    const kw = !!(w && w.k);
     out.push({
       lit,
       f: mode === "reveal" && j > k ? 0 : mode === "dim" && j !== k ? DIM : 1,
       grow: !!c.pop && j === k && ["word", "reveal", "dim"].includes(mode),
+      kw,
+      at: kw ? w.start : 0,
+      ks: kw ? kwFactor(c, t - w.start) : 1,
     });
   }
   return out;
@@ -126,12 +142,17 @@ export function buildText(c, k, words, states, perChar = false) {
     }
     let ci = 0;
     toks.forEach((tok, j) => {
-      const ws = states ? states[j] : { lit: false, f: 1, grow: false };
+      const ws = states ? states[j] : { lit: false, f: 1, grow: false, ks: 1 };
       const w = document.createElement("w");
-      if (isMain && !c.hollow) w.style.color = ws.lit ? c.hl : c.color;
+      // un mot-clé garde sa couleur à lui (si le style en a une), même pendant qu'il est dit
+      if (isMain && !c.hollow) w.style.color = ws.kw && c.kw ? c.kw : ws.lit || ws.kw ? c.hl : c.color;
       w._f = ws.f;
       if (ws.f !== 1) w.style.opacity = ws.f;
-      if (ws.grow) w.style.fontSize = POP + "em";
+      const z = (ws.grow ? POP : 1) * (ws.ks || 1);
+      if (z !== 1) w.style.fontSize = z + "em";
+      // mot-clé qui rebondit : sa taille est rejouée à chaque image (captions.js)
+      if (ws.kw && c.kw_pop) { w._kwAt = ws.at; w._grow = ws.grow ? POP : 1; }
+      if (isMain) w.dataset.i = j;
       units.word.push({ el: w, i: j });
       if (!chars) {
         w.textContent = tok;

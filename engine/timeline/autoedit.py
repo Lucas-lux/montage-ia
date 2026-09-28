@@ -540,6 +540,70 @@ def face_anchor(video_path: str, samples: int = 8) -> dict | None:
     return {"x": round(xs[mid], 3), "y": round(ys[mid], 3), "w": round(ws[mid], 3), "samples": len(hits)}
 
 
+def face_track(video_path: str, fps: float = 2.0) -> list[list[float]]:
+    """Position du visage au fil de la vidéo : [t, x, y, largeur, hauteur] (0..1)
+    toutes les 1/fps secondes où un visage est vu. Sert à cadrer chaque plan
+    sur la tête là où elle est À CE MOMENT (on bouge, on se penche…)."""
+    try:
+        import cv2
+    except ImportError:
+        return []
+    model = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data",
+                         "face_detection_yunet_2023mar.onnx")
+    if not os.path.isfile(model) or not hasattr(cv2, "FaceDetectorYN_create"):
+        return []
+    try:
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    except AttributeError:
+        pass
+    cap = cv2.VideoCapture(video_path)
+    out: list[list[float]] = []
+    try:
+        vfps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if w <= 0 or h <= 0:
+            return []
+        det = cv2.FaceDetectorYN_create(model, "", (w, h), 0.6, 0.3, 500)
+        step = max(1, int(round(vfps / fps)))
+        i = 0
+        while True:
+            if i % step:
+                if not cap.grab():
+                    break
+                i += 1
+                continue
+            ok, frame = cap.read()
+            if not ok:
+                break
+            _, faces = det.detect(frame)
+            if faces is not None and len(faces):
+                x, y, fw, fh = (float(v) for v in max(faces, key=lambda f: f[2] * f[3])[:4])
+                out.append([round(i / vfps, 2), round((x + fw / 2) / w, 4), round((y + fh / 2) / h, 4),
+                            round(fw / w, 4), round(fh / h, 4)])
+            i += 1
+    except Exception:  # noqa: BLE001 - vidéo illisible par OpenCV
+        return out
+    finally:
+        cap.release()
+    return out
+
+
+def face_in(track: list[list[float]], a: float, b: float, fallback: dict | None = None) -> dict | None:
+    """Visage d'une plage de source [a, b] : médiane des positions vues dedans,
+    sinon la plus proche, sinon `fallback`."""
+    if not track:
+        return fallback
+    inside = [p for p in track if a - 0.1 <= p[0] <= b + 0.1]
+    if not inside:
+        mid = (a + b) / 2
+        near = min(track, key=lambda p: abs(p[0] - mid))
+        if abs(near[0] - mid) > 3.0:
+            return fallback
+        inside = [near]
+    med = lambda k: sorted(p[k] for p in inside)[len(inside) // 2]  # noqa: E731
+    return {"x": med(1), "y": med(2), "w": med(3), "h": med(4)}
+
+
 def cache_key(words_path: str, opts: dict) -> str:
     try:
         stamp = f"{os.path.getmtime(words_path):.0f}:{os.path.getsize(words_path)}"

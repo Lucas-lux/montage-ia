@@ -86,30 +86,35 @@ def transcribe(
     compute_type: str = "auto",
     language: str | None = None,
     info: dict | None = None,
+    clips: list[tuple[float, float]] | None = None,
 ) -> list[Word]:
     """Mots horodatés de `path`.
 
     `info`, si fourni, reçoit la langue détectée (`language`) et le matériel
     réellement utilisé (`device`). Seul le mode "auto" se replie sur le
     processeur : un `device="cuda"` explicite laisse remonter l'erreur.
+    `clips` : plages (s) à transcrire chacune pour elle-même — les prises d'un
+    rush. Whisper sur le fichier entier avale volontiers une phrase redite
+    (faux départ puis la même phrase) ; prise par prise, il ne peut pas.
     """
     # Windows + CUDA : enregistrer les DLL nvidia AVANT de sonder le GPU.
     _register_cuda_dll_dirs()
 
+    extra = {"clips": clips} if clips else {}
     if resolve_device(device) == "cuda":
         try:
             return _isolated(path, model_size, "cuda", resolve_compute_type("cuda", compute_type),
-                             language, info)
+                             language, info, **extra)
         except Exception as exc:  # noqa: BLE001 - toute panne GPU mérite un 2e essai
             if device != "auto":
                 raise
             print(f"[transcribe] GPU inutilisable ({exc}) : transcription sur processeur.")
     return _run(path, model_size, "cpu", resolve_compute_type("cpu", compute_type),
-                language, info)
+                language, info, **extra)
 
 
 def _isolated(path: str, model_size: str, device: str, compute_type: str,
-              language: str | None, info: dict | None, target=None) -> list[Word]:
+              language: str | None, info: dict | None, target=None, clips=None) -> list[Word]:
     """Exécute la transcription dans un processus enfant et en rapporte le résultat.
 
     Un plantage natif de l'enfant devient un RuntimeError ici. La mémoire du GPU
@@ -120,8 +125,8 @@ def _isolated(path: str, model_size: str, device: str, compute_type: str,
 
     ctx = mp.get_context("spawn")
     recv, send = ctx.Pipe(duplex=False)
-    proc = ctx.Process(target=target or _child, daemon=True,
-                       args=(send, path, model_size, device, compute_type, language))
+    args = (send, path, model_size, device, compute_type, language) + ((clips,) if clips else ())
+    proc = ctx.Process(target=target or _child, daemon=True, args=args)
     proc.start()
     send.close()          # sinon recv() attendrait indéfiniment un enfant mort
     try:
@@ -144,12 +149,12 @@ def _isolated(path: str, model_size: str, device: str, compute_type: str,
     raise RuntimeError(f"le moteur de transcription s'est arrêté brutalement (code {shown})")
 
 
-def _child(conn, path, model_size, device, compute_type, language) -> None:
+def _child(conn, path, model_size, device, compute_type, language, clips=None) -> None:
     """Corps du processus enfant : transcrit et renvoie des tuples picklables."""
     try:
         _register_cuda_dll_dirs()
         meta: dict = {}
-        words = _run(path, model_size, device, compute_type, language, meta)
+        words = _run(path, model_size, device, compute_type, language, meta, clips)
         conn.send(("ok", ([(w.text, w.start, w.end) for w in words], meta)))
     except Exception as exc:  # noqa: BLE001 - relayé au parent
         conn.send(("error", f"{type(exc).__name__}: {exc}"))
@@ -180,11 +185,13 @@ def model_path(model_size: str) -> str:
 
 
 def _run(path: str, model_size: str, device: str, compute_type: str,
-         language: str | None, info: dict | None) -> list[Word]:
+         language: str | None, info: dict | None, clips=None) -> list[Word]:
     # Import paresseux : le modèle ne se charge que si on transcrit.
     from faster_whisper import WhisperModel
 
     model = WhisperModel(model_path(model_size), device=device, compute_type=compute_type)
+    if clips:
+        return _run_clips(model, path, language, info, device, clips)
     segments, meta = model.transcribe(
         path,
         word_timestamps=True,
@@ -201,5 +208,35 @@ def _run(path: str, model_size: str, device: str, compute_type: str,
 
     if info is not None:
         info["language"] = getattr(meta, "language", None)
+        info["device"] = device
+    return words
+
+
+def _run_clips(model, path: str, language: str | None, info: dict | None, device: str,
+               clips) -> list[Word]:
+    """Chaque plage transcrite seule (voir `transcribe`) : l'audio est décodé
+    une fois, la langue reconnue sur la première plage vaut pour toutes."""
+    from faster_whisper import decode_audio
+
+    sr = 16000
+    audio = decode_audio(path, sampling_rate=sr)
+    words: list[Word] = []
+    lang = language
+    for a, b in clips:
+        part = audio[int(max(0.0, a) * sr): int(max(a, b) * sr)]
+        if len(part) < sr // 10:
+            continue
+        # plage de parole déjà mesurée : pas de VAD (il rognerait les attaques
+        # douces), pas de contexte d'une prise à l'autre
+        segments, meta = model.transcribe(part, word_timestamps=True, vad_filter=False, language=lang,
+                                          condition_on_previous_text=False)
+        for seg in segments:
+            for w in seg.words or []:
+                if w.start is None or w.end is None:
+                    continue
+                words.append(Word(text=w.word, start=float(a + w.start), end=float(a + w.end)))
+        lang = lang or getattr(meta, "language", None)
+    if info is not None:
+        info["language"] = lang
         info["device"] = device
     return words

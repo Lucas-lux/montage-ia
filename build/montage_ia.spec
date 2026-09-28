@@ -34,6 +34,8 @@ hiddenimports = [
     # Chargés paresseusement dans le moteur : PyInstaller ne peut pas les voir.
     "PIL.Image", "PIL.ImageDraw", "PIL.ImageFont",
     "engine.server", "engine.project", "engine.store", "engine.pipeline.fonts",
+    # serveur MCP des agents IA (`MontageIA.exe --mcp`) et leurs routes
+    "engine.agent.mcp", "engine.agent.api",
 ]
 if MAC:
     # Dock et barre des menus (importés dans une fonction : invisibles à l'analyse)

@@ -39,6 +39,7 @@ class TimelineProject:
         self.dir = store.project_dir(work_dir, self.id, create=True)
         self.lock = threading.RLock()
         self.deleted = False
+        self.disk_stamp = store.state_stamp(work_dir, self.id)
         # Tâche longue du projet (export) ; les médias ont chacun leur statut.
         self.task: dict = {"status": "idle", "pct": 0, "message": ""}
 
@@ -68,12 +69,38 @@ class TimelineProject:
                 return
             self.state["updated"] = store.now()
             store.write_state(self.work_dir, self.id, self.state)
+            self.disk_stamp = store.state_stamp(self.work_dir, self.id)
+
+    def reload_if_changed(self) -> bool:
+        """Le fichier a été réécrit par un autre processus (une autre instance de
+        l'application) : on reprend son état plutôt que d'écraser le plus récent
+        à la prochaine sauvegarde. L'objet reste le même : les tâches en cours
+        (proxies, transcription) écrivent dans l'état relu."""
+        with self.lock:
+            stamp = store.state_stamp(self.work_dir, self.id)
+            if stamp is None or stamp == self.disk_stamp or self.is_busy:
+                return False
+            fresh = store.read_state(self.work_dir, self.id)
+            if not fresh or fresh.get("kind") != "timeline":
+                return False
+            self.state = upgrade(fresh)
+            self.disk_stamp = stamp
+            return True
 
     def apply(self, body: dict) -> None:
-        """Sauvegarde envoyée par l'éditeur (validée par `model`)."""
+        """Sauvegarde envoyée par l'éditeur ou un agent (validée par `model`)."""
         with self.lock:
             model.apply_client_state(self.state, body)
+            self.bump()
             self.save()
+
+    @property
+    def rev(self) -> int:
+        return int(self.state.get("rev") or 0)
+
+    def bump(self) -> None:
+        """Le montage a changé : le studio ouvert le rechargera."""
+        self.state["rev"] = self.rev + 1
 
     @property
     def media_dir(self) -> str:
@@ -130,7 +157,10 @@ class TimelineProject:
             if m is None:
                 return False
             self.state["media"] = [x for x in self.state["media"] if x["id"] != mid]
-            self.state["clips"] = [c for c in self.state["clips"] if c.get("media") != mid]
+            clips = [c for c in self.state["clips"] if c.get("media") != mid]
+            if len(clips) != len(self.state["clips"]):
+                self.state["clips"] = clips
+                self.bump()
             self.save()
         shutil.rmtree(self.media_folder(mid), ignore_errors=True)
         return True
@@ -298,7 +328,7 @@ def process_media(proj: TimelineProject, mid: str) -> None:
         if proj.update_media(mid, progress=5, **info) is None:
             return
 
-        name = mediatools.proxy_name(info["kind"])
+        name = mediatools.proxy_name(info["kind"], bool(info.get("alpha")))
         proxy = os.path.join(folder, name)
         tmp = os.path.join(folder, "tmp_" + name)
         mediatools.make_proxy(src, tmp, info, on_progress=lambda f: progress(f, 5, 85))

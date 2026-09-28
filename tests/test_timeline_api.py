@@ -71,3 +71,19 @@ def test_un_projet_short_n_est_pas_un_montage(client, server):
     assert client.get("/api/timeline/s1").status_code == 404
     [p] = client.get("/api/projects").json()["projects"]
     assert p["kind"] == "short"
+
+
+def test_projet_reecrit_par_une_autre_instance(client, server):
+    """Deux instances sur les mêmes projets : celle qui a le projet en mémoire
+    relit le fichier réécrit par l'autre au lieu de l'écraser à la sauvegarde."""
+    from engine.timeline import api as timeline_api
+    from engine.timeline.project import TimelineProject
+    pid = client.post("/api/timeline", json={"name": "Partagé"}).json()["id"]
+    client.get(f"/api/timeline/{pid}")                                   # en mémoire ici
+    other = TimelineProject.load(server.WORK_DIR, pid)                   # « l'autre instance »
+    other.apply({"name": "Renommé ailleurs"})
+    state = client.get(f"/api/timeline/{pid}").json()
+    assert state["name"] == "Renommé ailleurs" and state["rev"] == other.rev
+    assert timeline_api.TIMELINES[pid] is not other                      # même objet qu'avant, état relu
+    ok = client.post(f"/api/timeline/{pid}/save", json={"markers": [], "base_rev": other.rev}).json()
+    assert ok["rev"] == other.rev + 1

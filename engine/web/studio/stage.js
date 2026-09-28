@@ -34,6 +34,8 @@ function hit(c, px, py) {
   const a = -(c.rotation || 0) * Math.PI / 180;
   const dx = px - g.cx, dy = py - g.cy;
   const rx = dx * Math.cos(a) - dy * Math.sin(a), ry = dx * Math.sin(a) + dy * Math.cos(a);
+  // dans une zone, seule la partie visible (la zone) répond au clic
+  if (g.box && (px < g.bx || px > g.bx + g.bw || py < g.by || py > g.by + g.bh)) return false;
   return Math.abs(rx) <= g.w / 2 && Math.abs(ry) <= g.h / 2;
 }
 
@@ -115,7 +117,8 @@ function drag(e, id, mode) {
     if (!c) return;
     let gv = false, gh = false;
     if (mode === "move") {
-      let x = start.x + (px - px0) / W, y = start.y + (py - py0) / H;
+      // x/y se rapportent à la zone du clip s'il en a une (sinon au cadre)
+      let x = start.x + (px - px0) / g0.bw, y = start.y + (py - py0) / g0.bh;
       if (!ev.shiftKey) {
         if (Math.abs(x - 0.5) < SNAP) { x = 0.5; gv = true; }
         if (Math.abs(y - 0.5) < SNAP) { y = 0.5; gh = true; }

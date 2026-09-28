@@ -150,7 +150,8 @@ def build_captions(clips: list[dict], media: dict[str, dict], words_of, settings
         start = float(c["start"])
         words = []
         for w in words_of(c["media"]):
-            if w["end"] <= src_a or w["start"] >= src_b:
+            # un mot pile sur une coupe appartient au clip qui le commence (pas aux deux)
+            if w["end"] <= src_a + 1e-3 or w["start"] >= src_b - 1e-3:
                 continue
             s0, e0 = max(src_a, w["start"]), min(src_b, w["end"])
             t0 = start + (s0 - src_a) / speed

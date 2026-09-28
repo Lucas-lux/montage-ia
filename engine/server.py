@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import threading
+import time
 import uuid
 from typing import Optional
 
@@ -31,6 +32,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from engine import store
+from engine.agent import api as agent_api
 from engine.core import Options, default_output
 from engine.pipeline.style_presets import catalog, groups
 from engine.pipeline import fonts
@@ -50,6 +52,16 @@ WORK_DIR = os.path.abspath(os.environ.get("MONTAGE_IA_WORK")
 os.makedirs(WORK_DIR, exist_ok=True)
 
 app = FastAPI(title="Montage IA")
+
+# Dernière requête reçue : l'application lancée en arrière-plan pour un agent
+# IA (app.py --background) se ferme seule quand plus personne ne s'en sert.
+ACTIVITY = {"last": time.time()}
+
+
+@app.middleware("http")
+async def _activity(request, call_next):
+    ACTIVITY["last"] = time.time()
+    return await call_next(request)
 
 
 class _Static(StaticFiles):
@@ -73,6 +85,8 @@ threading.Thread(target=fonts.metrics, name="polices", daemon=True).start()
 # le déplacent en cours de route.
 timeline_api.configure(lambda: WORK_DIR)
 app.include_router(timeline_api.router)
+# Outils des agents IA (serveur MCP : Claude Code, Codex…), sur les mêmes projets.
+app.include_router(agent_api.router)
 
 # Cache des projets ouverts ; la vérité est sur disque.
 PROJECTS: dict[str, Project] = {}

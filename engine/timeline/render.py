@@ -43,7 +43,8 @@ SR = 48000
 _INLINE_GRAPH_LIMIT = 6000
 _OUT_TIME_RE = re.compile(r"out_time_us=(\d+)")
 
-RESOLUTIONS = {"720p": 720, "1080p": 1080, "1440p": 1440, "2160p": 2160}
+# 360p / 480p : aperçus des agents IA (engine/agent/preview.py), pas proposés à l'export
+RESOLUTIONS = {"360p": 360, "480p": 480, "720p": 720, "1080p": 1080, "1440p": 1440, "2160p": 2160}
 QUALITY = {"low": 0.55, "standard": 1.0, "high": 1.7}
 X264_CRF = {"low": 25, "standard": 20, "high": 16}
 X265_CRF = {"low": 28, "standard": 24, "high": 20}
@@ -108,7 +109,8 @@ class Inputs:
                 return run["input"], run["start"]
         run = {"start": a, "end": b, "clips": [clip["id"]], "input": None}
         runs.append(run)
-        run["input"] = self.add(["-ss", _f(a), "-i", media["path"]])
+        dec = ["-c:v", "libvpx-vp9"] if media.get("alpha") and media.get("vcodec") == "vp9" else []
+        run["input"] = self.add(["-ss", _f(a), *dec, "-i", media["path"]])
         return run["input"], a
 
     def image(self, media: dict, dur: float, fps: int) -> int:
@@ -174,7 +176,18 @@ def _placement(c: dict, m: dict, W: float, H: float, f: float) -> dict:
     k = base * float(c.get("scale", 1.0)) * f         # pixels de sortie par pixel source
     return {"k": k, "w": w, "h": h, "sw": w * k, "sh": h * k,
             "cx": float(c.get("x", 0.5)) * W * f, "cy": float(c.get("y", 0.5)) * H * f,
-            "rot": float(c.get("rotation") or 0.0)}
+            "rot": float(c.get("rotation") or 0.0),
+            "b": int(round(float(c.get("border") or 0.0) * W * f / 1080 / 2)) * 2}
+
+
+def _border(c: dict, g: dict) -> list[str]:
+    """Bordure « carte » autour de l'image (hors de l'image, comme `outline` dans l'aperçu)."""
+    b = g["b"]
+    if not b:
+        return []
+    col = str(c.get("border_col") or "#FFFFFF").lstrip("#")
+    col = col if len(col) == 6 and all(x in "0123456789abcdefABCDEF" for x in col) else "FFFFFF"
+    return ["format=yuva420p", f"pad=w=iw+{2 * b}:h=ih+{2 * b}:x={b}:y={b}:color=0x{col}ff"]
 
 
 def _eq(c: dict) -> str:
@@ -193,20 +206,23 @@ def _eq(c: dict) -> str:
     return ",".join(chain)
 
 
-def _read(c: dict, dur: float, fps: int) -> list[str]:
+def _read(c: dict, dur: float, fps: int, m: dict | None = None) -> list[str]:
     """Lecture de la source d'un clip, transitions comprises, durée `dur` exacte.
+    Une vidéo HDR (`m["hdr"]`) est ramenée en SDR dès la lecture.
 
     `tpad` vient APRÈS `fps` : avant, la cadence n'est pas encore connue et
     il n'ajoute aucune image."""
+    from engine.timeline.media import sdr_chain
     pre, post = float(c.get("_pre", 0.0)), float(c.get("_post", 0.0))
     if c["kind"] != "video":
         return ["setpts=PTS-STARTPTS", f"fps={fps}"]
+    sdr = sdr_chain(m or {})
     speed = float(c.get("speed") or 1.0)
     origin = float(c.get("_origin", c["in"]))
     a = float(c.get("_a", c["in"]))
     b = float(c.get("_b", float(c["in"]) + float(c["dur"]) * speed))
     chain = [f"trim=start={_f(a - origin)}:end={_f(b - origin)},setpts=(PTS-STARTPTS)/{_f(speed)}",
-             f"fps={fps}"]
+             *sdr, f"fps={fps}"]
     # ce que la source n'a pas (début ou fin du rush) : image figée
     miss_a = pre - (float(c["in"]) - a) / speed
     miss_b = post - (b - float(c["in"]) - float(c["dur"]) * speed) / speed
@@ -220,11 +236,54 @@ def _read(c: dict, dur: float, fps: int) -> list[str]:
     return chain
 
 
+def box_rect(c: dict, W: int, H: int) -> tuple[int, int, int, int, int] | None:
+    """Zone `box` d'un clip en pixels de sortie : (x, y, largeur, hauteur, rayon)."""
+    b = c.get("box")
+    if not b:
+        return None
+    bw, bh = _even(float(b["w"]) * W), _even(float(b["h"]) * H)
+    r = int(round(float(b.get("r") or 0.0) * W / 1080))
+    return int(round(float(b["x"]) * W)), int(round(float(b["y"]) * H)), bw, bh, min(r, bw // 2, bh // 2)
+
+
+def _boxed_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int, label: str,
+                   workdir: str, matte_src: str, rect: tuple[int, int, int, int, int]) -> list[str]:
+    """Clip dans sa zone : rendu comme si la zone était le cadre (même code),
+    coins arrondis par un masque, puis posé à sa place dans le cadre."""
+    x0, y0, bw, bh, r = rect
+    dur = float(c["dur"]) + float(c.get("_pre", 0.0)) + float(c.get("_post", 0.0))
+    inner = f"{label}i"
+    parts = video_segment(dict(c, box=None), m, src, bw, bh, f, fps, inner, workdir=workdir, matte_src=matte_src)
+    top = inner
+    if r > 0:
+        # masque des coins : une seule image calculée, répétée ; l'alpha du clip est multiplié par lui
+        inside = (f"hypot(max(0,max({r}-X,X-(W-1-{r}))),max(0,max({r}-Y,Y-(H-1-{r}))))")
+        parts += [
+            f"[{inner}]split[{label}s1][{label}s2]",
+            f"[{label}s1]alphaextract[{label}al]",
+            f"color=c=white:s={bw}x{bh}:r={fps}:d={_f(1 / fps)},format=gray,"
+            f"geq=lum='255*clip({r}+0.5-{inside},0,1)',loop=loop=-1:size=1,setpts=N/({fps}*TB),"
+            f"trim=duration={_f(dur)}[{label}mk]",
+            f"[{label}al][{label}mk]blend=all_mode=multiply[{label}am]",
+            f"[{label}s2][{label}am]alphamerge,format=yuva420p[{label}r]",
+        ]
+        top = f"{label}r"
+    return parts + [
+        f"color=c=black@0:s={W}x{H}:r={fps}:d={_f(dur)},format=yuva420p[{label}B]",
+        f"[{label}B][{top}]overlay=x={x0}:y={y0}:eof_action=repeat:format=auto,setsar=1,"
+        f"trim=duration={_f(dur)}[{label}]",
+    ]
+
+
 def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int, label: str,
                   blur: bool = False, workdir: str = "", matte_src: str = "") -> list[str]:
     """Chaîne d'un clip visuel : [src] -> image du cadre (transparente autour),
     durée exacte (prolongations de transition comprises). Avec `blur`, le
-    fond est l'image du clip elle-même, agrandie et floutée."""
+    fond est l'image du clip elle-même, agrandie et floutée. Un clip qui a une
+    zone (`box`) est rendu dans cette zone (voir `_boxed_segment`)."""
+    rect = box_rect(c, W, H)
+    if rect:
+        return _boxed_segment(c, m, src, W, H, f, fps, label, workdir, matte_src, rect)
     dur = float(c["dur"]) + float(c.get("_pre", 0.0)) + float(c.get("_post", 0.0))
     g = _placement(c, m, W / f, H / f, f)
     pre: list[str] = []
@@ -234,10 +293,10 @@ def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int
         read_src = f"[{label}a]"
     if workdir and (animations.has_anim(c) or c.get("follow")):
         return pre + _animated_segment(c, m, g, src, read_src, W, H, f, fps, label, dur, blur, workdir, bool(pre))
-    chain: list[str] = [] if pre else _read(c, dur, fps)
+    chain: list[str] = [] if pre else _read(c, dur, fps, m)
 
     rot = g["rot"] % 360
-    if abs(rot) < 0.01:
+    if abs(rot) < 0.01 and not g["b"]:
         # sans rotation : on ne garde de la source que la partie visible
         left, top = g["cx"] - g["sw"] / 2, g["cy"] - g["sh"] / 2
         vx0, vy0 = max(0.0, left), max(0.0, top)
@@ -268,11 +327,14 @@ def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int
             chain.append("hflip")
         if c.get("flip_v"):
             chain.append("vflip")
+        chain += _border(c, g)
+        sw, sh = sw + 2 * g["b"], sh + 2 * g["b"]
         rad = math.radians(g["rot"])
         ow = _even(abs(sw * math.cos(rad)) + abs(sh * math.sin(rad)))
         oh = _even(abs(sw * math.sin(rad)) + abs(sh * math.cos(rad)))
         chain.append("format=yuva420p")
-        chain.append(f"rotate={_f(rad)}:ow={ow}:oh={oh}:c=black@0")
+        if abs(rot) >= 0.01:
+            chain.append(f"rotate={_f(rad)}:ow={ow}:oh={oh}:c=black@0")
         px, py = int(round(g["cx"] - ow / 2)), int(round(g["cy"] - oh / 2))
     eq = _eq(c)
     if eq:
@@ -285,7 +347,7 @@ def video_segment(c: dict, m: dict, src: str, W: int, H: int, f: float, fps: int
     if blur:
         # arrière-plan flou : l'image en « remplir », réduite, floutée, agrandie
         bw, bh = _even(W / 6), _even(H / 6)
-        base = (f"{src}{','.join(_read(c, dur, fps))},"
+        base = (f"{src}{','.join(_read(c, dur, fps, m))},"
                 f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=5:2,"
                 f"scale={W}:{H},eq=brightness=-0.06,format=yuva420p,setsar=1[{label}b]")
     else:
@@ -308,7 +370,7 @@ def _animated_segment(c: dict, m: dict, g: dict, src: str, read_src: str, W: int
     pre = float(c.get("_pre", 0.0))
     t0 = float(c["start"]) - pre                  # instant (timeline) de la 1re image du segment
     sw, sh = _even(g["sw"]), _even(g["sh"])
-    side = _even(math.hypot(sw, sh) + 2)
+    side = _even(math.hypot(sw + 2 * g["b"], sh + 2 * g["b"]) + 2)
     op = float(c.get("opacity", 1.0))
     L = label
 
@@ -350,11 +412,12 @@ def _animated_segment(c: dict, m: dict, g: dict, src: str, read_src: str, W: int
     with open(os.path.join(workdir, cmd_file), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 
-    chain = ([] if already_read else _read(c, dur, fps)) + [f"sendcmd=f={cmd_file}", f"scale={sw}:{sh}:flags=bicubic"]
+    chain = ([] if already_read else _read(c, dur, fps, m)) + [f"sendcmd=f={cmd_file}", f"scale={sw}:{sh}:flags=bicubic"]
     if c.get("flip_h"):
         chain.append("hflip")
     if c.get("flip_v"):
         chain.append("vflip")
+    chain += _border(c, g)
     eq = _eq(c)
     if eq:
         chain.append(eq)
@@ -366,7 +429,7 @@ def _animated_segment(c: dict, m: dict, g: dict, src: str, read_src: str, W: int
     chain += [f"colorchannelmixer@{L}=aa={first['aa']}", f"scale@{L}=w={first['w']}:h={first['h']}", "setsar=1"]
     if blur:
         bw, bh = _even(W / 6), _even(H / 6)
-        base = (f"{src}{','.join(_read(c, dur, fps))},"
+        base = (f"{src}{','.join(_read(c, dur, fps, m))},"
                 f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=5:2,"
                 f"scale={W}:{H},eq=brightness=-0.06,format=yuva420p,setsar=1[{L}b]")
     else:
@@ -429,7 +492,7 @@ def _cutout_parts(c: dict, m: dict, src: str, matte_src: str, dur: float, fps: i
     w, h = _even(float(m.get("w") or 2)), _even(float(m.get("h") or 2))
     matte_clip = dict(c, _origin=float(c.get("_a", c.get("in", 0.0))))
     return [
-        f"{src}{','.join(_read(c, dur, fps))},format=yuva420p[{label}v0]",
+        f"{src}{','.join(_read(c, dur, fps, m))},format=yuva420p[{label}v0]",
         f"{matte_src}{','.join(_read(matte_clip, dur, fps))},scale={w}:{h}:flags=bilinear,format=gray[{label}m]",
         f"[{label}v0][{label}m]alphamerge,format=yuva420p[{label}a]",
     ]
@@ -539,6 +602,14 @@ def voice_chain(fx: dict, rnnoise: bool = False) -> list[str]:
     l'ordre d'une chaîne de studio : nettoyage, dynamique, couleur, niveau."""
     fx = fx or {}
     out: list[str] = []
+    if fx.get("declip"):
+        out.append("adeclip")
+    gain = float(fx.get("gain") or 0)
+    if abs(gain) >= 0.1:
+        # « Optimiser le son » : la voix arrive au niveau de travail, les seuils
+        # qui suivent (porte, compresseur) sont justes pour toutes les prises
+        out.append(f"volume={_f(gain)}dB")
+    noise = fx.get("noise")
     if fx.get("lowcut"):
         out.append("highpass=f=80")
     dn = float(fx.get("denoise") or 0)
@@ -546,9 +617,12 @@ def voice_chain(fx: dict, rnnoise: bool = False) -> list[str]:
         if rnnoise:
             out.append(f"arnndn=m={RNNOISE_FILE}:mix={_f(0.3 + 0.7 * dn)}")
         else:
-            out.append(f"afftdn=nr={_f(6 + 18 * dn)}:nf=-30:tn=1")
+            nf = min(-20.0, max(-80.0, float(noise))) if noise is not None else -30.0
+            out.append(f"afftdn=nr={_f(6 + 18 * dn)}:nf={_f(nf)}:tn=1")
     if fx.get("gate"):
-        out.append("agate=threshold=0.02:ratio=4:attack=5:release=180:knee=4")
+        # seuil mesuré : 8 dB au-dessus du bruit de fond, jamais près de la voix
+        thr = 0.02 if noise is None else 10 ** (min(-30.0, max(-60.0, float(noise) + 8)) / 20)
+        out.append(f"agate=threshold={thr:.5f}:ratio=4:attack=5:release=180:knee=4")
     de = float(fx.get("deess") or 0)
     if de > 0:
         out.append(f"deesser=i={_f(0.2 + 0.6 * de)}:m=0.5:f=0.5")

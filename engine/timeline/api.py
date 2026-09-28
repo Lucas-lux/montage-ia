@@ -45,6 +45,8 @@ def get(pid: str) -> TimelineProject:
         if proj is None:
             raise HTTPException(404, "Montage introuvable.")
         TIMELINES[pid] = proj
+    else:
+        proj.reload_if_changed()           # réécrit par une autre instance : on relit
     return proj
 
 
@@ -86,11 +88,29 @@ def state(pid: str) -> dict:
 
 @router.post("/api/timeline/{pid}/save")
 def save(pid: str, body: dict = Body(...)) -> dict:
-    """Sauvegarde automatique de l'éditeur : pistes, clips, format, réglages, nom."""
+    """Sauvegarde automatique de l'éditeur : pistes, clips, format, réglages, nom.
+
+    `base_rev` : la révision sur laquelle l'éditeur a travaillé. Si le montage
+    a changé entre-temps (un agent IA l'a modifié), 409 : l'éditeur recharge
+    au lieu d'écraser ce travail."""
     proj = get(pid)
-    proj.apply(body)
-    return {"ok": True, "updated": proj.state["updated"],
-            "duration": model.duration(proj.state["clips"])}
+    with proj.lock:
+        base = body.get("base_rev")
+        if base is not None and model._int(base, -1, -1, 1 << 30) != proj.rev:
+            raise HTTPException(409, {"message": "Le montage a été modifié ailleurs.", "rev": proj.rev})
+        proj.apply(body)
+        return {"ok": True, "updated": proj.state["updated"], "rev": proj.rev,
+                "duration": model.duration(proj.state["clips"])}
+
+
+@router.get("/api/timeline/{pid}/rev")
+def revision(pid: str) -> dict:
+    """Interrogé par le studio ouvert : le montage ou les médias ont-ils bougé ?"""
+    proj = get(pid)
+    with proj.lock:
+        media = "|".join(f"{m['id']}:{m.get('status')}:{(m.get('transcript') or {}).get('status')}:"
+                         f"{(m.get('subject') or {}).get('status')}" for m in proj.state["media"])
+    return {"rev": proj.rev, "media": media}
 
 
 # ------------------------------------------------------------------- médias
@@ -390,7 +410,10 @@ def media_words(pid: str, mid: str) -> dict:
         raise HTTPException(404, "Média introuvable.")
     if (m.get("transcript") or {}).get("status") != "done":
         raise HTTPException(409, "Ce média n'est pas encore transcrit.")
-    return {"words": ai.load_words(proj, mid), "language": (m.get("transcript") or {}).get("language", "")}
+    from engine.timeline import sound
+    # `cs`/`ce` : bornes sonores des mots, pour couper sans manger une fin de phrase
+    words = sound.cut_words(proj, mid, ai.load_words(proj, mid))
+    return {"words": words, "language": (m.get("transcript") or {}).get("language", "")}
 
 
 @router.get("/api/timeline/{pid}/media/{mid}/silences")
@@ -456,6 +479,33 @@ def make_captions(pid: str, body: dict = Body(...)) -> dict:
     settings = {**proj.state.get("settings", {}), **(body.get("settings") or {})}
     caps = ai.build_captions(clips, media, words_of, settings)
     return {"captions": caps, "language": ai.language_of(proj, sorted({c["media"] for c in voice}))}
+
+
+@router.post("/api/timeline/{pid}/sound/optimize")
+def sound_optimize(pid: str, body: dict = Body(...)) -> dict:
+    """« Optimiser le son » : mesure le son des clips envoyés (ceux du montage)
+    et renvoie leurs réglages ; l'éditeur les pose (une étape d'annulation)."""
+    from engine.timeline import sound
+    proj = get(pid)
+    clips = body.get("clips")
+    if not isinstance(clips, list):
+        raise HTTPException(400, "`clips` doit être une liste.")
+    media = {m["id"]: m for m in proj.state["media"]}
+    clean = []
+    for c in clips:
+        if not isinstance(c, dict) or c.get("media") not in media or c.get("kind") not in ("video", "audio"):
+            continue
+        try:
+            clean.append({"id": str(c.get("id") or ""), "kind": c["kind"], "media": c["media"],
+                          "start": float(c.get("start") or 0), "dur": float(c.get("dur") or 0),
+                          "muted": bool(c.get("muted")), "detached": bool(c.get("detached"))})
+        except (TypeError, ValueError):
+            continue
+    missing = [m["name"] for m in media.values() if m.get("status") != "ready"
+               and any(c["media"] == m["id"] for c in clean)]
+    if missing:
+        raise HTTPException(409, "Médias pas encore prêts : " + ", ".join(missing))
+    return sound.optimize(proj, clean)
 
 
 @router.post("/api/timeline/{pid}/translate")
@@ -545,6 +595,42 @@ def llm_download() -> dict:
     return {"ok": True}
 
 
+def media_plan(proj: TimelineProject, mid: str, opts: dict, say=None) -> dict:
+    """Plan de montage automatique d'un média transcrit (en cache par réglage).
+    Sert au studio (montage automatique) et aux agents IA (engine/agent)."""
+    m = proj.media(mid)
+    folder = proj.media_folder(mid)
+    words_file = ai.words_path(proj, mid)
+    key = autoedit.cache_key(words_file, opts)
+    cache = os.path.join(folder, f"autoedit_{key}.json")
+    plan = None
+    try:
+        with open(cache, encoding="utf-8") as f:
+            plan = json.load(f)
+    except (OSError, ValueError):
+        pass
+    if plan is None:
+        words = ai.load_words(proj, mid)
+        wave, rate = wave_of(proj, m)
+        if opts.get("llm", True) and llm.available() and say:
+            say(f"L'IA prépare le montage de « {m['name']} »…")
+        lang = (m.get("transcript") or {}).get("language") or "fr"
+        plan = autoedit.build_plan(words, wave, rate, opts, lang)
+        with open(cache, "w", encoding="utf-8") as f:
+            json.dump(plan, f, ensure_ascii=False)
+    plan["face"] = _face(proj, m)
+    return plan
+
+
+def wave_of(proj: TimelineProject, m: dict) -> tuple[bytes | None, int]:
+    """Forme d'onde d'un média (un octet par centième de seconde), pour l'énergie de la voix."""
+    try:
+        with open(os.path.join(proj.media_folder(m["id"]), "wave.bin"), "rb") as f:
+            return f.read(), int((m.get("waveform") or {}).get("rate") or 100)
+    except OSError:
+        return None, 100
+
+
 def _autoedit_job(proj: TimelineProject, jid: str, mids: list[str], opts: dict) -> None:
     job = AUTOEDIT_JOBS[jid]
     try:
@@ -554,33 +640,7 @@ def _autoedit_job(proj: TimelineProject, jid: str, mids: list[str], opts: dict) 
             if not m:
                 continue
             job.update(message=f"Analyse de « {m['name']} »…", pct=round(100 * n / max(1, len(mids))))
-            folder = proj.media_folder(mid)
-            words_file = ai.words_path(proj, mid)
-            key = autoedit.cache_key(words_file, opts)
-            cache = os.path.join(folder, f"autoedit_{key}.json")
-            plan = None
-            try:
-                with open(cache, encoding="utf-8") as f:
-                    plan = json.load(f)
-            except (OSError, ValueError):
-                pass
-            if plan is None:
-                words = ai.load_words(proj, mid)
-                wave, rate = None, 100
-                try:
-                    with open(os.path.join(folder, "wave.bin"), "rb") as f:
-                        wave = f.read()
-                    rate = int((m.get("waveform") or {}).get("rate") or 100)
-                except OSError:
-                    pass
-                if opts.get("llm", True) and llm.available():
-                    job["message"] = f"L'IA prépare le montage de « {m['name']} »…"
-                lang = (m.get("transcript") or {}).get("language") or "fr"
-                plan = autoedit.build_plan(words, wave, rate, opts, lang)
-                with open(cache, "w", encoding="utf-8") as f:
-                    json.dump(plan, f, ensure_ascii=False)
-            plan["face"] = _face(proj, m)
-            plans[mid] = plan
+            plans[mid] = media_plan(proj, mid, opts, lambda text: job.update(message=text))
         job.update(status="done", pct=100, message="Plan prêt.", plans=plans)
     except Exception as exc:  # noqa: BLE001 - affiché dans l'éditeur
         job.update(status="error", message=str(exc)[:600])
@@ -717,7 +777,8 @@ _FILES = {
     "poster": ("poster.jpg", "image/jpeg"),
     "wave": ("wave.bin", "application/octet-stream"),
 }
-_PROXY_TYPES = {".mp4": "video/mp4", ".m4a": "audio/mp4", ".jpg": "image/jpeg"}
+_PROXY_TYPES = {".mp4": "video/mp4", ".m4a": "audio/mp4", ".jpg": "image/jpeg", ".png": "image/png",
+                ".webm": "video/webm"}
 
 
 # ---------------------------------------------------------- sujet et arrière-plan

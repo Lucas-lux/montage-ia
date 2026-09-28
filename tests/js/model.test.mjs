@@ -533,3 +533,24 @@ test("rythme : coupes aux fins de phrases, sinon régulières, jamais de bout tr
   const sped = M.rhythmSplits({ start: 0, dur: 10, in: 0, speed: 2 }, [8], { minPiece: 2, maxPiece: 6 });
   assert.deepEqual(sped, [4]);                   // 8 s de source à ×2 = 4 s de timeline
 });
+
+test("une courte phrase après un tic reste (« Du coup, je l'ai fait. »)", () => {
+  const w = (text, start, end) => ({ text, start, end });
+  const ws = [w("place.", 4.49, 4.89), w("Du", 5.19, 5.47), w("coup,", 5.47, 5.67), w("je", 5.67, 5.69),
+              w("l'ai", 5.69, 5.81), w("fait.", 5.81, 5.94)];
+  const f = M.fillerCuts(ws, 0.05);
+  assert.equal(f.length, 1);
+  assert.ok(Math.abs(f[0][1] - 5.67) < 1e-9, "la coupe s'arrête au début de « je »");
+  const clip = { start: 0, in: 1.7, dur: 4.35, speed: 1 };
+  const cuts = M.clipCuts(clip, { words: ws, maxGap: 0.3, pad: 0.08, tail: 0.12, fillers: true, minKeep: 0.35 });
+  assert.ok(!cuts.some(([x, y]) => x < 5.75 && y > 5.75), "« l'ai fait » n'est pas coupé");
+});
+
+test("un sous-titre recalé à la main garde ses mots-clés", () => {
+  const c = { kind: "text", auto: true, words: [
+    { text: "six", start: 0, end: 0.3, m: "mv", s: 1, e: 1.3, k: true },
+    { text: "mois", start: 0.3, end: 0.6, m: "mv", s: 1.3, e: 1.6 },
+    { text: "coupé", start: 0.6, end: 0.9, m: "mv", s: 1.6, e: 1.9, cut: true }] };
+  M.makeManual(c);
+  assert.deepEqual(c.words, [{ text: "six", start: 0, end: 0.3, k: true }, { text: "mois", start: 0.3, end: 0.6 }]);
+});

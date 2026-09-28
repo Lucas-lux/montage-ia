@@ -64,6 +64,20 @@ def test_remplir_recadre_avant_de_mettre_a_l_echelle(tmp_path):
     assert g["vout"] == "vout" and g["aout"] == "amix" and g["duration"] == 2.0
 
 
+def test_bordure_de_carte_dans_le_graphe(tmp_path):
+    from engine.timeline import animations
+    # 14 px d'un cadre de 1080 de large = 4 px (pair) dans du 360 de large, autour de l'image entière
+    card = vclip(id="b", track="tv2", fit="contain", scale=0.5, border=14, border_col="#FF0000")
+    g = render.build(state([vclip(), card]), {"mr": RED}, 360, 640, 25, str(tmp_path))
+    assert "pad=w=iw+8:h=ih+8:x=4:y=4:color=0xFF0000ff" in g["graph"]
+    assert g["graph"].count("crop=") == 1             # la carte n'est pas recadrée au bord du cadre
+    # tournée et animée : la bordure est posée avant la rotation
+    card.update(rotation=-5, anim_in=animations.normalize({"type": "pop"}, "in", "media"))
+    g = render.build(state([vclip(), card]), {"mr": RED}, 360, 640, 25, str(tmp_path))
+    graph = g["graph"]
+    assert graph.index("pad=w=iw+8") < graph.index("rotate@")
+
+
 def test_clip_hors_cadre_et_pistes_masquees(tmp_path):
     out = vclip(id="o", track="tv2", x=3.0)
     st = state([vclip(), out])
@@ -205,6 +219,22 @@ def test_rendu_rotation_miroir_opacite_et_720p(media, tmp_path):
     mid = pixel(out, 0.5, 360, 640)
     assert 60 < mid[1] < 220 and mid[0] < 60                  # vert à demi transparent sur noir
     assert close(pixel(out, 0.5, 20, 20), (0, 0, 0), 30)      # coin : le fond
+
+
+@pytest.mark.ffmpeg
+def test_rendu_bordure_de_carte(media, tmp_path):
+    if not render._encoder_works("libx264"):
+        pytest.skip("ffmpeg sans libx264")
+    clips = [{"id": "g", "track": "tv1", "kind": "video", "media": "mg", "start": 0, "dur": 1, "in": 0,
+              "speed": 1, "x": 0.5, "y": 0.5, "scale": 0.5, "fit": "contain", "rotation": 0,
+              "opacity": 1, "border": 60}]
+    st = state(clips, canvas={"w": 1080, "h": 1920, "fps": 30, "bg": "#000000"})
+    out = tmp_path / "carte.mp4"
+    render.export(st, list(media.values()), str(out), resolution="720p", encoder="cpu")
+    # 720p : l'image verte fait 360 px de large au centre, la bordure 40 px autour
+    assert close(pixel(out, 0.5, 360, 640), (0, 255, 0))
+    assert close(pixel(out, 0.5, 360 - 180 - 20, 640), (255, 255, 255))
+    assert close(pixel(out, 0.5, 360 - 180 - 60, 640), (0, 0, 0), 30)
 
 
 @pytest.mark.ffmpeg

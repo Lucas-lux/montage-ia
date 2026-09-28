@@ -12,7 +12,7 @@
 import * as AN from "./anim.js";
 import { baselineShift, emScale, fontStack } from "./fonts.js";
 import * as M from "./model.js";
-import { applyState, buildText, hexA, wordStates } from "./textfx.js";
+import { applyState, buildText, hexA, kwFactor, wordStates } from "./textfx.js";
 import { S, begin, cancelBegin, changed, end, on, select, snapshot } from "./store.js";
 import { $, clamp, h } from "./util.js";
 
@@ -73,6 +73,22 @@ function animate(root, c, t) {
   const n = { char: root._units.char.length ? Math.max(...root._units.char.map((u) => u.i)) + 1 : 0,
               word: M.liveWords(c).length };
   applyState(root, c, st, S.k || 1, S.doc.canvas, (per) => AN.unitState(st, per, n[per]));
+  // mots-clés qui rebondissent à leur apparition (même courbe que l'export)
+  if (c.kw_pop) {
+    for (const u of root._units.word) {
+      if (u.el._kwAt !== undefined) u.el.style.fontSize = u.el._grow * kwFactor(c, t - u.el._kwAt) + "em";
+    }
+  }
+}
+
+/** Alt + clic sur un mot : il devient (ou cesse d'être) un mot-clé. */
+function toggleKeyword(c, j) {
+  const w = M.liveWords(c)[j];
+  if (!w) return;
+  snapshot();
+  if (w.k) delete w.k; else w.k = true;
+  changed({ reason: "text" });
+  renderCaptions(S.t, true);
 }
 
 /** Les lettres sont séparées seulement si une animation lettre à lettre en a besoin. */
@@ -82,9 +98,9 @@ const perChar = (c) => ["anim_in", "anim_out", "anim_loop"].some((k) =>
 const LOOK = ["font", "size", "bold", "upper", "color", "hl", "outline_col", "outline", "shadow", "box",
               "box_alpha", "mode", "pop", "x", "y", "emoji", "emoji_size", "emoji_dx", "emoji_dy",
               "italic", "spacing", "color2", "shadow_col", "shadow_blur", "glow", "glow_col", "outline2",
-              "outline2_col", "extrude", "extrude_col", "hollow"];
+              "outline2_col", "extrude", "extrude_col", "hollow", "kw", "kw_scale", "kw_pop"];
 const styleKey = (c) => LOOK.map((f) => c[f]).join(",") + ":" + perChar(c) + ":" +
-  M.liveWords(c).map((w) => w.text).join(" ");
+  M.liveWords(c).map((w) => w.text + (w.k ? "*" : "")).join(" ");
 
 export function buildCap(c, wordIdx, ghost) {
   const k = S.k || 1;
@@ -102,7 +118,9 @@ export function buildCap(c, wordIdx, ghost) {
 
   // mot actif agrandi comme libass (le mot prend vraiment plus de place :
   // il ne recouvre pas les espaces voisins, la ligne s'élargit un peu)
-  const states = ["word", "sweep", "reveal", "dim"].includes(c.mode) ? wordStates(c, words.length, wordIdx) : null;
+  const keyed = words.some((w) => w.k);
+  const states = ["word", "sweep", "reveal", "dim"].includes(c.mode) || keyed
+    ? wordStates(c, words.length, wordIdx, words, ghost ? Infinity : S.t) : null;
   const { root, main: inner } = buildText(c, k, words.map((w) => w.text), states, perChar(c));
   root.style.top = baselineShift(c.font) * c.size * k + "px";
   el.appendChild(root);
@@ -122,6 +140,13 @@ export function buildCap(c, wordIdx, ghost) {
   el.appendChild(rs);
   el.onpointerdown = (e) => {
     if (e.target !== el && !root.contains(e.target)) return;
+    const w = e.altKey && !ghost ? e.target.closest("w") : null;
+    if (w && w.dataset.i !== undefined) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleKeyword(c, +w.dataset.i);
+      return;
+    }
     startDrag(e, c, "move");
   };
   el.ondblclick = (e) => { e.preventDefault(); e.stopPropagation(); editInline(el, inner, c); };

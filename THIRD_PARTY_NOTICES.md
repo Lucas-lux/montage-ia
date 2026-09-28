@@ -25,12 +25,22 @@ the components below, which keep their own licenses.
 
 ## Fonts stored in this repository (`engine/data/fonts`)
 
-53 fonts from [Google Fonts](https://fonts.google.com/), fetched by
-`scripts/fetch_fonts.py` (static instances of the chosen weights). 49 are under
+59 fonts from [Google Fonts](https://fonts.google.com/), fetched by
+`scripts/fetch_fonts.py` (static instances of the chosen weights). 55 are under
 the **SIL Open Font License 1.1** and 4 (Luckiest Guy, Chewy, Permanent Marker, Satisfy) under **Apache-2.0**; each family's license text is in
 `engine/data/fonts/licenses/`. They are bundled with the application and used
 to draw captions; the OFL allows this as long as the fonts are not sold on
 their own.
+
+## Images found by AI agents
+
+The agent tools (`engine/agent/images.py`) search, at the agent's request,
+[Openverse](https://openverse.org/) and [Wikimedia Commons](https://commons.wikimedia.org/)
+(Creative Commons and public-domain images) and, with the user's own key,
+[Pexels](https://www.pexels.com/) (Pexels License). Nothing is bundled: each
+image or video is downloaded into the user's project with its author, licence
+and source page, and keeps its own licence (some require attribution, some
+forbid commercial use).
 
 ## Sound effects
 

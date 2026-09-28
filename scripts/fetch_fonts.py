@@ -2,6 +2,7 @@
 
     pip install fonttools          # lecture des noms et de la couverture des glyphes
     python scripts/fetch_fonts.py
+    python scripts/fetch_fonts.py --new    # seulement les polices pas encore dans fonts.json
 
 Écrit `engine/data/fonts/` : un fichier TTF statique par police (le poids voulu
 d'une famille variable est demandé à l'API CSS de Google Fonts, qui renvoie une
@@ -34,8 +35,8 @@ OUT = os.path.join(ROOT, "engine", "data", "fonts")
 UA = {"User-Agent": "curl/8.4.0"}          # l'API CSS renvoie alors des TTF
 FRENCH = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789éèêëàâäîïôöùûüçÉÈÊÀÂÎÔÙÛÇœŒ'’!?.,:;«»-%€"
 
-# (famille Google Fonts, poids, catégorie, dossier du dépôt google/fonts)
-FONTS: list[tuple[str, int, str, str]] = [
+# (famille Google Fonts, poids, catégorie, dossier du dépôt google/fonts[, italique])
+FONTS: list[tuple] = [
     # impact : titres, accroches, sous-titres qui claquent
     ("Anton", 400, "impact", "anton"),
     ("Bebas Neue", 400, "impact", "bebasneue"),
@@ -96,6 +97,15 @@ FONTS: list[tuple[str, int, str, str]] = [
     ("Cinzel", 700, "elegante", "cinzel"),
     ("Yeseva One", 400, "elegante", "yesevaone"),
     ("Cormorant Garamond", 700, "elegante", "cormorantgaramond"),
+    # sous-titres « éditoriaux » (serif étroite, style documentaire)
+    ("Instrument Serif", 400, "elegante", "instrumentserif"),
+    # scènes de montage court : sous-titres nets (grotesque neutre), titres et
+    # étiquettes des écrans partagés, mot d'accent en serif italique
+    ("Inter", 700, "createur", "inter"),
+    ("Archivo", 700, "createur", "archivo"),
+    ("Archivo", 800, "impact", "archivo"),
+    ("Fraunces", 900, "elegante", "fraunces"),
+    ("Fraunces", 900, "elegante", "fraunces", True),
 ]
 
 CATEGORIES = {"impact": "Impact", "createur": "Créateurs", "fun": "Fun", "manuscrite": "Manuscrites",
@@ -107,12 +117,13 @@ def get(url: str) -> bytes:
         return r.read()
 
 
-def ttf_url(family: str, weight: int) -> str:
+def ttf_url(family: str, weight: int, italic: bool = False) -> str:
     q = urllib.parse.quote_plus(family)
-    css = get(f"https://fonts.googleapis.com/css2?family={q}:wght@{weight}").decode()
+    axes = f"ital,wght@1,{weight}" if italic else f"wght@{weight}"
+    css = get(f"https://fonts.googleapis.com/css2?family={q}:{axes}").decode()
     m = re.search(r"src: url\((\S+?\.ttf)\)", css)
     if not m:
-        raise RuntimeError(f"pas de TTF pour {family} {weight}")
+        raise RuntimeError(f"pas de TTF pour {family} {weight}{' italique' if italic else ''}")
     return m.group(1)
 
 
@@ -151,8 +162,20 @@ def fetch_license(folder: str) -> str:
 def main() -> None:
     os.makedirs(os.path.join(OUT, "licenses"), exist_ok=True)
     catalog, refused, seen = [], [], set()
-    for family, weight, cat, folder in FONTS:
-        data = get(ttf_url(family, weight))
+    # --new : on garde le catalogue actuel et on n'ajoute que ce qui manque
+    keep = {}
+    if "--new" in sys.argv[1:] and os.path.isfile(os.path.join(OUT, "fonts.json")):
+        with open(os.path.join(OUT, "fonts.json"), encoding="utf-8") as fh:
+            for f in json.load(fh)["fonts"]:
+                keep[(f["family"], f["weight"], bool(f.get("italic")))] = f
+    for family, weight, cat, folder, *rest in FONTS:
+        italic = bool(rest and rest[0])
+        if (family, weight, italic) in keep:
+            f = keep[(family, weight, italic)]
+            catalog.append(f)
+            seen.add(f["name"])
+            continue
+        data = get(ttf_url(family, weight, italic))
         fam, full = names(data)
         # nom reconnu par libass : la famille si elle suffit (« Bebas Neue »),
         # sinon le nom complet (« Montserrat Black »)
@@ -168,8 +191,11 @@ def main() -> None:
         with open(os.path.join(OUT, file), "wb") as fh:
             fh.write(data)
         license_id = fetch_license(folder)
-        catalog.append({"name": name, "file": file, "family": family, "weight": weight, "category": cat,
-                        "license": license_id, "license_file": f"licenses/{folder}.txt"})
+        entry = {"name": name, "file": file, "family": family, "weight": weight, "category": cat,
+                 "license": license_id, "license_file": f"licenses/{folder}.txt"}
+        if italic:
+            entry["italic"] = True
+        catalog.append(entry)
         print(f"  {name:28} {len(data) // 1024:5} Ko  {cat}")
     with open(os.path.join(OUT, "fonts.json"), "w", encoding="utf-8") as fh:
         json.dump({"categories": CATEGORIES, "fonts": catalog}, fh, ensure_ascii=False, indent=1)

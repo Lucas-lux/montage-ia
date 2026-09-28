@@ -164,6 +164,15 @@ def test_reglages_image_et_mots_coupes_conserves():
     assert c["gone"] and c["words"][0]["cut"] and "cut" not in c["words"][1]
 
 
+def test_bordure_de_carte():
+    [c] = norm(clip(border=14, border_col="#f00"))
+    assert c["border"] == 14 and c["border_col"] == "#FF0000"
+    [n] = norm(clip(border=0, border_col="#FF0000"))
+    assert "border" not in n and "border_col" not in n
+    [d] = norm(clip(border=999, border_col="bleu"))
+    assert d["border"] == 200 and d["border_col"] == "#FFFFFF"
+
+
 def test_transition_et_effets_audio():
     [c] = norm(clip(trans={"type": "fade", "dur": 9}, audio_fx={"denoise": 0.5, "bidon": True, "lowcut": 1}))
     assert c["trans"] == {"type": "fade", "dur": 3.0} and c["audio_fx"] == {"denoise": 0.5, "lowcut": True}

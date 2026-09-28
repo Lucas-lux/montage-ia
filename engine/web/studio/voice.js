@@ -8,6 +8,9 @@
    chaleur, sifflantes, compression. Bruit, porte et niveau constant ne
    s'entendent qu'à l'export. */
 
+import { post } from "./api.js";
+import { S, edit } from "./store.js";
+
 export const KEYS = ["denoise", "lowcut", "gate", "deess", "compress", "clarity", "warmth", "level"];
 
 export const PRESETS = [
@@ -40,9 +43,13 @@ export function withPreset(name) {
   return Object.keys(p.fx).length ? { ...p.fx, preset: p.name } : {};
 }
 
+/** Réglages mesurés par « Optimiser le son » : un preset à part, propre à chaque rush. */
+export const AUTO = { name: "auto", label: "Optimisé", hint: "mesuré sur ton son : niveau, bruit, dynamique, timbre" };
+
 /** Le preset dont `fx` a exactement les valeurs, ou null (réglages personnalisés). */
 export function presetOf(fx) {
   const f = fx || {};
+  if (f.preset === "auto") return AUTO;
   return PRESETS.find((p) => KEYS.every((k) => norm(p.fx[k]) === norm(f[k]))) || null;
 }
 const norm = (v) => (typeof v === "boolean" ? (v ? 1 : 0) : Math.round((+v || 0) * 100) / 100);
@@ -50,7 +57,7 @@ const norm = (v) => (typeof v === "boolean" ? (v ? 1 : 0) : Math.round((+v || 0)
 /** Clé de comparaison : la chaîne d'aperçu ne se reconstruit que si elle change. */
 export function fxKey(fx) {
   const f = fx || {};
-  return KEYS.map((k) => norm(f[k])).join(",");
+  return KEYS.map((k) => norm(f[k])).join(",") + ":" + (+f.gain || 0);
 }
 
 export const active = (fx) => KEYS.some((k) => norm((fx || {})[k]) > 0);
@@ -67,6 +74,12 @@ export function buildChain(ctx, fx) {
     n.Q.value = Q;
     nodes.push(n);
   };
+  const gain = +f.gain || 0;
+  if (Math.abs(gain) >= 0.1) {                 // niveau de travail mesuré (« Optimiser le son »)
+    const g = ctx.createGain();
+    g.gain.value = Math.pow(10, gain / 20);
+    nodes.push(g);
+  }
   if (f.lowcut) biquad("highpass", 80, 0, 0.7);
   const cl = +f.clarity || 0;
   if (cl > 0) {
@@ -94,4 +107,59 @@ export function buildChain(ctx, fx) {
   if (!nodes.length) return null;
   for (let i = 0; i + 1 < nodes.length; i++) nodes[i].connect(nodes[i + 1]);
   return { first: nodes[0], last: nodes[nodes.length - 1], nodes };
+}
+
+/* ------------------------------------------------------ optimiser le son
+
+   Le moteur mesure le son de chaque rush (niveau de la voix, bruit de fond,
+   dynamique, sifflantes, timbre, saturation ; niveau des musiques) et renvoie
+   les réglages : voix au niveau de travail, bruit réduit à sa mesure, porte
+   calée sur le bruit, compression, de-esser, clarté ; musique de fond sous la
+   voix ; export à -14 LUFS (engine/timeline/sound.py). */
+
+/** Plan du moteur pour les clips donnés (ceux du montage par défaut). */
+export async function soundPlan(clips = S.doc.clips) {
+  return post(`/api/timeline/${S.pid}/sound/optimize`, { clips });
+}
+
+/** Mesure puis règle le son (clips `ids`, sinon tout le montage) : une étape d'annulation. */
+export async function optimize(ids = null) {
+  const plan = await soundPlan(ids ? S.doc.clips.filter((c) => ids.has(c.id)) : S.doc.clips);
+  const n = edit((doc) => applyPlan(doc, plan, ids), "sound");
+  return { plan, n };
+}
+
+/** Pose un plan sur un document (voix par média : un clip coupé depuis garde son réglage). */
+export function applyPlan(doc, plan, ids = null) {
+  let n = 0;
+  for (const c of doc.clips) {
+    if (ids && !ids.has(c.id)) continue;
+    const fx = (c.kind === "video" || c.kind === "audio") ? plan.voice_media[c.media] : null;
+    if (fx && !(c.kind === "video" && c.detached)) { c.audio_fx = { ...fx }; n++; }
+    if (plan.volume[c.id] !== undefined) { c.volume = plan.volume[c.id]; n++; }
+  }
+  if (plan.loudness) doc.settings = { ...(doc.settings || {}), loudness: true };
+  return n;
+}
+
+/** Une ligne par rush mesuré, pour le compte rendu. */
+export function describe(entry) {
+  if (entry.error) return `${entry.name} : son illisible (${entry.error})`;
+  if (entry.kind === "music") {
+    return `${entry.name} : musique${entry.volume !== undefined ? `, baissée à ${Math.round(entry.volume * 100)} % sous la voix` : ""}`;
+  }
+  const fx = entry.fx || {};
+  const bits = [];
+  const g = fx.gain || 0;
+  bits.push(Math.abs(g) >= 1 ? `voix ${g > 0 ? "remontée" : "baissée"} de ${Math.abs(g)} dB` : "voix au bon niveau");
+  const snr = entry.snr;
+  bits.push(snr >= 42 ? "très peu de bruit" : snr >= 32 ? `bruit léger (réduit ${Math.round((fx.denoise || 0) * 100)} %)`
+    : `bruit de fond marqué (réduit ${Math.round((fx.denoise || 0) * 100)} %${fx.gate ? ", porte" : ""})`);
+  if (fx.declip) bits.push("saturation réparée");
+  if (fx.deess) bits.push(`sifflantes adoucies ${Math.round(fx.deess * 100)} %`);
+  bits.push(`compression ${Math.round((fx.compress || 0) * 100)} %`);
+  if (fx.clarity >= 0.6) bits.push("voix sourde : clarté renforcée");
+  if (fx.warmth) bits.push("voix fine : chaleur ajoutée");
+  if (fx.level) bits.push("niveau régulé");
+  return `${entry.name} : ${bits.join(", ")}`;
 }

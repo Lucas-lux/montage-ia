@@ -484,6 +484,61 @@
    "category": "elegante",
    "license": "OFL-1.1",
    "license_file": "licenses/cormorantgaramond.txt"
+  },
+  {
+   "name": "Instrument Serif",
+   "file": "InstrumentSerif.ttf",
+   "family": "Instrument Serif",
+   "weight": 400,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/instrumentserif.txt"
+  },
+  {
+   "name": "Inter Bold",
+   "file": "InterBold.ttf",
+   "family": "Inter",
+   "weight": 700,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/inter.txt"
+  },
+  {
+   "name": "Archivo Bold",
+   "file": "ArchivoBold.ttf",
+   "family": "Archivo",
+   "weight": 700,
+   "category": "createur",
+   "license": "OFL-1.1",
+   "license_file": "licenses/archivo.txt"
+  },
+  {
+   "name": "Archivo ExtraBold",
+   "file": "ArchivoExtraBold.ttf",
+   "family": "Archivo",
+   "weight": 800,
+   "category": "impact",
+   "license": "OFL-1.1",
+   "license_file": "licenses/archivo.txt"
+  },
+  {
+   "name": "Fraunces Black",
+   "file": "FrauncesBlack.ttf",
+   "family": "Fraunces",
+   "weight": 900,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/fraunces.txt"
+  },
+  {
+   "name": "Fraunces Black Italic",
+   "file": "FrauncesBlackItalic.ttf",
+   "family": "Fraunces",
+   "weight": 900,
+   "category": "elegante",
+   "license": "OFL-1.1",
+   "license_file": "licenses/fraunces.txt",
+   "italic": true
   }
  ]
 }

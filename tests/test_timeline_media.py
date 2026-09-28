@@ -65,6 +65,16 @@ def test_sonde_video_muette_audio_image(files):
     assert not photo["has_audio"]
 
 
+def test_sonde_gif_anime_en_video(tmp_path):
+    anim, still = tmp_path / "meme.gif", tmp_path / "fixe.gif"
+    ff("-f", "lavfi", "-i", "testsrc=size=160x120:rate=10:duration=1.5", anim)
+    ff("-f", "lavfi", "-i", "testsrc=size=160x120:duration=1", "-frames:v", "1", still)
+    info = mt.probe_media(str(anim))
+    assert info["kind"] == "video" and not info["has_audio"]
+    assert info["duration"] == pytest.approx(1.5, abs=0.15)
+    assert mt.probe_media(str(still))["kind"] == "image"
+
+
 def test_sonde_refuse_un_faux_media(tmp_path):
     bad = tmp_path / "faux.mp4"
     bad.write_bytes(b"pas une video")

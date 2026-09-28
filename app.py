@@ -24,6 +24,11 @@ dossier utilisateur où il sera téléchargé une seule fois. Ça évite de trim
 Les fichiers de travail (projets, aperçus, exports) vont dans
 %LOCALAPPDATA%\MontageIA (Windows) ou ~/Library/Application Support/Montage IA
 (macOS) : le dossier d'installation, lui, peut être en lecture seule.
+
+Agents IA (Claude Code, Codex, Cursor…) : `MontageIA.exe --mcp` est le serveur
+MCP de l'application (engine/agent/mcp.py). Il se branche sur l'application
+ouverte, ou la lance avec `--background` : moteur prêt, fenêtre cachée
+jusqu'à ce qu'on l'ouvre.
 """
 from __future__ import annotations
 
@@ -40,6 +45,8 @@ APP_NAME = "Montage IA"
 DEFAULT_PORT = 8765
 IS_MAC = sys.platform == "darwin"
 FROZEN = bool(getattr(sys, "frozen", False))
+# Lancée pour un agent IA : moteur prêt, sans fenêtre ni navigateur au premier plan.
+BACKGROUND = "--background" in sys.argv
 
 
 # Exe fenêtré (Windows) : pas de console, donc ni stdout ni stderr. Le premier
@@ -253,7 +260,15 @@ def _open_browser(url: str, server) -> None:
 # mêmes projets. Une instance d'essai (autre dossier de projets) est à part.
 
 def _instance_file() -> str:
-    return os.path.join(user_dir(), "instance.json")
+    """Un fichier par dossier de projets : une instance d'essai (autre dossier)
+    n'écrase jamais l'adresse de l'application de l'utilisateur — sinon un agent
+    ne la trouverait plus, et lancerait un second moteur sur les mêmes projets."""
+    default = os.path.join(user_dir(), "work")
+    work = os.path.normcase(os.path.abspath(work_dir()))
+    if work == os.path.normcase(os.path.abspath(default)):
+        return os.path.join(user_dir(), "instance.json")
+    import hashlib
+    return os.path.join(user_dir(), f"instance-{hashlib.sha1(work.encode()).hexdigest()[:10]}.json")
 
 
 def running_instance() -> str | None:
@@ -325,16 +340,50 @@ def start_engine():
     return server, f"http://127.0.0.1:{port}"
 
 
+def launch_background() -> None:
+    """Lance l'application pour un agent IA, détachée du serveur MCP : elle
+    survit à la session de l'agent et garde ses projets ouverts. Fenêtre
+    cachée, sauf `MONTAGE_IA_AGENT_WINDOW=show`."""
+    import subprocess
+    args = [sys.executable] if FROZEN else [sys.executable, os.path.abspath(__file__)]
+    if os.environ.get("MONTAGE_IA_AGENT_WINDOW") != "show":
+        args.append("--background")
+    kw = {"cwd": app_dir(), "stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
+          "stderr": subprocess.DEVNULL, "close_fds": True}
+    if os.name == "nt":
+        flags = 0x00000008 | 0x00000200          # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+        try:                                     # hors du « job » du client, qui tuerait l'app avec lui
+            subprocess.Popen(args, creationflags=flags | 0x01000000, **kw)     # CREATE_BREAKAWAY_FROM_JOB
+        except OSError:
+            subprocess.Popen(args, creationflags=flags, **kw)
+    else:
+        subprocess.Popen(args, start_new_session=True, **kw)
+
+
+def mcp_main() -> None:
+    """`--mcp` : serveur MCP pour les agents IA, sur l'entrée/sortie standard."""
+    log = None
+    if FROZEN:
+        folder = os.path.join(user_dir(), "logs") if not IS_MAC else \
+            os.path.join(os.path.expanduser("~"), "Library", "Logs", APP_NAME)
+        os.makedirs(folder, exist_ok=True)
+        log = os.path.join(folder, "mcp.log")
+    from engine.agent import mcp
+    mcp.serve(find=running_instance, launch=launch_background, streamless=STREAMLESS, log=log)
+
+
 def main() -> None:
     log = log_file()
     if log:
         _to_log(log)
     native = native_window()
     mac_app = IS_MAC and FROZEN and os.environ.get("MONTAGE_IA_NO_DOCK") != "1"
-    if IS_MAC or native:
+    if IS_MAC or native or BACKGROUND:
         other = running_instance()
         if other:
             print(f"Montage IA tourne déjà : {other}")
+            if BACKGROUND:
+                return
             if not (native and focus_instance(other)):
                 webbrowser.open(other)
             return
@@ -352,7 +401,7 @@ def main() -> None:
                 remember_instance(url)
                 print(f"{APP_NAME} : moteur sur {url}, projets dans {os.environ['MONTAGE_IA_WORK']}")
             try:
-                desktop.run(start_engine, user_dir(), log, on_ready=ready)
+                desktop.run(start_engine, user_dir(), log, on_ready=ready, hidden=BACKGROUND)
             finally:
                 forget_instance()
             return
@@ -360,10 +409,13 @@ def main() -> None:
 
     # Imports APRÈS wire_runtime : le PATH et les variables doivent être posés.
     server, url = start_engine()
-    threading.Thread(target=_open_browser, args=(url, server), daemon=True).start()
+    if BACKGROUND:
+        threading.Thread(target=_idle_exit, args=(server,), daemon=True).start()
+    else:
+        threading.Thread(target=_open_browser, args=(url, server), daemon=True).start()
 
     print(banner(url, os.environ["MONTAGE_IA_WORK"]))
-    if IS_MAC:
+    if IS_MAC or BACKGROUND:
         remember_instance(url)
     try:
         if mac_app:
@@ -372,7 +424,7 @@ def main() -> None:
                 macapp.run(server, url, os.environ["MONTAGE_IA_WORK"], log)
                 return
             print("PyObjC absent : moteur lancé sans icône dans le Dock.")
-        if NO_CONSOLE:
+        if NO_CONSOLE and not BACKGROUND:
             # Windows sans WebView2 ni console : une boîte sert de bouton « Quitter ».
             import desktop
             engine = threading.Thread(target=server.run, name="moteur", daemon=True)
@@ -384,8 +436,19 @@ def main() -> None:
             return
         server.run()
     finally:
-        if IS_MAC:
+        if IS_MAC or BACKGROUND:
             forget_instance()
+
+
+def _idle_exit(server) -> None:
+    """Moteur lancé pour un agent, sans fenêtre : arrêt après une longue inactivité."""
+    import desktop
+    from engine import server as engine
+    while not getattr(server, "should_exit", False):
+        time.sleep(20)
+        if time.time() - engine.ACTIVITY["last"] > desktop.IDLE_EXIT and not desktop.engine_busy():
+            print("Moteur inutilisé : arrêt.")
+            server.should_exit = True
 
 
 if __name__ == "__main__":
@@ -393,6 +456,9 @@ if __name__ == "__main__":
     # relance ce même exe — freeze_support() l'aiguille vers son travail.
     import multiprocessing
     multiprocessing.freeze_support()
+    if "--mcp" in sys.argv:
+        mcp_main()
+        sys.exit(0)
     try:
         main()
     except KeyboardInterrupt:

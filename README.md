@@ -15,7 +15,15 @@ API key.
 
 ## Features
 
-- **Effects like CapCut** — 53 bundled fonts, text effects (glow, neon, 3D,
+- **Edit with an AI agent** — Montage IA is an MCP server: give a video to
+  Claude Code, Codex or Cursor and it edits it from scratch with the app's tools,
+  the way a short-form editor works, stopping at seven gates for your ok:
+  framing, derush by takes (retakes and false starts found, each take
+  re-transcribed), captions with stressed keywords, beats and real assets, the
+  opening, scenes on the words (split screen, face in a rounded window, paper
+  pages, count-ups, stamps, strike-throughs…, checked for rhythm and layout),
+  export. The project opens in the studio, where you can take over by hand.
+- **Effects like CapCut** — 59 bundled fonts, text effects (glow, neon, 3D,
   gradient, double outline, soft shadow…), 71 caption styles, *word by word*
   captions, and 51 in / out / loop animations for texts, videos and images.
   What you see in the preview is what the export renders, frame for frame.
@@ -44,6 +52,10 @@ API key.
   and normalised loudness; the strongest moments flagged on the timeline. Runs
   with a local language model (Qwen3 4B, ~4 GB, optional) or with built-in rules.
   Every step stays editable, and one button restores the original.
+- **Optimise the sound in one click** — *Optimiser le son* measures each rush
+  (voice level, background noise, dynamics, sibilance, timbre, clipping) and
+  sets the voice processing from those measurements, lowers the music under the
+  voice and normalises the export to −14 LUFS.
 - **Voice-over and voice processing** — record your voice on the timeline from
   any microphone of the PC (level meter, countdown, the montage plays under the
   take), then shape it: noise reduction (RNNoise), low cut, gate, de-esser,
@@ -122,6 +134,45 @@ once. To fetch it in advance: `python scripts/download_models.py --whisper`.
 > 3–4× the video duration with the default model. The command-line tool accepts a
 > smaller model (`--model small`) for faster tests.
 
+## Editing with an AI agent (Claude Code, Codex, Cursor…)
+
+Montage IA gives its tools to AI agents through the Model Context Protocol.
+Connect it once — *Boîte à outils → Agents IA → Brancher à Claude Code* (or
+Codex), or by hand:
+
+```bash
+claude mcp add --scope user montage-ia -- "%LOCALAPPDATA%\Programs\MontageIA\MontageIA.exe" --mcp
+codex mcp add montage-ia -- "C:\...\MontageIA.exe" --mcp          # Codex
+python app.py --mcp                                              # from source
+```
+
+Then ask, for example: *« Edit `C:\Videos\rush.mp4` into a 45 s vertical short
+with a strong hook, hype captions, titles on the key ideas, images to illustrate
+and a few sound effects; export in 1080p. »* The agent creates the project,
+reads the transcript (numbered sentences with a hook score, fluff and false
+starts flagged), builds the edit sentence by sentence, adds captions, titles,
+images from the web (memes, logos) or openly licensed (Openverse, Wikimedia
+Commons, Pexels with a key), page captures and graphics it writes in
+HTML/CSS — still or animated — looks at a storyboard of the render, fixes what
+is wrong and exports. It follows a seven-gate method and waits for your ok at
+each one: framing, derush (`derush`: the rush split into takes on its own
+measured silences, each take re-transcribed, retakes and false starts
+proposed), captions (style, keywords, spelling of names), beats and real
+assets, three openings, scenes (`build_scenes`: split screen, face full frame
+with text, paper page with the face in a rounded window, 16:9 set with the
+speaker as a moving card — cards, count-ups, stamps, checks, strike-throughs,
+real screenshots, all landing on their words; the plan is refused if the
+picture stays still more than 2.2 s without a reason, and the drawn scenes are
+checked for overlaps, contrast and text on the face), delivery. Give it a
+reference video and it studies its shots,
+rhythm and typography first (`study_reference`) to edit in the same style. The app does not need to be open: the MCP server starts it in the
+background. If the project is open in the studio, it reloads after every change
+and `Ctrl+Z` undoes the agent's last step.
+
+Your video files stay on your PC, but a cloud agent sends what it reads (the
+transcript, frames and storyboards) to its provider. Full guide and tool list:
+[docs/agents-ia.md](docs/agents-ia.md) (in French).
+
 ## Using the studio (timeline)
 
 *Nouveau projet → Montage* opens an empty timeline in the format of your choice
@@ -136,7 +187,7 @@ settings and click *Monter la vidéo*.
   gets a light proxy (decoded on the NVIDIA GPU when available), a thumbnail strip
   and a waveform in the background.
 - **Texts** — *Texte* has about forty title styles (animated, neon, 3D,
-  gradients, handwritten, retro…). In the inspector: 53 fonts with a searchable
+  gradients, handwritten, retro…). In the inspector: 59 fonts with a searchable
   picker, *Effets* (glow, second outline, 3D, soft shadow, gradient, outline
   only, spacing, italic, rotation, opacity, or one-click presets) and
   *Animations* (in, out, loop — hover a card to preview it).
@@ -426,12 +477,14 @@ engine/
     studio/desktop.js      real file paths from the app window (imports without copy)
     studio/anim.js         animations (same maths as timeline/animations.py) · textfx.js text layers and effects
     studio/sounds.js       sound effects panel and synthesiser · fonts.js bundled fonts and picker
+    studio/sync.js         reloads the project when an agent changes it · titles.json title styles
     studio/timeline.js     tracks, clips, gestures · player.js real-time preview
     studio/inspector.js    clip and project settings · panels.js AI tools, captions
   timeline/
     project.py · model.py  timeline projects on disk · validation of the editor state
     media.py · jobs.py     proxies, thumbnails, waveforms · background queues
     ai.py                  transcription, silences, captions from the timeline
+    sound.py               « Optimiser le son » : measures each rush, voice settings, music level
     render.py              export: tracks, transforms, audio mix, captions, animations, cutout
     animations.py          in / out / loop animations (definitions in web/studio/animations.json)
     convert.py             open a short project in the timeline
@@ -447,6 +500,12 @@ engine/
     fonts.py               bundled fonts, real text size as libass draws it
     emoji.py · emoji_overlay.py   keyword → emoji, colour emoji PNGs
     render.py              ffmpeg: cut/concat, preview proxy, burn-in, encoder fallback
+  agent/                   AI agents (MCP): mcp.py server (stdlib only) · api.py routes /api/agent
+    service.py · edit.py   the tools on timeline projects · cuts, rhythm, zooms, captions (rules of model.js)
+    images.py · visuals.py image search (web, free) · HTML/CSS graphics, animations, page captures (headless Edge)
+    reference.py           study of a reference video (shots, rhythm, sound)
+    scenes.py · scene_html.py  scenes on the words: plan, rhythm check, face in its zone, animated HTML zones
+    preview.py             low-resolution render and storyboards for the agent
   tools/
     audio.py               toolbox: extract a video's audio (also a command line)
     cutout.py              toolbox: remove the background of an image or a video

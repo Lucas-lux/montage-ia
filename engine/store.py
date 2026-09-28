@@ -43,6 +43,15 @@ def state_path(work_dir: str, pid: str) -> str:
     return os.path.join(project_dir(work_dir, pid), "project.json")
 
 
+def state_stamp(work_dir: str, pid: str) -> tuple[int, int] | None:
+    """Empreinte du fichier d'état (date, taille) : a-t-il été réécrit ailleurs ?"""
+    try:
+        st = os.stat(state_path(work_dir, pid))
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return None
+
+
 def replace(src: str, dst: str, tries: int = 20) -> None:
     """`os.replace` qui patiente quand Windows verrouille un instant la cible
     (antivirus, indexation, lecture en cours) au lieu d'échouer."""

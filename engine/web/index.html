@@ -256,6 +256,12 @@
                display: grid; place-items: center; flex: 0 0 auto; }
   .tcard b { display: block; font-weight: 600; margin-bottom: 2px; }
   .tool-res audio { width: 100%; margin: 4px 0 8px; display: block; }
+  .snip { font: 11.5px/1.5 ui-monospace, Consolas, monospace; background: var(--soft); border-radius: 6px;
+          padding: 9px 11px; white-space: pre-wrap; word-break: break-all; margin: 0 0 8px; user-select: all; }
+  .agrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .agrow .state { font-size: 12.5px; color: var(--ink-2); }
+  .agrow .state.ok { color: #1F9D55; font-weight: 600; }
+  .agsteps { margin: 6px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--ink-2); line-height: 1.6; }
 
   /* ----------------------------------------------------------- vue occupation */
   .busywrap { flex: 1; display: grid; place-items: center; }
@@ -595,6 +601,12 @@
               <span class="meta">Détoure une personne sur une image ou une vidéo : PNG ou WebM transparent,
                 MOV ProRes 4444, ou sur une couleur. Tout se calcule sur ton PC.</span></span>
           </button>
+          <button class="tcard" id="toolAgents">
+            <span class="ic" id="toolAgentsIc"></span>
+            <span class="grow"><b>Agents IA (Claude Code, Codex…)</b>
+              <span class="meta">Donne une vidéo à ton agent IA : il la monte de zéro avec les outils de
+                Montage IA — accroche, coupes, sous-titres, titres, images, visuels, sons, export.</span></span>
+          </button>
         </div>
       </div>
     </div>
@@ -654,6 +666,54 @@
                 <div class="path" id="cOutPath"></div>
                 <a class="btn" id="cDl" download style="width:100%;margin-top:10px"></a>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="view hidden" id="v-tool-agents">
+      <div class="scroll grow">
+        <div class="narrow">
+          <div class="page-head" style="padding:4px 0 14px">
+            <button class="btn icon quiet" id="agBack"></button>
+            <h1 class="grow">Agents IA</h1>
+          </div>
+          <div class="card" style="margin-bottom:10px">
+            <div class="cb" style="padding-top:14px">
+              <div style="font-size:13px;line-height:1.55">Montage IA fournit ses outils aux agents IA par le
+                protocole MCP : transcription, analyse de l'accroche, coupes des blancs, montage phrase par phrase,
+                zooms, sous-titres, titres animés, recherche d'images libres, visuels dessinés, sons, détourage,
+                aperçu et export. Tu donnes une vidéo à ton agent, il la monte ; le projet s'ouvre ici, dans le
+                studio, et se retouche à la main.</div>
+              <ol class="agsteps">
+                <li>Branche Montage IA à ton agent (bouton ci-dessous, ou la configuration à copier).</li>
+                <li>Redémarre l'agent, puis demande-lui par exemple : <i>« Monte C:\Vidéos\rush.mp4 en short 9:16
+                  de 45 s avec des sous-titres et des images pour illustrer. »</i></li>
+                <li>Pas besoin d'ouvrir Montage IA : l'agent le lance en arrière-plan.</li>
+              </ol>
+            </div>
+          </div>
+          <div id="agClients"></div>
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Autres agents</h2><span class="meta">Cursor, Claude Desktop, Windsurf, VS Code…</span></div>
+            <div class="cb">
+              <div class="meta" style="margin-bottom:8px">Ajoute ce serveur dans la configuration MCP de l'agent :</div>
+              <pre class="snip" id="agJson"></pre>
+              <button class="btn" id="agCopyJson">Copier</button>
+            </div>
+          </div>
+          <div class="card" style="margin-bottom:10px">
+            <div class="ch"><h2>Images et vidéos Pexels</h2><span class="meta">facultatif</span></div>
+            <div class="cb">
+              <div class="meta" style="margin-bottom:8px">Sans clé, l'agent cherche ses images sur Openverse et
+                Wikimedia Commons (licences libres). Avec une clé Pexels gratuite (pexels.com/api), il trouve aussi
+                des photos et des plans vidéo libres de droits.</div>
+              <div class="agrow">
+                <input type="password" id="agPexels" class="grow" placeholder="Clé d'API Pexels" autocomplete="off" />
+                <button class="btn" id="agPexelsSave">Enregistrer</button>
+              </div>
+              <div class="meta" id="agPexelsState"></div>
             </div>
           </div>
         </div>
@@ -1079,6 +1139,7 @@ const P = {
   warn: "M10 4l6.5 12h-13zM10 8.5v3M10 13.8v.1",
   tools: "M3 8h14v8H3zM7.5 8V5.5h5V8M3 11.5h14M10 10.5v2",
   note: "M8 14.5V5l8-1.5v9.5M8 14.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM16 13a2 2 0 1 1-4 0 2 2 0 0 1 4 0z",
+  agent: "M10 3v2.5M6 8.5h8a2 2 0 0 1 2 2V14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3.5a2 2 0 0 1 2-2zM8 12h.01M12 12h.01M2 11.5v2M18 11.5v2",
 };
 function svg(d, size) {
   return `<svg viewBox="0 0 20 20" width="${size || 16}" height="${size || 16}" fill="none"
@@ -1145,7 +1206,7 @@ const post = (url, body) => api(url, {
 /* =============================================================== VUES ==== */
 
 function showView(name) {
-  ["projects", "import", "busy", "edit", "tools", "tool-audio", "tool-cutout"].forEach((v) =>
+  ["projects", "import", "busy", "edit", "tools", "tool-audio", "tool-cutout", "tool-agents"].forEach((v) =>
     $("v-" + v).classList.toggle("hidden", v !== name));
   $("navProjects").classList.toggle("on", name === "projects" || name === "import");
   $("navEditor").classList.toggle("on", name === "edit");
@@ -2607,6 +2668,72 @@ const A = { cat: null, fmt: "mp3", q: {}, busy: false };
 
 function openTools() { saveNow(); showView("tools"); }
 
+/* ------------------------------------------------------------ agents IA.
+   Le serveur MCP (`MontageIA.exe --mcp`) donne les outils de l'application à
+   Claude Code, Codex, Cursor… Ici : le brancher en un clic, ou copier sa
+   configuration. */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast("Copié."); }
+  catch (e) { toast("Copie impossible : sélectionne le texte et fais Ctrl+C."); }
+}
+
+const AG_CLIENTS = { claude: "Claude Code", codex: "Codex" };
+
+async function openAgents() {
+  showView("tool-agents");
+  const box = $("agClients");
+  box.innerHTML = '<div class="card" style="margin-bottom:10px"><div class="cb" style="padding-top:14px">' +
+    '<div class="meta">Recherche de Claude Code et de Codex sur ce PC…</div></div></div>';
+  let info;
+  try { info = await api("/api/agent/connect"); }
+  catch (e) { box.innerHTML = ""; toast("Agents indisponibles : " + e.message); return; }
+  $("agJson").textContent = info.snippets.json;
+  box.innerHTML = "";
+  for (const [key, label] of Object.entries(AG_CLIENTS)) {
+    const c = info.clients[key];
+    const card = document.createElement("div");
+    card.className = "card";
+    card.style.marginBottom = "10px";
+    const state = !c.found ? "Pas trouvé sur ce PC" : c.registered ? "Branché" : "Pas encore branché";
+    card.innerHTML = `<div class="ch"><h2>${label}</h2><span class="meta">${c.found ? "installé" : ""}</span></div>
+      <div class="cb"><div class="agrow"><span class="state grow${c.registered ? " ok" : ""}">${state}</span></div>
+      <pre class="snip"></pre>${key === "codex" ? '<pre class="snip toml"></pre>' : ""}
+      <div class="agrow" style="margin:0"><button class="btn primary act"></button><button class="btn copy">Copier la commande</button></div></div>`;
+    card.querySelector("pre.snip").textContent = info.snippets[key];
+    if (key === "codex") card.querySelector("pre.toml").textContent = "# ou dans ~/.codex/config.toml :\n" + info.snippets.codex_toml;
+    const act = card.querySelector(".act");
+    act.textContent = c.registered ? "Débrancher" : "Brancher à " + label;
+    act.disabled = !c.found;
+    act.onclick = () => connectAgent(key, c.registered ? "remove" : "add", act);
+    card.querySelector(".copy").onclick = () => copyText(info.snippets[key]);
+    box.appendChild(card);
+  }
+  const st = await api("/api/agent/settings").catch(() => ({}));
+  $("agPexelsState").textContent = st.pexels ? "Clé enregistrée (" + st.pexels_hint + ")." : "Aucune clé.";
+}
+
+async function connectAgent(client, action, btn) {
+  btn.disabled = true;
+  btn.textContent = action === "add" ? "Branchement…" : "Débranchement…";
+  try {
+    await post("/api/agent/connect", { client, action });
+    toast(action === "add" ? "Montage IA est branché à " + AG_CLIENTS[client] + ". Redémarre l'agent."
+                           : "Montage IA est débranché de " + AG_CLIENTS[client] + ".");
+  } catch (e) {
+    toast(e.message);
+  }
+  openAgents();
+}
+
+async function savePexels() {
+  try {
+    const st = await post("/api/agent/settings", { pexels_key: $("agPexels").value });
+    $("agPexels").value = "";
+    $("agPexelsState").textContent = st.pexels ? "Clé enregistrée (" + st.pexels_hint + ")." : "Aucune clé.";
+    toast(st.pexels ? "Clé Pexels enregistrée." : "Clé Pexels retirée.");
+  } catch (e) { toast(e.message); }
+}
+
 async function openAudioTool() {
   showView("tool-audio");
   if (A.cat) return;
@@ -2871,6 +2998,12 @@ $("importBack").onclick = loadProjects;
 $("navTools").onclick = openTools;
 $("toolAudio").onclick = openAudioTool;
 $("toolCutout").onclick = () => showView("tool-cutout");
+$("toolAgents").onclick = openAgents;
+$("toolAgentsIc").innerHTML = svg(P.agent, 18);
+$("agBack").onclick = () => showView("tools");
+$("agBack").innerHTML = svg(P.back, 16);
+$("agCopyJson").onclick = () => copyText($("agJson").textContent);
+$("agPexelsSave").onclick = savePexels;
 $("cutBack").onclick = () => showView("tools");
 $("toolCutoutIc").innerHTML = svg(P.cut, 18);
 $("cutBack").innerHTML = svg(P.back, 16);

@@ -5,7 +5,9 @@ export async function api(url, opts) {
   if (!r.ok) {
     let detail = "Erreur " + r.status;
     try { detail = (await r.json()).detail || detail; } catch (e) { /* pas du JSON */ }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const err = new Error(typeof detail === "string" ? detail : detail.message || JSON.stringify(detail));
+    err.status = r.status;
+    throw err;
   }
   return r.json();
 }

@@ -107,7 +107,9 @@ def probe_media(path: str) -> dict:
               and not (s.get("disposition") or {}).get("attached_pic")]
     audios = [s for s in streams if s.get("codec_type") == "audio"]
 
-    if ext_kind == "image" or (videos and _still(videos[0], fmt) and not audios):
+    # un GIF animé (mème, réaction) est une courte vidéo muette ; un GIF d'une image reste une image
+    animated_gif = bool(videos) and videos[0].get("codec_name") == "gif" and not _still(videos[0], fmt)
+    if (ext_kind == "image" and not animated_gif) or (videos and _still(videos[0], fmt) and not audios):
         kind = "image"
     elif videos:
         kind = "video"
@@ -118,6 +120,16 @@ def probe_media(path: str) -> dict:
 
     info = {"kind": kind, "duration": 0.0, "w": 0, "h": 0, "fps": 0.0,
             "has_audio": bool(audios) and kind != "image"}
+    if videos:
+        # transparence (logo, sticker, animation sur fond transparent) : le proxy la garde
+        v0 = videos[0]
+        pix = (v0.get("pix_fmt") or "").lower()
+        info["alpha"] = bool(any(a in pix for a in ("yuva", "rgba", "bgra", "argb", "abgr", "gbrap", "ya8", "ya16"))
+                             or (pix == "pal8" and kind == "image")
+                             or str((v0.get("tags") or {}).get("alpha_mode") or "") == "1")
+        info["vcodec"] = v0.get("codec_name") or ""
+        if kind == "video" and is_hdr(v0):
+            info["hdr"] = True
     if kind in ("video", "image"):
         v = videos[0] if videos else {}
         w, h = int(v.get("width") or 0), int(v.get("height") or 0)
@@ -136,6 +148,42 @@ def probe_media(path: str) -> dict:
             raise ValueError("Durée illisible ou nulle.")
         info["duration"] = round(dur, 3)
     return info
+
+
+# ------------------------------------------------------------- HDR -> SDR
+
+HDR_TRANSFERS = ("arib-std-b67", "smpte2084")      # HLG (iPhone, DJI), PQ (HDR10)
+
+
+def is_hdr(stream: dict) -> bool:
+    """Vidéo HDR : transfert HLG ou PQ, ou couleurs BT.2020 en 10 bits. Montée
+    telle quelle, elle sort délavée (et l'aperçu ne ressemble pas à l'export)."""
+    trc = (stream.get("color_transfer") or "").lower()
+    prim = (stream.get("color_primaries") or "").lower()
+    pix = (stream.get("pix_fmt") or "").lower()
+    return trc in HDR_TRANSFERS or (prim == "bt2020" and ("10" in pix or "12" in pix))
+
+
+_ZSCALE: dict = {}
+
+
+def sdr_chain(m: dict) -> list[str]:
+    """Filtres qui ramènent une vidéo HDR en SDR BT.709 (vide pour une vidéo SDR) :
+    tone mapping exact avec zscale (ffmpeg compilé avec zimg), sinon conversion
+    de couleurs approchée."""
+    if not m.get("hdr"):
+        return []
+    if "ok" not in _ZSCALE:
+        try:
+            out = subprocess.run(["ffmpeg", "-hide_banner", "-filters"], capture_output=True, text=True,
+                                 timeout=30).stdout
+            _ZSCALE["ok"] = " zscale " in out and " tonemap " in out
+        except (OSError, subprocess.TimeoutExpired):
+            _ZSCALE["ok"] = False
+    if _ZSCALE["ok"]:
+        return ["zscale=t=linear:npl=100", "format=gbrpf32le", "zscale=p=bt709", "tonemap=tonemap=hable:desat=0",
+                "zscale=t=bt709:m=bt709:r=tv", "format=yuv420p"]
+    return ["colorspace=all=bt709:iall=bt2020:itrc=bt2020-10:fast=1", "format=yuv420p"]
 
 
 def _float(v) -> float:
@@ -187,8 +235,16 @@ def proxy_size(w: int, h: int, box: int = PROXY_BOX) -> tuple[int, int]:
     return max(2, int(w * scale) // 2 * 2), max(2, int(h * scale) // 2 * 2)
 
 
-def proxy_name(kind: str) -> str:
+def proxy_name(kind: str, alpha: bool = False) -> str:
+    """Proxy d'un média ; transparent (PNG, WebM VP9 avec alpha) si le média l'est."""
+    if alpha and kind in ("video", "image"):
+        return {"video": "proxy.webm", "image": "proxy.png"}[kind]
     return {"video": "proxy.mp4", "audio": "proxy.m4a", "image": "proxy.jpg"}[kind]
+
+
+def alpha_decoder(info: dict) -> list[str]:
+    """Le décodeur VP9 intégré de ffmpeg ignore la transparence : libvpx la lit."""
+    return ["-c:v", "libvpx-vp9"] if info.get("alpha") and info.get("vcodec") == "vp9" else []
 
 
 # Proxy décodé par la carte graphique : essayé à chaque vidéo tant qu'un échec
@@ -230,7 +286,20 @@ def make_proxy(src: str, out: str, info: dict, on_progress=None) -> None:
     kind = info["kind"]
     if kind == "image":
         w, h = proxy_size(info["w"], info["h"], IMAGE_BOX)
-        _run_ffmpeg(["-i", src, "-frames:v", "1", "-vf", f"scale={w}:{h}", "-q:v", "3", out])
+        if out.endswith(".png"):
+            _run_ffmpeg([*alpha_decoder(info), "-i", src, "-frames:v", "1", "-vf", f"scale={w}:{h},format=rgba", out])
+        else:
+            _run_ffmpeg(["-i", src, "-frames:v", "1", "-vf", f"scale={w}:{h}", "-q:v", "3", out])
+        return
+    if kind == "video" and out.endswith(".webm"):
+        # vidéo transparente (animation, sticker animé) : VP9 avec alpha, lu tel quel par l'aperçu
+        w, h = proxy_size(info["w"], info["h"])
+        fps = min(PROXY_FPS_MAX, round(info.get("fps") or 30))
+        maps = ["-map", "0:v:0"] + (["-map", "0:a:0", "-c:a", "libopus", "-b:a", "96k"] if info.get("has_audio") else [])
+        _run_ffmpeg([*alpha_decoder(info), "-i", src, *maps, "-vf", f"scale={w}:{h},fps={fps},format=yuva420p",
+                     "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "32", "-deadline", "realtime",
+                     "-cpu-used", "8", "-row-mt", "1", "-auto-alt-ref", "0", out],
+                    duration=info["duration"], on_progress=on_progress)
         return
     if kind == "audio":
         _run_ffmpeg(["-i", src, "-map", "0:a:0", "-vn", "-c:a", "aac", "-b:a", "128k",
@@ -246,7 +315,9 @@ def make_proxy(src: str, out: str, info: dict, on_progress=None) -> None:
     if info.get("has_audio"):
         enc += ["-c:a", "aac", "-b:a", "128k", "-ac", "2", "-ar", "48000"]
     enc += ["-movflags", "+faststart", out]
-    turn = display_turn(src) if _GPU["ok"] else None
+    sdr = sdr_chain(info)
+    # HDR : le tone mapping se fait au processeur (la voie carte graphique ne le sait pas)
+    turn = display_turn(src) if _GPU["ok"] and not sdr else None
     if turn is not None:
         try:
             # rotation d'origine remise à zéro : c'est le filtre qui redresse,
@@ -260,7 +331,7 @@ def make_proxy(src: str, out: str, info: dict, on_progress=None) -> None:
             # codec que la carte ne lit pas (ProRes…) ne concerne que ce fichier
             if any(hint in str(exc).lower() for hint in _NO_GPU):
                 _GPU["ok"] = False
-    _run_ffmpeg(["-i", src, *maps, "-vf", f"scale={w}:{h},fps={fps},format=yuv420p", *enc],
+    _run_ffmpeg(["-i", src, *maps, "-vf", ",".join([*sdr, f"scale={w}:{h}", f"fps={fps}", "format=yuv420p"]), *enc],
                 duration=info["duration"], on_progress=on_progress)
 
 

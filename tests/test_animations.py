@@ -74,6 +74,22 @@ def test_normalisation():
     assert A.normalize("pop", "in", "text") is None
 
 
+def test_animation_sur_mesure():
+    kf = [[1, {"o": 1, "s": 99, "zz": 3}], [0.2, {"o": 0, "r": 20}, "outBounce"], [0.5, {"dx": "x"}]]
+    assert A.normalize({"type": "custom", "kf": kf}, "in", "text") is None          # valeur illisible
+    a = A.normalize({"type": "custom", "dur": 9, "ease": "nope", "kf": kf[:2]}, "in", "text")
+    assert a["dur"] == 5.0 and a["ease"] == "linear"
+    # triées, bornées ; une entrée finit sur l'état normal (pas de saut à la fin)
+    assert a["kf"] == [[0.0, {"o": 0.0, "r": 20.0}, "outBounce"], [1.0, {}]]
+    c = {"start": 0.0, "dur": 2.0, "anim_in": a}
+    assert A.state(c, 0.0)["o"] == 0.0 and A.state(c, 0.0)["r"] == 20.0
+    assert A.state(c, 1.999)["r"] == pytest.approx(0.0, abs=0.1)
+    out = A.normalize({"type": "custom", "kf": [[0, {"o": 0.2}], [1, {"dy": 1}]]}, "out", "media")
+    assert out["kf"][0][1] == {}
+    loop = A.normalize({"type": "custom", "span": True, "kf": [[0, {}], [1, {"s": 1.2}]]}, "loop", "media")
+    assert A.state({"start": 0, "dur": 4, "anim_loop": loop}, 2.0)["s"] == pytest.approx(1.1)
+
+
 @pytest.mark.skipif(not shutil.which("node"), reason="node absent")
 def test_meme_valeurs_que_l_apercu():
     """Chaque animation, sur une grille de progressions, et des états de clips
@@ -88,6 +104,18 @@ def test_meme_valeurs_que_l_apercu():
         {"start": 1.0, "dur": 2.0, "anim_loop": {"type": name, "speed": 1.3}} for name, d in A.definitions().items()
         if d["kind"] == "loop"
     ]
+    # animations « sur mesure » (images clés données par l'agent)
+    clips += [
+        {"start": 1.0, "dur": 2.0, "anim_in": A.normalize({"type": "custom", "dur": 0.7, "ease": "outQuad", "kf": [
+            [0, {"o": 0, "s": 0.3, "r": -25}, "outBack"], [0.7, {"s": 1.1, "r": 4}], [1, {}]]}, "in", "media")},
+        {"start": 1.0, "dur": 2.0, "anim_out": A.normalize({"type": "custom", "dur": 0.5, "kf": [
+            [0, {}], [1, {"dy": 0.3, "o": 0, "b": 6}]]}, "out", "text")},
+        {"start": 1.0, "dur": 2.0, "anim_loop": A.normalize({"type": "custom", "period": 0.4, "speed": 1.2, "kf": [
+            [0, {}], [0.5, {"r": 6, "s": 1.05}], [1, {}]]}, "loop", "media")},
+        {"start": 1.0, "dur": 2.0, "anim_loop": A.normalize({"type": "custom", "span": True, "kf": [
+            [0, {}], [1, {"s": 1.3, "dx": 0.05}]]}, "loop", "media")},
+    ]
+    assert all(c.get("anim_in") or c.get("anim_out") or c.get("anim_loop") for c in clips)
     times = [1.0 + i * 0.037 for i in range(60)]
     script = """
 import fs from "node:fs";
