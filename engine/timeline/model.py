@@ -71,8 +71,12 @@ SETTINGS_DEFAULTS: dict = {
 AUTO_DEFAULTS: dict = {
     "silence": True, "fillers": True, "trim": True, "hook": True, "cold_open": False, "zoom": True,
     "texts": True, "captions": True, "sound": True, "llm": True,
-    "rhythm": "normal",      # calm | normal | punchy
+    "rhythm": "dynamic",     # calm | normal | punchy | dynamic (le visage recadré sur chaque idée)
     "max_duration": 0,       # 0 = libre
+    "style": "net",          # sous-titres (styles « Montage court »)
+    "accent": "#D40F30",     # couleur d'accent des scènes
+    "cta": "",               # mot à commenter : carte d'appel à l'action (vide = aucune)
+    "look": "clean",         # scènes : clean | paper
 }
 
 # Champs d'apparence d'un texte / sous-titre (mêmes clés que le mode short).
@@ -526,8 +530,12 @@ def normalize_auto(a) -> dict:
     a = a if isinstance(a, dict) else {}
     d = AUTO_DEFAULTS
     out = {k: _bool(a.get(k), d[k]) for k, v in d.items() if isinstance(v, bool)}
-    out["rhythm"] = a.get("rhythm") if a.get("rhythm") in ("calm", "normal", "punchy") else d["rhythm"]
+    out["rhythm"] = a.get("rhythm") if a.get("rhythm") in ("calm", "normal", "punchy", "dynamic") else d["rhythm"]
     out["max_duration"] = _int(a.get("max_duration"), d["max_duration"], 0, 600)
+    out["style"] = a.get("style") if a.get("style") in CAPTION_PRESETS else d["style"]
+    out["accent"] = _color(a.get("accent"), d["accent"])
+    out["cta"] = " ".join(_str(a.get("cta"), "", 40).split())
+    out["look"] = a.get("look") if a.get("look") in ("clean", "paper") else d["look"]
     return out
 
 

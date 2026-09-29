@@ -695,7 +695,8 @@ def assemble_doc(proj, doc: dict, W: Words, segments: list[dict], opts: dict,
             cut = {mid: E.clause_points(W.sounding(mid)) for mid in used}
         else:
             cut = {mid: autoedit._cutpoints(W.sentences(mid)) for mid in used}
-        zooms = E.apply_rhythm(doc, media, cut, faces, rhythm, highlights, skip=fixed)
+        gaps = {mid: E.word_gaps(W.sounding(mid)) for mid in used}
+        zooms = E.apply_rhythm(doc, media, cut, faces, rhythm, highlights, skip=fixed, gaps=gaps)
     else:
         for c in E.main_clips(doc):
             if c["kind"] == "video" and c["id"] not in fixed and c.get("fit") != "contain":

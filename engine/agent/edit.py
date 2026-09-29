@@ -443,20 +443,37 @@ def assemble(doc: dict, media: dict[str, dict], words_of, segments: list[dict], 
     return {"pieces": placed, "removed": r4(removed)}
 
 
-def rhythm_splits(clip: dict, cutpoints, min_piece: float = 2.0, max_piece: float = 6.0) -> list[float]:
+def rhythm_splits(clip: dict, cutpoints, min_piece: float = 2.0, max_piece: float = 6.0,
+                  fallback=None) -> list[float]:
     """Instants (timeline) où couper un long plan : de préférence aux fins de
-    phrases (`cutpoints`, temps source), sinon tous les `max_piece` s."""
+    phrases (`cutpoints`, temps source), sinon entre deux mots (`fallback`,
+    temps source : jamais au milieu d'un mot, qui se retrouverait coupé en deux
+    sous-titres), sinon tous les `max_piece` s."""
     sp = clip.get("speed") or 1.0
     end = clip_end(clip)
-    pts = sorted(t for t in (clip["start"] + (s - clip["in"]) / sp for s in cutpoints or [])
-                 if clip["start"] + min_piece < t < end - min_piece)
+
+    def timeline(points) -> list[float]:
+        return sorted(t for t in (clip["start"] + (s - clip["in"]) / sp for s in points or [])
+                      if clip["start"] + min_piece < t < end - min_piece)
+    pts, alt = timeline(cutpoints), timeline(fallback)
     out = []
     cur = clip["start"]
     while end - cur > max_piece + min_piece:
-        window = [t for t in pts if cur + min_piece <= t <= cur + max_piece]
+        window = [t for t in pts if cur + min_piece <= t <= cur + max_piece] or             [t for t in alt if cur + min_piece <= t <= cur + max_piece]
         t = window[-1] if window else r4(cur + max_piece)
         out.append(r4(t))
         cur = t
+    return out
+
+
+def word_gaps(words: list[dict]) -> list[float]:
+    """Entre-deux de mots (temps source, bornes SONORES si connues) : là où une
+    coupe ne tranche aucun mot."""
+    out = []
+    for w, nxt in zip(words, words[1:]):
+        a = max(w["end"], w.get("ce", w["end"]))
+        b = min(nxt["start"], nxt.get("cs", nxt["start"]))
+        out.append(round((a + b) / 2 if b > a else b, 3))
     return out
 
 
@@ -529,16 +546,20 @@ def frame_on(face: dict | None, media: dict | None, canvas: dict, scale: float,
 
 
 def apply_rhythm(doc: dict, media: dict[str, dict], cutpoints: dict[str, list], faces,
-                 rhythm: str, highlights: dict[str, list] | None = None, skip=frozenset()) -> int:
+                 rhythm: str, highlights: dict[str, list] | None = None, skip=frozenset(),
+                 gaps: dict[str, list] | None = None) -> int:
     """Coupes (fins de phrases ; fins de propositions en « dynamique ») et
     cadres variés, cadrés sur le visage du moment. `faces(mid, a, b)` : visage
     d'une plage de source (ou un dict média -> visage). `skip` : clips à laisser
-    tels quels (zoom choisi par l'agent). Renvoie le nombre de plans zoomés."""
+    tels quels (zoom choisi par l'agent). `gaps` : entre-deux de mots par média
+    (word_gaps), où couper quand aucune fin de phrase ne tombe. Renvoie le
+    nombre de plans zoomés."""
     R = RHYTHM.get(rhythm) or RHYTHM["normal"]
     face_at = faces if callable(faces) else (lambda mid, a, b: (faces or {}).get(mid))
     for c in [c for c in main_clips(doc) if c["kind"] == "video" and c["id"] not in skip]:
         cur = c
-        for t in rhythm_splits(c, cutpoints.get(c["media"]) or [], R.get("min", 2.0), R["max"]):
+        for t in rhythm_splits(c, cutpoints.get(c["media"]) or [], R.get("min", 2.0), R["max"],
+                               (gaps or {}).get(c["media"])):
             right = split_clip(doc, cur, t)
             if right:
                 cur = right
@@ -583,7 +604,10 @@ def clause_points(words: list[dict], gap: float = 0.25) -> list[float]:
         punct = str(w["text"]).rstrip("»\")\"'").endswith((",", ".", ";", ":", "!", "?", "…"))
         pause = nxt is not None and nxt.get("cs", nxt["start"]) - end >= gap
         if punct or pause:
-            out.append(round(end + 0.02, 3))
+            t = end + 0.02
+            if nxt is not None:              # jamais dans le mot suivant (il serait coupé en deux sous-titres)
+                t = min(t, nxt["start"], nxt.get("cs", nxt["start"]))
+            out.append(round(max(t, w["start"]), 3))
     return out
 
 

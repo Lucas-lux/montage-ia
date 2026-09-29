@@ -223,3 +223,42 @@ def test_scenes_controlees_avant_tout_rendu(client, pid):
     held = client.post(f"/api/agent/{pid}/scenes", json={"check_only": True, "scenes": [{"layout": "split", "start": 0}]})
     assert held.status_code == 400 and "Nothing happens on screen" in held.json()["detail"]
     assert client.get("/api/agent/catalog/scenes").json()["layouts"]["split"]
+
+
+def test_reel_en_un_clic_depuis_le_studio(client, pid, monkeypatch):
+    """« Monter la vidéo » : dérush, coupe, mots-clés, scènes contrôlées, en une tâche."""
+    import time as _time
+
+    from engine.agent import scenes as SC
+    from engine.timeline import takes as T
+    proj = timeline_api.get(pid)
+    proj.update_media("m1", transcript={**proj.media("m1")["transcript"], "by_takes": True})
+    monkeypatch.setattr(T, "media_levels", lambda proj, m: _levels_of(proj, m["id"]))
+    monkeypatch.setattr(service, "face_track_of", lambda proj, m: [[i / 2, 0.5, 0.35, 0.3, 0.2] for i in range(60)])
+    real, bodies = SC.build, []
+
+    def build(proj, body, job=None):            # le plan contrôlé pour de vrai, sans navigateur
+        bodies.append(body)
+        r = real(proj, {**body, "check_only": True})
+        return r if body.get("check_only") else {**r, "rev": proj.rev, "layout_checks": [], "captions_placed": 4}
+    monkeypatch.setattr(SC, "build", build)
+    r = client.post(f"/api/agent/{pid}/reel", json={"llm": False, "cta": "ASTUCE", "accent": "#FFD23F",
+                                                    "media": ["m1"]})
+    jid = r.json()["job_id"]
+    for _ in range(400):
+        job = client.get(f"/api/agent/jobs/{jid}").json()
+        if job["status"] != "running":
+            break
+        _time.sleep(0.05)
+    assert job["status"] == "done", job["message"]
+    rep = job["result"]
+    assert rep["dropped_takes"] >= 1 and any("contained" in t["why"] for t in rep["takes"])
+    said = [s["text"] for s in client.get(f"/api/agent/{pid}/timeline-text").json()["sentences"]]
+    assert sum(s.startswith("Voici") for s in said) == 1            # la reprise n'est montée qu'une fois
+    final = bodies[-1]
+    assert final["brand"]["accent_ink"] != "#FFD23F" and final["captions"]["style"] == "net"
+    assert final["scenes"][0]["layout"] == "split" and any("ASTUCE" in (s.get("cta") or {}).get("keyword", "")
+                                                           for s in final["scenes"])
+    assert rep["keywords"] and rep["scenes"] and rep["duration"] > 0
+    auto = client.get(f"/api/timeline/{pid}").json()["settings"]["auto"]
+    assert auto["cta"] == "ASTUCE" and auto["accent"] == "#FFD23F" and auto["rhythm"] == "dynamic"

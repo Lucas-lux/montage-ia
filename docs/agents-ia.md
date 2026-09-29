@@ -7,6 +7,13 @@ titres, des images et des visuels, des sons, regarde le résultat et exporte —
 avec le moteur de Montage IA, sur ton PC. Le projet est un projet normal du
 studio : il s'ouvre dans l'application et se retouche à la main.
 
+> **Sans agent :** dans le studio, *Outils IA → Montage automatique → Monter
+> la vidéo* applique la même méthode d'un seul clic (dérush par prises, coupe,
+> sous-titres à mots-clés, scènes animées, appel à l'action), avec tes réglages
+> (style, couleur d'accent, mot à commenter). L'agent reste utile pour les
+> choix fins : vraies captures, b-roll, ton d'une référence, validation à
+> chaque étape.
+
 ---
 
 ## Brancher Montage IA à son agent

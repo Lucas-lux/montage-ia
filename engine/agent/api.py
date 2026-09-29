@@ -18,7 +18,7 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from engine import store
-from engine.agent import images, preview, reference, scenes, service, visuals
+from engine.agent import images, preview, reel, reference, scenes, service, visuals
 from engine.timeline import api as timeline_api
 from engine.timeline import model
 from engine.timeline.project import TimelineProject
@@ -357,6 +357,14 @@ def auto(pid: str, body: dict = Body(default={})) -> dict:
     proj = _proj(pid)
     jid = service.start_job("auto_edit", service.auto_edit, proj, body)
     return {"job_id": jid}
+
+
+@router.post("/{pid}/reel")
+def reel_edit(pid: str, body: dict = Body(default={})) -> dict:
+    """Le montage court complet en un clic (bouton « Monter la vidéo » du
+    studio, engine/agent/reel.py) : tâche de fond, lue par /jobs/{id}."""
+    proj = _proj(pid)
+    return {"job_id": service.start_job("reel", reel.reel, proj, body)}
 
 
 @router.post("/{pid}/derush")

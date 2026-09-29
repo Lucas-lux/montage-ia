@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **One-click reel** (*Outils IA → Montage automatique → Monter la vidéo*): the
+  button now runs the whole short-form method in the engine
+  (`engine/agent/reel.py`, `POST /api/agent/{pid}/reel`, a background job the
+  studio follows and then reloads): derush by takes (each take re-transcribed
+  once; slate words before the first take and outtakes at the end dropped too),
+  story and hook, cut with the *Dynamique* rhythm (new default), voice
+  processing, captions in a short-form style with one keyword per sentence, and
+  scenes planned from what is said — split screen for the hook, count-ups on
+  numbers, a paper « ? » page on questions, the strong word on the face or a
+  card, a banner over screen recordings, a « comment KEYWORD » card — checked,
+  drawn, then fixed where the browser saw text on the face, overlaps, text
+  outside the frame or poor contrast. New panel settings: caption style, accent
+  colour (scene colours derived from it, with a darker ink when it is too light
+  to read), the word to comment, scene look (clean / paper). The panel lists
+  every decision (takes dropped and why, scenes, keywords, checks).
 - **Agents, short-form method**: the MCP instructions and the `edit_video`
   prompt now follow seven gates, each validated by the user — framing, derush,
   captions, beats and real assets, opening, scenes → final, delivery — with the
@@ -155,6 +170,9 @@ All notable changes to this project are documented here. The format follows
   disable).
 
 ### Changed
+- *Monter la vidéo* now edits on the engine side (the whole method above)
+  instead of cutting in the browser; the default rhythm is *Dynamique*, and the
+  *Textes à l'écran* option became *Scènes animées*.
 - *Short automatique → Dans la timeline* no longer starts the automatic edit on
   its own: imported videos go on the timeline, the *Outils IA* tab opens with a
   note and a highlighted *Monter la vidéo* button, and the edit runs when you
@@ -165,6 +183,9 @@ All notable changes to this project are documented here. The format follows
   matte is now computed at 1280 px at most (the model sees 320 px anyway) and
   scaled to the source at export.
 - A word starting exactly on a cut was captioned twice (once per clip).
+- Rhythm cuts (reframing on long shots) could land inside a word — after a
+  clause end measured on the sound, or every N seconds when no sentence ended —
+  and that word was then captioned twice; they now fall between two words.
 - Cuts clipped the end of some words: Whisper often ends a word before its
   sound has died out (up to 0.3 s at the end of a sentence). Cuts now follow the
   audible end measured on the voice envelope, silence cuts keep a tail after it,

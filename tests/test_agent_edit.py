@@ -80,6 +80,13 @@ def test_rythme_coupe_aux_fins_de_phrases():
     edges = [0.0, *pts, 20.0]
     assert all(2.0 <= b - a <= 8.0 for a, b in zip(edges, edges[1:]))
     assert set(pts) <= {3.0, 5.5, 8.0, 12.5, 15.0, 6.0, 12.0, 18.0}
+    # sans fin de phrase dans la fenêtre : entre deux mots, jamais au milieu d'un mot
+    words = [{"text": f"m{i}", "start": i * 0.5, "end": i * 0.5 + 0.4} for i in range(40)]
+    gaps = E.word_gaps(words)
+    assert gaps[0] == 0.45 and len(gaps) == 39
+    cut = E.rhythm_splits(clip, [], 2.0, 6.0, gaps)
+    assert cut and all(not any(w["start"] < t < w["end"] for w in words) for t in cut)
+    assert E.rhythm_splits(clip, [], 2.0, 6.0) == [6.0, 12.0]            # sans mots : tous les 6 s
 
 
 def test_zooms_alternes_sauf_plans_choisis():
@@ -243,7 +250,7 @@ def test_rythme_dynamique():
              w("avec", 1.5, 1.7), w("ce", 1.7, 1.8), w("logiciel,", 1.8, 2.4), w("tu", 2.4, 2.5),
              w("peux", 2.5, 2.7), w("espionner", 2.7, 3.3), w("n'importe", 3.3, 3.7), w("qui.", 3.7, 4.2)]
     pts = E.clause_points(words)
-    assert pts == [1.02, 2.42, 4.22]
+    assert pts == [1.02, 2.4, 4.22]          # « tu » commence à 2,40 : la coupe ne mord pas dessus
     d = doc()
     media = {"m1": dict(MEDIA["m1"], w=2160, h=3840, duration=12.0)}
     E.assemble(d, media, lambda mid: [], [{"media": "m1", "start": 0, "end": 12}], remove_silences=False,

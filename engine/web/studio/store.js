@@ -31,6 +31,7 @@ export const S = {
   savedAt: 0,
   rev: 0,                // révision du montage côté moteur
   dragDepth: 0,
+  engineJob: false,      // le moteur monte le projet pour le studio (montage automatique)
   k: 1,                  // pixels écran par pixel de sortie (aperçu)
 };
 

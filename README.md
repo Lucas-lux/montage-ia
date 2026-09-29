@@ -44,14 +44,18 @@ API key.
   voice-over and titles. Silence removal and auto captions work directly on the
   timeline, and captions stay in sync with the voice after every cut. Export up
   to 4K (H.264 or HEVC), or the audio mix alone.
-- **One-click AI edit** — *Monter la vidéo* turns a raw talking-head video into
-  a finished short: silences, filler words, greetings, sign-offs and false starts
-  removed; the strongest sentence pulled to the front as a cold open with a title
-  on screen; the video cut at sentence ends and punched in on alternating shots
-  (zooms framed on the face); keywords popped on screen; captions; cleaned voice
-  and normalised loudness; the strongest moments flagged on the timeline. Runs
-  with a local language model (Qwen3 4B, ~4 GB, optional) or with built-in rules.
-  Every step stays editable, and one button restores the original.
+- **One-click AI edit** — *Monter la vidéo* turns raw talking-head rushes into
+  a finished reel, the way the agents edit, with no agent: takes derushed (each
+  re-transcribed on its own; retakes, false starts, ends said twice, slate words
+  and outtakes dropped), the story kept (the strongest sentence can open the
+  video), silences and filler words cut, the face reframed on every idea,
+  captions in a short-form style with one keyword per sentence that grows,
+  animated scenes landing on their words (split screen for the hook, numbers
+  counting up, a « ? » page on a question, the strong word on the face, a
+  banner over screen recordings, a « comment KEYWORD » call-to-action card in
+  your accent colour), cleaned voice and normalised loudness, strong moments
+  flagged. Runs with a local language model (Qwen3 4B, ~4 GB, optional) or with
+  built-in rules. Every step stays editable, and one button restores the original.
 - **Optimise the sound in one click** — *Optimiser le son* measures each rush
   (voice level, background noise, dynamics, sibilance, timbre, clipping) and
   sets the voice processing from those measurements, lowers the music under the
@@ -236,34 +240,41 @@ Everything is saved automatically; `Ctrl+Z` / `Ctrl+Y` undo and redo any edit.
 
 ### Automatic edit (*Outils IA → Montage automatique*)
 
-Put your rushes on the main track and click *Monter la vidéo*. The engine
-transcribes the voice (Whisper), splits it into sentences, scores them (strong
-words, questions, numbers, energy, speaking rate) and spots greetings, sign-offs,
-filler words and false starts. If the local language model is installed it also
-picks the hook, the sentences to drop, the strongest moments and the on-screen
-keywords; otherwise built-in rules do it. The studio then applies the plan:
+Put your rushes on the main track (in the order to tell the story), choose the
+caption style, the accent colour, the word viewers should comment (optional)
+and the look of the scenes, then click *Monter la vidéo*. The engine
+(`engine/agent/reel.py`) runs the whole short-form method on your PC:
 
-1. **Cuts** — silences, filler words and dropped sentences, each with a red
-   marker you can click to restore. A breath is kept after every sentence
-   (shorter with the *Punchy* rhythm, longer with *Calme*) so endings are never
-   clipped.
-2. **Hook** — a title with the promise of the video during the first 3 seconds,
-   taken from the hook you filmed first (a strong first sentence: imperative,
-   question, promise) or from the strongest sentence of the first 20 seconds.
-   Nothing is moved unless *Ouverture à froid* is ticked: then a much stronger
-   sentence found later can be pulled to the front.
-3. **Rhythm and zooms** — long shots are cut at sentence ends (*Calme*, *Normal*
-   or *Punchy* sets the pace) and every other shot is punched in, more on the
-   strong moments. Zooms are framed on the face (YuNet detector, on the proxy).
-4. **On-screen texts** — 2 to 5 keywords on the strongest sentences.
-5. **Captions** — in the style chosen in the *Sous-titres* tab.
-6. **Sound** — noise reduction and voice clarity on the clips, loudness
-   normalised to −14 LUFS at export.
-7. **Strong moments** — ★ markers on the timeline; *Isoler* keeps only one of
+1. **Derush** — each rush is split into takes on its own measured levels, every
+   take is re-transcribed on its own, and retakes, false starts, takes said
+   again, ends repeated at the next take's start, a lone « ok / top » before the
+   first take and an outtake at the end (« je recommence »…) are dropped.
+2. **Story** — the sentences are scored (strong words, questions, numbers,
+   energy, speaking rate); greetings, sign-offs and weak passages go. With the
+   local language model, it also picks the hook and the strongest moments.
+   *Ouverture à froid* pulls a much stronger sentence found later to the front.
+3. **Cut** — silences and filler words removed, a breath kept after every
+   sentence, the face reframed on every idea (*Calme*, *Normal*, *Punchy* or
+   *Dynamique*), the voice measured and processed, loudness normalised to −14
+   LUFS at export.
+4. **Captions** — in the chosen style (*Net*, *Net accent*, *Pilule*, *Bulle*,
+   *Encre*), one keyword per sentence (the number, the name, the strong word)
+   growing on screen.
+5. **Scenes** — a plan drawn from what is said: split screen for the hook, a
+   number counting up when one is said, a paper page with a big « ? » on a
+   question, the strong word on the face or on a card, a banner over screen
+   recordings (captions moved into a pill at the bottom), the call-to-action
+   card on the sentence that asks for it. The plan is checked like an agent's
+   (scenes on words, nothing still for more than 2.2 s without a reason), the
+   pages are drawn, and what the browser sees — text on the face, overlaps,
+   text outside the frame, poor contrast — is fixed and redrawn.
+6. **Strong moments** — ★ markers on the timeline; *Isoler* keeps only one of
    them (a teaser in two clicks).
 
-Each toggle can be switched off, *Durée visée* trims the weakest sentences to
-fit 30/45/60/90 s, and *Revenir en arrière* restores the montage as it was.
+The panel then lists every decision (takes kept and dropped with why, hook,
+scenes, keywords, what to check). Each toggle can be switched off, *Durée visée*
+trims the weakest sentences to fit 30/45/60/90 s, and *Revenir en arrière* (or
+`Ctrl+Z`) restores the montage as it was.
 
 The language model is optional (`python scripts/download_models.py --llm`, or the
 *Télécharger* button in the panel): Qwen3-4B-Instruct in int8 for CTranslate2,

@@ -24,6 +24,14 @@ compte, pas d'envoi en ligne, pas de clé d'API.
   fenêtre arrondie, pages papier, chiffres qui défilent, tampons, barrés…,
   contrôlées pour le rythme et la mise en page), export. Le projet s'ouvre dans
   le studio, où tu reprends la main.
+- **Le reel monté en un clic** — *Outils IA → Montage automatique → Monter la
+  vidéo* applique la même méthode sans agent : dérush par prises (chaque prise
+  retranscrite ; reprises, faux départs, fins redites, claquettes et ratés
+  écartés), accroche, blancs et tics coupés, visage recadré à chaque idée,
+  sous-titres avec un mot-clé par phrase, scènes animées calées sur les mots
+  (écran partagé, chiffres qui défilent, page « ? », bandeau sur un écran filmé,
+  carte « commente MOT » dans ta couleur d'accent), son traité. Le rapport dit
+  chaque décision, tout se retouche, et un bouton rétablit le montage d'avant.
 - **Le son optimisé en un clic** — *Optimiser le son* mesure chaque rush (niveau
   de la voix, bruit de fond, dynamique, sifflantes, timbre, saturation) et règle
   le traitement de la voix d'après ces mesures, baisse la musique sous la voix

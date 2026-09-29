@@ -636,7 +636,9 @@ def place(proj, doc: dict, pages: list[dict], rendered: dict, body: dict) -> dic
     for c in doc["clips"]:
         if c["kind"] != "text" or not c.get("auto") or c.get("gone"):
             continue
-        pg = scene_at(c["start"])
+        # la scène où la ligne est surtout lue : un début de scène calé sur l'image
+        # peut tomber un centième après le premier mot de la ligne
+        pg = scene_at(c["start"] + min(0.1, c["dur"] / 2))
         s, g = pg["scene"], pg["geom"]
         for k in CAPTION_FIELDS:              # d'abord le style tel quel (une version précédente a pu y toucher)
             if k in style:

@@ -27,8 +27,9 @@ function schedule(ms) {
 async function tick() {
   try {
     const r = await api(`/api/timeline/${S.pid}/rev`);
-    // une révision plus récente, et rien d'entamé ici : on la prend
-    if (r.rev > S.rev && !S.saveTimer && !S.saving && !S.dragDepth) await reload(false);
+    // une révision plus récente, et rien d'entamé ici : on la prend (sauf pendant le
+    // montage automatique, qui recharge lui-même le résultat)
+    if (r.rev > S.rev && !S.saveTimer && !S.saving && !S.dragDepth && !S.engineJob) await reload(false);
     else if (Y.media !== null && r.media !== Y.media) startPolling();
     Y.media = r.media;
   } catch (e) { /* moteur arrêté ou projet supprimé : on réessaie plus tard */ }
